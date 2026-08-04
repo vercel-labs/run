@@ -39,14 +39,14 @@ const workerPath = fileURLToPath(
 const createInlineQuickJsRuntimePlugin = quickJsPackageRoot => ({
   name: 'run-inline-quickjs-runtime',
   setup(esbuild) {
-    esbuild.onResolve({ filter: /^quickjs-emscripten$/u }, () => ({
+    esbuild.onResolve({ filter: /^quickjs-emscripten$/ }, () => ({
       namespace: 'run-inline',
       path: 'quickjs-emscripten-inline',
     }));
 
     esbuild.onLoad(
       {
-        filter: /^quickjs-emscripten-inline$/u,
+        filter: /^quickjs-emscripten-inline$/,
         namespace: 'run-inline',
       },
       () => ({
