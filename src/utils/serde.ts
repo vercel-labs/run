@@ -8,14 +8,16 @@ export const RUN_SERDE = 'run-js-v1' as const;
 
 const runReducers = {
   RunErrorValue: (value: unknown) => {
-    if (!(value instanceof Error)) return false;
-    return {
-      name: String(value.name),
-      message: String(value.message),
-      hasCause: Object.hasOwn(value, 'cause'),
-      cause: value.cause,
-      errors: value instanceof AggregateError ? [...value.errors] : undefined,
-    };
+    if (value instanceof Error) {
+      return {
+        cause: value.cause,
+        errors: value instanceof AggregateError ? [...value.errors] : undefined,
+        hasCause: Object.hasOwn(value, 'cause'),
+        message: String(value.message),
+        name: String(value.name),
+      };
+    }
+    return false;
   },
   RunOwnProtoObject: (value: unknown) => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -38,20 +40,7 @@ const runReducers = {
   },
 };
 
-const runRevivers = {
-  RunErrorValue: reviveError,
-  RunOwnProtoObject: reviveOwnProtoObject,
-};
-
-export function serializeRunValue(value: unknown): string {
-  return stringify(value, runReducers);
-}
-
-export function deserializeRunValue(serialized: string): unknown {
-  return parse(serialized, runRevivers);
-}
-
-function reviveOwnProtoObject(value: unknown): object {
+const reviveOwnProtoObject = (value: unknown): object => {
   if (
     !Array.isArray(value) ||
     value.length !== 2 ||
@@ -83,9 +72,9 @@ function reviveOwnProtoObject(value: unknown): object {
     });
   }
   return result;
-}
+};
 
-function reviveError(value: unknown): Error {
+const reviveError = (value: unknown): Error => {
   if (
     value === null ||
     typeof value !== 'object' ||
@@ -112,9 +101,7 @@ function reviveError(value: unknown): Error {
   };
   const options = record.hasCause ? { cause: record.cause } : undefined;
   let error: Error;
-  if (record.errors !== undefined) {
-    error = new AggregateError(record.errors, record.message, options);
-  } else {
+  if (record.errors === undefined) {
     const constructors: Record<string, ErrorConstructor> = {
       Error,
       EvalError,
@@ -124,11 +111,22 @@ function reviveError(value: unknown): Error {
       TypeError,
       URIError,
     };
-    const Constructor = Object.hasOwn(constructors, record.name)
-      ? constructors[record.name]!
-      : Error;
+    const Constructor = constructors[record.name] ?? Error;
     error = new Constructor(record.message, options);
+  } else {
+    error = new AggregateError(record.errors, record.message, options);
   }
   error.name = record.name;
   return error;
-}
+};
+
+const runRevivers = {
+  RunErrorValue: reviveError,
+  RunOwnProtoObject: reviveOwnProtoObject,
+};
+
+export const serializeRunValue = (value: unknown): string =>
+  stringify(value, runReducers);
+
+export const deserializeRunValue = (serialized: string): unknown =>
+  parse(serialized, runRevivers);

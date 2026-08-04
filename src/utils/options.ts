@@ -12,74 +12,74 @@ const DEFAULT_MAX_BRIDGE_REQUESTS = 256;
 const DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS = 32;
 const DEFAULT_MAX_CONTINUATION_BYTES = 32 * 1024 * 1024;
 
-export function normalizeOptions(limits: RunLimits = {}): NormalizedRunOptions {
-  return {
-    maxBindingInputBytes: positiveInteger(
-      limits.maxBindingArgumentsBytes,
-      DEFAULT_MAX_BINDING_ARGUMENTS_BYTES,
-      'limits.maxBindingArgumentsBytes',
-    ),
-    maxBindingOutputBytes: positiveInteger(
-      limits.maxBindingOutputBytes,
-      DEFAULT_MAX_TOOL_OUTPUT_BYTES,
-      'limits.maxBindingOutputBytes',
-    ),
-    maxBridgeRequests: positiveInteger(
-      limits.maxBridgeRequests,
-      DEFAULT_MAX_BRIDGE_REQUESTS,
-      'limits.maxBridgeRequests',
-    ),
-    maxConsoleOutputBytes: positiveInteger(
-      limits.maxConsoleOutputBytes,
-      DEFAULT_MAX_CONSOLE_OUTPUT_BYTES,
-      'limits.maxConsoleOutputBytes',
-    ),
-    maxContinuationBytes: positiveInteger(
-      limits.maxContinuationBytes,
-      DEFAULT_MAX_CONTINUATION_BYTES,
-      'limits.maxContinuationBytes',
-    ),
-    maxInFlightBridgeRequests: positiveInteger(
-      limits.maxInFlightBridgeRequests,
-      DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS,
-      'limits.maxInFlightBridgeRequests',
-    ),
-    maxResultBytes: positiveInteger(
-      limits.maxResultBytes,
-      DEFAULT_MAX_RESULT_BYTES,
-      'limits.maxResultBytes',
-    ),
-    maxSourceBytes: positiveInteger(
-      limits.maxSourceBytes,
-      DEFAULT_MAX_SOURCE_BYTES,
-      'limits.maxSourceBytes',
-    ),
-    maxStackSizeBytes: positiveInteger(
-      limits.maxStackSizeBytes,
-      DEFAULT_STACK_LIMIT_BYTES,
-      'limits.maxStackSizeBytes',
-    ),
-    memoryLimitBytes: positiveInteger(
-      limits.memoryLimitBytes,
-      DEFAULT_MEMORY_LIMIT_BYTES,
-      'limits.memoryLimitBytes',
-    ),
-    timeoutMs: positiveInteger(
-      limits.timeoutMs,
-      DEFAULT_TIMEOUT_MS,
-      'limits.timeoutMs',
-    ),
-  };
-}
-
-function positiveInteger(
+const positiveInteger = (
   value: number | undefined,
   fallback: number,
   path: string,
-): number {
+): number => {
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved <= 0) {
     throw new TypeError(`${path} must be a positive integer.`);
   }
   return resolved;
-}
+};
+
+export const normalizeOptions = (
+  limits: RunLimits = {},
+): NormalizedRunOptions => ({
+  maxBindingInputBytes: positiveInteger(
+    limits.maxBindingArgumentsBytes,
+    DEFAULT_MAX_BINDING_ARGUMENTS_BYTES,
+    'limits.maxBindingArgumentsBytes',
+  ),
+  maxBindingOutputBytes: positiveInteger(
+    limits.maxBindingOutputBytes,
+    DEFAULT_MAX_TOOL_OUTPUT_BYTES,
+    'limits.maxBindingOutputBytes',
+  ),
+  maxBridgeRequests: positiveInteger(
+    limits.maxBridgeRequests,
+    DEFAULT_MAX_BRIDGE_REQUESTS,
+    'limits.maxBridgeRequests',
+  ),
+  maxConsoleOutputBytes: positiveInteger(
+    limits.maxConsoleOutputBytes,
+    DEFAULT_MAX_CONSOLE_OUTPUT_BYTES,
+    'limits.maxConsoleOutputBytes',
+  ),
+  maxContinuationBytes: positiveInteger(
+    limits.maxContinuationBytes,
+    DEFAULT_MAX_CONTINUATION_BYTES,
+    'limits.maxContinuationBytes',
+  ),
+  maxInFlightBridgeRequests: positiveInteger(
+    limits.maxInFlightBridgeRequests,
+    DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS,
+    'limits.maxInFlightBridgeRequests',
+  ),
+  maxResultBytes: positiveInteger(
+    limits.maxResultBytes,
+    DEFAULT_MAX_RESULT_BYTES,
+    'limits.maxResultBytes',
+  ),
+  maxSourceBytes: positiveInteger(
+    limits.maxSourceBytes,
+    DEFAULT_MAX_SOURCE_BYTES,
+    'limits.maxSourceBytes',
+  ),
+  maxStackSizeBytes: positiveInteger(
+    limits.maxStackSizeBytes,
+    DEFAULT_STACK_LIMIT_BYTES,
+    'limits.maxStackSizeBytes',
+  ),
+  memoryLimitBytes: positiveInteger(
+    limits.memoryLimitBytes,
+    DEFAULT_MEMORY_LIMIT_BYTES,
+    'limits.memoryLimitBytes',
+  ),
+  timeoutMs: positiveInteger(
+    limits.timeoutMs,
+    DEFAULT_TIMEOUT_MS,
+    'limits.timeoutMs',
+  ),
+});

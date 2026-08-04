@@ -3,31 +3,23 @@ import { RUN_SERDE, deserializeRunValue, serializeRunValue } from './serde.js';
 
 export { RUN_SERDE };
 
-export function assertJsonSerializable(
-  value: unknown,
-  maxBytes: number,
-  label: string,
-): void {
-  void toJsonPayload(value, maxBytes, label);
-}
+const getSerializationPath = (error: unknown): string => {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'path' in error &&
+    typeof error.path === 'string' &&
+    error.path.length > 0
+  ) {
+    return ` at ${error.path}`;
+  }
+  return '';
+};
 
-export function toJsonPayload(
-  value: unknown,
-  maxBytes: number,
-  label: string,
-): string {
-  return toStrictJsonPayload(value, maxBytes, label);
-}
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
-export function normalizeJsonPayload(
-  value: unknown,
-  maxBytes: number,
-  label: string,
-): unknown {
-  return parseJsonPayload(toJsonPayload(value, maxBytes, label), label);
-}
-
-export function parseJsonPayload(valueJson: string, label: string): unknown {
+export const parseJsonPayload = (valueJson: string, label: string): unknown => {
   try {
     return deserializeRunValue(valueJson);
   } catch (error) {
@@ -36,13 +28,28 @@ export function parseJsonPayload(valueJson: string, label: string): unknown {
       'RUN_SERIALIZATION_ERROR',
     );
   }
-}
+};
 
-export function toStrictJsonPayload(
+export const assertJsonPayloadSize = (
+  valueJson: string,
+  maxBytes: number,
+  label: string,
+): void => {
+  const bytes = new TextEncoder().encode(valueJson).byteLength;
+  if (bytes > maxBytes) {
+    throw new RunError(
+      `${label} exceeds the ${maxBytes} byte size limit.`,
+      'RUN_SERIALIZATION_ERROR',
+      { bytes, maxBytes },
+    );
+  }
+};
+
+export const toStrictJsonPayload = (
   value: unknown,
   maxBytes: number,
   label: string,
-): string {
+): string => {
   let encoded: string | undefined;
   try {
     encoded = serializeRunValue(value);
@@ -63,36 +70,24 @@ export function toStrictJsonPayload(
 
   assertJsonPayloadSize(encoded, maxBytes, label);
   return encoded;
-}
+};
 
-export function assertJsonPayloadSize(
-  valueJson: string,
+export const toJsonPayload = (
+  value: unknown,
   maxBytes: number,
   label: string,
-): void {
-  const bytes = new TextEncoder().encode(valueJson).byteLength;
-  if (bytes > maxBytes) {
-    throw new RunError(
-      `${label} exceeds the ${maxBytes} byte size limit.`,
-      'RUN_SERIALIZATION_ERROR',
-      { bytes, maxBytes },
-    );
-  }
-}
+): string => toStrictJsonPayload(value, maxBytes, label);
 
-function getSerializationPath(error: unknown): string {
-  if (
-    typeof error === 'object' &&
-    error !== null &&
-    'path' in error &&
-    typeof error.path === 'string' &&
-    error.path.length > 0
-  ) {
-    return ` at ${error.path}`;
-  }
-  return '';
-}
+export const normalizeJsonPayload = (
+  value: unknown,
+  maxBytes: number,
+  label: string,
+): unknown => parseJsonPayload(toJsonPayload(value, maxBytes, label), label);
 
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
+export const assertJsonSerializable = (
+  value: unknown,
+  maxBytes: number,
+  label: string,
+): void => {
+  toJsonPayload(value, maxBytes, label);
+};

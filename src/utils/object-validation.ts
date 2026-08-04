@@ -1,23 +1,23 @@
 /** @internal */
-export function isPlainRecord(
+export const isPlainRecord = (
   value: unknown,
-): value is Record<string, unknown> {
+): value is Record<string, unknown> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return false;
   }
   const prototype = Object.getPrototypeOf(value);
   return prototype === Object.prototype || prototype === null;
-}
+};
 
 /** @internal */
-export function hasExactKeys(
+export const hasExactKeys = (
   value: Record<string, unknown>,
   expected: readonly string[],
-): boolean {
+): boolean => {
   const actual = Object.keys(value).toSorted();
   const sortedExpected = [...expected].toSorted();
   return (
     actual.length === sortedExpected.length &&
     actual.every((key, index) => key === sortedExpected[index])
   );
-}
+};

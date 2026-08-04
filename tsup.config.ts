@@ -8,7 +8,7 @@ export default defineConfig([
     format: ['esm'],
     platform: 'node',
     sourcemap: true,
-    target: 'es2022',
+    target: 'es2023',
   },
   {
     bundle: true,
@@ -18,7 +18,7 @@ export default defineConfig([
     noExternal: ['devalue'],
     platform: 'node',
     sourcemap: true,
-    target: 'es2022',
+    target: 'es2023',
   },
   {
     dts: {
@@ -30,6 +30,6 @@ export default defineConfig([
     },
     format: ['esm'],
     platform: 'node',
-    target: 'es2022',
+    target: 'es2023',
   },
 ]);

@@ -6,6 +6,4 @@
  *
  * @internal
  */
-export function parseJson(value: string): unknown {
-  return JSON.parse(value);
-}
+export const parseJson = (value: string): unknown => JSON.parse(value);

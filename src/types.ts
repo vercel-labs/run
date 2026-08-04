@@ -35,7 +35,7 @@ export interface BindingResumeContext {
 }
 
 /** A named collection of host functions. */
-export type BindingGroup = Record<string, BindingFunction<any, any>>;
+export type BindingGroup = Record<string, BindingFunction<never[], unknown>>;
 
 /**
  * Host function groups installed as guest globals.
@@ -47,27 +47,27 @@ export type Bindings = Record<string, BindingGroup>;
 
 /** Resource limits applied to one sandbox invocation. */
 export interface RunLimits {
-  /** @defaultValue `30_000` */
+  /** @default `30_000` */
   timeoutMs?: number;
-  /** @defaultValue `64 * 1024 * 1024` */
+  /** @default `64 * 1024 * 1024` */
   memoryLimitBytes?: number;
-  /** @defaultValue `2 * 1024 * 1024` */
+  /** @default `2 * 1024 * 1024` */
   maxStackSizeBytes?: number;
-  /** @defaultValue `1024 * 1024` */
+  /** @default `1024 * 1024` */
   maxResultBytes?: number;
-  /** @defaultValue `64 * 1024` */
+  /** @default `64 * 1024` */
   maxConsoleOutputBytes?: number;
-  /** @defaultValue `256 * 1024` */
+  /** @default `256 * 1024` */
   maxSourceBytes?: number;
-  /** @defaultValue `1024 * 1024` */
+  /** @default `1024 * 1024` */
   maxBindingArgumentsBytes?: number;
-  /** @defaultValue `4 * 1024 * 1024` */
+  /** @default `4 * 1024 * 1024` */
   maxBindingOutputBytes?: number;
-  /** @defaultValue `256` */
+  /** @default `256` */
   maxBridgeRequests?: number;
-  /** @defaultValue `32` */
+  /** @default `32` */
   maxInFlightBridgeRequests?: number;
-  /** @defaultValue `32 * 1024 * 1024` */
+  /** @default `32 * 1024 * 1024` */
   maxContinuationBytes?: number;
 }
 

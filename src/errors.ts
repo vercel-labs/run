@@ -1,9 +1,27 @@
 import { Buffer } from 'node:buffer';
 import type { SerializableError } from './types.js';
 import { parseJson } from './utils/parse-json.js';
+import { RunAbortedError } from './errors/run-aborted-error.js';
+import { RunBindingError } from './errors/run-binding-error.js';
+import { RunBridgeLimitError } from './errors/run-bridge-limit-error.js';
+import { RunConcurrencyError } from './errors/run-concurrency-error.js';
+import { RunDetachedBridgeRequestError } from './errors/run-detached-bridge-request-error.js';
+import { RunError } from './errors/run-error.js';
+import { RunProtocolError } from './errors/run-protocol-error.js';
+import { RunSourceTooLargeError } from './errors/run-source-too-large-error.js';
+import { RunTimeoutError } from './errors/run-timeout-error.js';
 
-const runErrorMarker = 'vercel.ai.error.RunError';
-const runErrorSymbol = Symbol.for(runErrorMarker);
+export {
+  RunAbortedError,
+  RunBindingError,
+  RunBridgeLimitError,
+  RunConcurrencyError,
+  RunDetachedBridgeRequestError,
+  RunError,
+  RunProtocolError,
+  RunSourceTooLargeError,
+  RunTimeoutError,
+};
 
 export const MAX_SERIALIZED_ERROR_BYTES = 64 * 1024;
 const MAX_ERROR_NAME_BYTES = 256;
@@ -12,136 +30,111 @@ const MAX_ERROR_STACK_BYTES = 32 * 1024;
 const MAX_ERROR_CODE_BYTES = 256;
 const MAX_ERROR_DETAILS_BYTES = 16 * 1024;
 
-/**
- * Base class for errors raised by JavaScript runtime.
- *
- * All package-specific errors include a stable `code` string and may include
- * structured `details` for diagnostics.
- */
-export class RunError extends Error {
-  private readonly [runErrorSymbol] = true;
-
-  /**
-   * Stable machine-readable error code.
-   */
-  code: string;
-  /**
-   * Optional structured diagnostic details.
-   */
-  readonly details?: unknown;
-
-  constructor(message: string, code = 'RUN_ERROR', details?: unknown) {
-    super(message);
-    this.name = new.target.name;
-    this.code = code;
-    this.details = details;
+const boundedString = (
+  value: string,
+  maxBytes: number,
+  fallback: string,
+): string => {
+  if (typeof value !== 'string') {
+    return fallback;
   }
-
-  /** Identifies `RunError` instances across duplicate package copies. */
-  static isInstance(error: unknown): error is RunError {
-    return (
-      error !== null &&
-      typeof error === 'object' &&
-      runErrorSymbol in error &&
-      (error as Record<symbol, unknown>)[runErrorSymbol] === true
-    );
+  const bytes = Buffer.from(value);
+  if (bytes.byteLength <= maxBytes) {
+    return value;
   }
-}
+  const suffix = '…[truncated]';
+  const suffixBytes = Buffer.byteLength(suffix);
+  return `${bytes.subarray(0, Math.max(0, maxBytes - suffixBytes)).toString('utf8')}${suffix}`;
+};
 
-/**
- * Raised when a sandbox invocation exceeds its timeout.
- */
-export class RunTimeoutError extends RunError {
-  constructor(timeoutMs: number) {
-    super(
-      `JavaScript runtime execution timed out after ${timeoutMs}ms.`,
-      'RUN_TIMEOUT',
-      { timeoutMs },
-    );
-  }
-}
+const sanitizeStack = (value: string): string =>
+  boundedString(
+    value
+      .replaceAll(/data:text\/javascript;base64,[^\s)]+/gu, '<run-worker>')
+      .replaceAll(/file:\/\/\/[^\s)]+/gu, '<internal>'),
+    MAX_ERROR_STACK_BYTES,
+    '',
+  );
 
-/**
- * Raised when the caller's abort signal aborts a run invocation.
- */
-export class RunAbortedError extends RunError {
-  constructor() {
-    super('JavaScript runtime execution was aborted.', 'RUN_ABORTED');
+const sanitizeDetails = (value: unknown): unknown => {
+  if (value === undefined) {
+    return undefined;
   }
-}
+  try {
+    const encoded = JSON.stringify(value);
+    if (
+      encoded === undefined ||
+      Buffer.byteLength(encoded) > MAX_ERROR_DETAILS_BYTES
+    ) {
+      return undefined;
+    }
+    return parseJson(encoded);
+  } catch {
+    return undefined;
+  }
+};
 
-/**
- * Raised when the process-global worker cap has been reached.
- *
- * Configure the cap with `setMaxWorkers`.
- */
-export class RunConcurrencyError extends RunError {
-  constructor(maxWorkers: number) {
-    super(
-      `JavaScript runtime maxWorkers limit reached (${maxWorkers}).`,
-      'RUN_CONCURRENCY_LIMIT',
-      { maxWorkers },
-    );
+const safeErrorProperty = (error: Error, property: string): unknown => {
+  try {
+    return (error as unknown as Record<string, unknown>)[property];
+  } catch {
+    return undefined;
   }
-}
+};
 
-/**
- * Raised when the provided source exceeds `limits.maxSourceBytes`.
- */
-export class RunSourceTooLargeError extends RunError {
-  constructor(bytes: number, maxBytes: number) {
-    super(
-      `JavaScript runtime source exceeds the ${maxBytes} byte size limit.`,
-      'RUN_SOURCE_TOO_LARGE',
-      { bytes, maxBytes },
-    );
+const safeToString = (value: unknown): string => {
+  try {
+    return String(value);
+  } catch {
+    return 'JavaScript runtime failed.';
   }
-}
+};
 
-/**
- * Raised when sandboxed code exceeds bridge request limits.
- */
-export class RunBridgeLimitError extends RunError {
-  constructor(message: string, details?: unknown) {
-    super(message, 'RUN_BRIDGE_LIMIT', details);
-  }
-}
+const compactError = (error: {
+  name: string;
+  message: string;
+  stack?: string;
+  code?: string;
+  details?: unknown;
+}): SerializableError => ({
+  message: error.message,
+  name: error.name,
+  ...(error.stack === undefined ? {} : { stack: error.stack }),
+  ...(error.code === undefined ? {} : { code: error.code }),
+  ...(error.details === undefined ? {} : { details: error.details }),
+});
 
-/**
- * Raised when sandboxed code starts host bridge work and returns without
- * awaiting or otherwise observing it.
- */
-export class RunDetachedBridgeRequestError extends RunError {
-  constructor(message: string, details?: unknown) {
-    super(message, 'RUN_DETACHED_BRIDGE_REQUEST', details);
+const enforceSerializedErrorLimit = (
+  error: SerializableError,
+): SerializableError => {
+  if (Buffer.byteLength(JSON.stringify(error)) <= MAX_SERIALIZED_ERROR_BYTES) {
+    return error;
   }
-}
+  return {
+    message: boundedString(
+      error.message,
+      MAX_ERROR_MESSAGE_BYTES,
+      'JavaScript runtime failed.',
+    ),
+    name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'Error'),
+    ...(error.code === undefined
+      ? {}
+      : { code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR') }),
+  };
+};
 
-/**
- * Raised when the main thread and worker protocol observes an invalid or
- * mismatched message.
- */
-export class RunProtocolError extends RunError {
-  constructor(message: string, details?: unknown) {
-    super(message, 'RUN_PROTOCOL_ERROR', details);
+const restoreStack = (error: Error, serialized: SerializableError): void => {
+  if (serialized.stack) {
+    error.stack = serialized.stack;
   }
-}
-
-/**
- * Base class for failures caused by nested host binding execution.
- */
-export class RunBindingError extends RunError {
-  constructor(message: string, details?: unknown) {
-    super(message, 'RUN_BINDING_ERROR', details);
-  }
-}
+};
 
 /**
  * Converts an unknown thrown value into a worker-safe serializable shape.
  *
  * @internal
  */
-export function serializeError(error: unknown): SerializableError {
+export const serializeError = (error: unknown): SerializableError => {
   if (RunError.isInstance(error)) {
     const result = compactError({
       code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
@@ -195,7 +188,7 @@ export function serializeError(error: unknown): SerializableError {
     ),
     name: 'Error',
   });
-}
+};
 
 /**
  * Converts host bridge failures into a sandbox-visible sanitized shape.
@@ -205,10 +198,10 @@ export function serializeError(error: unknown): SerializableError {
  *
  * @internal
  */
-export function serializeBridgeErrorForGuest(
+export const serializeBridgeErrorForGuest = (
   error: unknown,
   context: 'binding' | 'bridge',
-): SerializableError {
+): SerializableError => {
   if (RunError.isInstance(error)) {
     return compactError({
       code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
@@ -237,30 +230,14 @@ export function serializeBridgeErrorForGuest(
     message: fallback.message,
     name: 'Error',
   };
-}
-
-function compactError(error: {
-  name: string;
-  message: string;
-  stack?: string;
-  code?: string;
-  details?: unknown;
-}): SerializableError {
-  return {
-    message: error.message,
-    name: error.name,
-    ...(error.stack !== undefined ? { stack: error.stack } : {}),
-    ...(error.code !== undefined ? { code: error.code } : {}),
-    ...(error.details !== undefined ? { details: error.details } : {}),
-  };
-}
+};
 
 /**
  * Rehydrates a serialized worker error into an Error instance.
  *
  * @internal
  */
-export function deserializeError(error: SerializableError): Error {
+export const deserializeError = (error: SerializableError): Error => {
   if (error.code === 'RUN_TIMEOUT') {
     const details = error.details as { timeoutMs?: number } | undefined;
     const result = new RunTimeoutError(details?.timeoutMs ?? 0);
@@ -315,84 +292,4 @@ export function deserializeError(error: SerializableError): Error {
   result.name = error.name;
   restoreStack(result, error);
   return result;
-}
-
-function restoreStack(error: Error, serialized: SerializableError): void {
-  if (serialized.stack) {
-    error.stack = serialized.stack;
-  }
-}
-
-function boundedString(
-  value: string,
-  maxBytes: number,
-  fallback: string,
-): string {
-  if (typeof value !== 'string') {return fallback;}
-  const bytes = Buffer.from(value);
-  if (bytes.byteLength <= maxBytes) {return value;}
-  const suffix = '…[truncated]';
-  const suffixBytes = Buffer.byteLength(suffix);
-  return `${bytes.subarray(0, Math.max(0, maxBytes - suffixBytes)).toString('utf8')}${suffix}`;
-}
-
-function sanitizeStack(value: string): string {
-  return boundedString(
-    value
-      .replaceAll(/data:text\/javascript;base64,[^\s)]+/gu, '<run-worker>')
-      .replaceAll(/file:\/\/\/[^\s)]+/gu, '<internal>'),
-    MAX_ERROR_STACK_BYTES,
-    '',
-  );
-}
-
-function sanitizeDetails(value: unknown): unknown {
-  if (value === undefined) {return undefined;}
-  try {
-    const encoded = JSON.stringify(value);
-    if (
-      encoded === undefined ||
-      Buffer.byteLength(encoded) > MAX_ERROR_DETAILS_BYTES
-    ) {
-      return undefined;
-    }
-    return parseJson(encoded);
-  } catch {
-    return undefined;
-  }
-}
-
-function safeErrorProperty(error: Error, property: string): unknown {
-  try {
-    return (error as unknown as Record<string, unknown>)[property];
-  } catch {
-    return undefined;
-  }
-}
-
-function safeToString(value: unknown): string {
-  try {
-    return String(value);
-  } catch {
-    return 'JavaScript runtime failed.';
-  }
-}
-
-function enforceSerializedErrorLimit(
-  error: SerializableError,
-): SerializableError {
-  if (Buffer.byteLength(JSON.stringify(error)) <= MAX_SERIALIZED_ERROR_BYTES) {
-    return error;
-  }
-  return {
-    message: boundedString(
-      error.message,
-      MAX_ERROR_MESSAGE_BYTES,
-      'JavaScript runtime failed.',
-    ),
-    name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'Error'),
-    ...(error.code === undefined
-      ? {}
-      : { code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR') }),
-  };
-}
+};
