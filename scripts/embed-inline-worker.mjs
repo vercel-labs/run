@@ -1,0 +1,191 @@
+import { readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
+
+const require = createRequire(import.meta.url);
+const quickjsPackageJsonPath =
+  require.resolve('quickjs-emscripten/package.json');
+const quickjsRequire = createRequire(quickjsPackageJsonPath);
+const quickjsWasmPath = quickjsRequire.resolve(
+  '@jitl/quickjs-wasmfile-release-asyncify/wasm',
+);
+
+const outputPath = new URL('../dist/runtime/worker-source.js', import.meta.url);
+const guestSerdeOutputPath = new URL(
+  '../dist/runtime/guest-serde-source.js',
+  import.meta.url,
+);
+const guestSerdeOutputMapPath = new URL(
+  '../dist/runtime/guest-serde-source.js.map',
+  import.meta.url,
+);
+const outputMapPath = new URL(
+  '../dist/runtime/worker-source.js.map',
+  import.meta.url,
+);
+const workerOutputPaths = [
+  new URL('../dist/runtime/worker.js', import.meta.url),
+  new URL('../dist/runtime/worker.js.map', import.meta.url),
+  new URL('../dist/runtime/worker.d.ts', import.meta.url),
+  new URL('../dist/runtime/worker.d.ts.map', import.meta.url),
+];
+
+const workerPath = fileURLToPath(
+  new URL('../dist/runtime/worker.js', import.meta.url),
+);
+
+const createInlineQuickJsRuntimePlugin = quickJsPackageRoot => ({
+  name: 'run-inline-quickjs-runtime',
+  setup(esbuild) {
+    esbuild.onResolve({ filter: /^quickjs-emscripten$/u }, () => ({
+      namespace: 'run-inline',
+      path: 'quickjs-emscripten-inline',
+    }));
+
+    esbuild.onLoad(
+      {
+        filter: /^quickjs-emscripten-inline$/u,
+        namespace: 'run-inline',
+      },
+      () => ({
+        contents: [
+          'import { newQuickJSAsyncWASMModuleFromVariant, newVariant } from "quickjs-emscripten-core";',
+          'import { QuickJSAsyncFFI } from "@jitl/quickjs-wasmfile-release-asyncify/ffi";',
+          'import quickJSRawModule from "@jitl/quickjs-wasmfile-release-asyncify/emscripten-module";',
+          'const quickJSRaw = quickJSRawModule.default ?? quickJSRawModule;',
+          'export const RELEASE_ASYNC = { type: "async", importFFI: () => Promise.resolve(QuickJSAsyncFFI), importModuleLoader: () => Promise.resolve(quickJSRaw) };',
+          'export async function newQuickJSAsyncWASMModule(variantOrPromise = RELEASE_ASYNC) {',
+          '  return newQuickJSAsyncWASMModuleFromVariant(variantOrPromise);',
+          '}',
+          'export { newVariant };',
+        ].join('\n'),
+        loader: 'js',
+        resolveDir: quickJsPackageRoot,
+      }),
+    );
+  },
+});
+
+const buildInlineWorkerBundle = async () => {
+  const result = await build({
+    bundle: true,
+    conditions: ['browser'],
+    entryPoints: [workerPath],
+    external: ['node:*'],
+    format: 'esm',
+    legalComments: 'none',
+    minify: true,
+    platform: 'node',
+    plugins: [
+      createInlineQuickJsRuntimePlugin(dirname(quickjsPackageJsonPath)),
+    ],
+    sourcemap: false,
+    target: 'node22',
+    write: false,
+  });
+
+  if (result.outputFiles.length !== 1) {
+    throw new Error(
+      `Expected one inline worker bundle output, received ${result.outputFiles.length}.`,
+    );
+  }
+
+  return result.outputFiles[0].text.trim();
+};
+
+const buildGuestSerdeSource = async () => {
+  const entryPoint = fileURLToPath(
+    new URL('guest-serde-entry.mjs', import.meta.url),
+  );
+  const result = await build({
+    bundle: true,
+    entryPoints: [entryPoint],
+    format: 'iife',
+    globalName: '__runSerdeBundle',
+    legalComments: 'none',
+    minify: true,
+    platform: 'browser',
+    sourcemap: false,
+    target: 'es2022',
+    write: false,
+  });
+  if (result.outputFiles.length !== 1) {
+    throw new Error(
+      `Expected one guest serde output, received ${result.outputFiles.length}.`,
+    );
+  }
+  return result.outputFiles[0].text.trim();
+};
+
+const assertBundledInlineWorkerSource = source => {
+  if (!source.includes('__RUN_QUICKJS_WASM_BASE64__')) {
+    throw new Error('Inline worker source is missing the embedded WASM bytes.');
+  }
+
+  const forbiddenPatterns = [
+    [/\brequire\(/u, 'CommonJS require'],
+    [/\bimport\(/u, 'dynamic import'],
+    [/\bcreateRequire\b/u, 'createRequire'],
+    [/["']quickjs-emscripten["']/u, 'quickjs-emscripten package specifier'],
+    [/@jitl\//u, '@jitl package specifier'],
+    [/node_modules\/\.pnpm/u, 'absolute pnpm node_modules path'],
+  ];
+
+  for (const [pattern, label] of forbiddenPatterns) {
+    if (pattern.test(source)) {
+      throw new Error(`Inline worker bundle still contains ${label}.`);
+    }
+  }
+};
+
+const hasWasmMagic = bytes =>
+  bytes.length >= 4 &&
+  bytes[0] === 0 &&
+  bytes[1] === 97 &&
+  bytes[2] === 115 &&
+  bytes[3] === 109;
+
+const [guestSerdeSource, quickJsWasm] = await Promise.all([
+  buildGuestSerdeSource(),
+  readFile(quickjsWasmPath),
+]);
+
+await writeFile(
+  guestSerdeOutputPath,
+  [
+    '// This file is generated by scripts/embed-inline-worker.mjs.',
+    `export const GUEST_SERDE_SOURCE = ${JSON.stringify(guestSerdeSource)};`,
+    '',
+  ].join('\n'),
+);
+await rm(guestSerdeOutputMapPath, { force: true });
+
+const workerBundle = await buildInlineWorkerBundle();
+
+if (!hasWasmMagic(quickJsWasm)) {
+  throw new Error(`QuickJS WASM asset is invalid: ${quickjsWasmPath}`);
+}
+
+const quickJsWasmBase64 = quickJsWasm.toString('base64');
+
+const inlineWorkerSource = [
+  `globalThis.__RUN_QUICKJS_WASM_BASE64__ = ${JSON.stringify(quickJsWasmBase64)};`,
+  workerBundle,
+].join('\n\n');
+
+assertBundledInlineWorkerSource(inlineWorkerSource);
+
+await writeFile(
+  outputPath,
+  [
+    '// This file is generated by scripts/embed-inline-worker.mjs.',
+    `export const INLINE_RUN_WORKER_SOURCE = ${JSON.stringify(inlineWorkerSource)};`,
+    '',
+  ].join('\n'),
+);
+await Promise.all([
+  rm(outputMapPath, { force: true }),
+  ...workerOutputPaths.map(path => rm(path, { force: true })),
+]);
