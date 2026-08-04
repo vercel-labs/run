@@ -2,6 +2,9 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./node_modules/ultracite/config/oxlint/core/.oxlintrc.json"],
   "ignorePatterns": ["dist/**"],
+  "rules": {
+    "func-style": "off"
+  },
   "overrides": [
     {
       "files": ["src/runtime/manager.ts", "src/runtime/worker.ts"],
