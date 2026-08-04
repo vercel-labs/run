@@ -14,36 +14,6 @@ const DEFAULT_MAX_CONTINUATION_BYTES = 32 * 1024 * 1024;
 
 export function normalizeOptions(limits: RunLimits = {}): NormalizedRunOptions {
   return {
-    timeoutMs: positiveInteger(
-      limits.timeoutMs,
-      DEFAULT_TIMEOUT_MS,
-      'limits.timeoutMs',
-    ),
-    memoryLimitBytes: positiveInteger(
-      limits.memoryLimitBytes,
-      DEFAULT_MEMORY_LIMIT_BYTES,
-      'limits.memoryLimitBytes',
-    ),
-    maxStackSizeBytes: positiveInteger(
-      limits.maxStackSizeBytes,
-      DEFAULT_STACK_LIMIT_BYTES,
-      'limits.maxStackSizeBytes',
-    ),
-    maxResultBytes: positiveInteger(
-      limits.maxResultBytes,
-      DEFAULT_MAX_RESULT_BYTES,
-      'limits.maxResultBytes',
-    ),
-    maxConsoleOutputBytes: positiveInteger(
-      limits.maxConsoleOutputBytes,
-      DEFAULT_MAX_CONSOLE_OUTPUT_BYTES,
-      'limits.maxConsoleOutputBytes',
-    ),
-    maxSourceBytes: positiveInteger(
-      limits.maxSourceBytes,
-      DEFAULT_MAX_SOURCE_BYTES,
-      'limits.maxSourceBytes',
-    ),
     maxBindingInputBytes: positiveInteger(
       limits.maxBindingArgumentsBytes,
       DEFAULT_MAX_BINDING_ARGUMENTS_BYTES,
@@ -59,15 +29,45 @@ export function normalizeOptions(limits: RunLimits = {}): NormalizedRunOptions {
       DEFAULT_MAX_BRIDGE_REQUESTS,
       'limits.maxBridgeRequests',
     ),
-    maxInFlightBridgeRequests: positiveInteger(
-      limits.maxInFlightBridgeRequests,
-      DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS,
-      'limits.maxInFlightBridgeRequests',
+    maxConsoleOutputBytes: positiveInteger(
+      limits.maxConsoleOutputBytes,
+      DEFAULT_MAX_CONSOLE_OUTPUT_BYTES,
+      'limits.maxConsoleOutputBytes',
     ),
     maxContinuationBytes: positiveInteger(
       limits.maxContinuationBytes,
       DEFAULT_MAX_CONTINUATION_BYTES,
       'limits.maxContinuationBytes',
+    ),
+    maxInFlightBridgeRequests: positiveInteger(
+      limits.maxInFlightBridgeRequests,
+      DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS,
+      'limits.maxInFlightBridgeRequests',
+    ),
+    maxResultBytes: positiveInteger(
+      limits.maxResultBytes,
+      DEFAULT_MAX_RESULT_BYTES,
+      'limits.maxResultBytes',
+    ),
+    maxSourceBytes: positiveInteger(
+      limits.maxSourceBytes,
+      DEFAULT_MAX_SOURCE_BYTES,
+      'limits.maxSourceBytes',
+    ),
+    maxStackSizeBytes: positiveInteger(
+      limits.maxStackSizeBytes,
+      DEFAULT_STACK_LIMIT_BYTES,
+      'limits.maxStackSizeBytes',
+    ),
+    memoryLimitBytes: positiveInteger(
+      limits.memoryLimitBytes,
+      DEFAULT_MEMORY_LIMIT_BYTES,
+      'limits.memoryLimitBytes',
+    ),
+    timeoutMs: positiveInteger(
+      limits.timeoutMs,
+      DEFAULT_TIMEOUT_MS,
+      'limits.timeoutMs',
     ),
   };
 }

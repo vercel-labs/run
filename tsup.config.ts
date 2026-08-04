@@ -2,34 +2,34 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig([
   {
+    bundle: false,
+    dts: false,
     entry: ['src/**/*.ts', '!src/**/*.test.ts', '!src/utils/serde.ts'],
     format: ['esm'],
-    dts: false,
+    platform: 'node',
     sourcemap: true,
     target: 'es2022',
-    platform: 'node',
-    bundle: false,
   },
   {
+    bundle: true,
+    dts: false,
     entry: { 'utils/serde': 'src/utils/serde.ts' },
     format: ['esm'],
-    dts: false,
+    noExternal: ['devalue'],
+    platform: 'node',
     sourcemap: true,
     target: 'es2022',
-    platform: 'node',
-    bundle: true,
-    noExternal: ['devalue'],
   },
   {
+    dts: {
+      only: true,
+    },
     entry: {
       index: 'src/index.ts',
       'runtime/worker-source': 'src/runtime/worker-source.ts',
     },
     format: ['esm'],
-    dts: {
-      only: true,
-    },
-    target: 'es2022',
     platform: 'node',
+    target: 'es2022',
   },
 ]);

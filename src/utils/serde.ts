@@ -7,6 +7,16 @@ export const RUN_SERDE = 'run-js-v1' as const;
 // either its serialized representation or these reducers/revivers.
 
 const runReducers = {
+  RunErrorValue: (value: unknown) => {
+    if (!(value instanceof Error)) return false;
+    return {
+      name: String(value.name),
+      message: String(value.message),
+      hasCause: Object.hasOwn(value, 'cause'),
+      cause: value.cause,
+      errors: value instanceof AggregateError ? [...value.errors] : undefined,
+    };
+  },
   RunOwnProtoObject: (value: unknown) => {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       return false;
@@ -26,21 +36,11 @@ const runReducers = {
       ]),
     ];
   },
-  RunErrorValue: (value: unknown) => {
-    if (!(value instanceof Error)) return false;
-    return {
-      name: String(value.name),
-      message: String(value.message),
-      hasCause: Object.hasOwn(value, 'cause'),
-      cause: value.cause,
-      errors: value instanceof AggregateError ? [...value.errors] : undefined,
-    };
-  },
 };
 
 const runRevivers = {
-  RunOwnProtoObject: reviveOwnProtoObject,
   RunErrorValue: reviveError,
+  RunOwnProtoObject: reviveOwnProtoObject,
 };
 
 export function serializeRunValue(value: unknown): string {
@@ -76,10 +76,10 @@ function reviveOwnProtoObject(value: unknown): object {
     }
     seen.add(entry[0]);
     Object.defineProperty(result, entry[0], {
-      value: entry[1],
-      enumerable: true,
-      writable: true,
       configurable: true,
+      enumerable: true,
+      value: entry[1],
+      writable: true,
     });
   }
   return result;

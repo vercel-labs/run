@@ -10,7 +10,7 @@ execution of untrusted JS or TS.
 no access to Node.js, the filesystem, environment variables, modules, or the
 network; it can call only the host functions you explicitly bind.
 
-Bindings can be any normal JavaScript or TypeScript functions. They can also interrupt 
+Bindings can be any normal JavaScript or TypeScript functions. They can also interrupt
 execution for approval or authentication and resume later without repeating already
 invoked bindings.
 

@@ -144,13 +144,13 @@ export class RunBindingError extends RunError {
 export function serializeError(error: unknown): SerializableError {
   if (RunError.isInstance(error)) {
     const result = compactError({
-      name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'RunError'),
+      code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
       message: boundedString(
         error.message,
         MAX_ERROR_MESSAGE_BYTES,
         'JavaScript runtime failed.',
       ),
-      code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
+      name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'RunError'),
     });
     const stack = safeErrorProperty(error, 'stack');
     if (typeof stack === 'string') {
@@ -165,12 +165,12 @@ export function serializeError(error: unknown): SerializableError {
 
   if (error instanceof Error) {
     const result = compactError({
-      name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'Error'),
       message: boundedString(
         error.message,
         MAX_ERROR_MESSAGE_BYTES,
         'JavaScript runtime failed.',
       ),
+      name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'Error'),
     });
     const stack = safeErrorProperty(error, 'stack');
     if (typeof stack === 'string') {
@@ -188,12 +188,12 @@ export function serializeError(error: unknown): SerializableError {
   }
 
   return enforceSerializedErrorLimit({
-    name: 'Error',
     message: boundedString(
       safeToString(error),
       MAX_ERROR_MESSAGE_BYTES,
       'JavaScript runtime failed.',
     ),
+    name: 'Error',
   });
 }
 
@@ -211,31 +211,31 @@ export function serializeBridgeErrorForGuest(
 ): SerializableError {
   if (RunError.isInstance(error)) {
     return compactError({
-      name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'RunError'),
+      code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
       message: boundedString(
         error.message,
         MAX_ERROR_MESSAGE_BYTES,
         'Host binding failed.',
       ),
-      code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
+      name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'RunError'),
     });
   }
 
   const fallback =
     context === 'binding'
       ? {
-          message: 'Host binding failed.',
           code: 'RUN_HOST_BINDING_ERROR',
+          message: 'Host binding failed.',
         }
       : {
-          message: 'Host bridge request failed.',
           code: 'RUN_HOST_BRIDGE_ERROR',
+          message: 'Host bridge request failed.',
         };
 
   return {
-    name: 'Error',
-    message: fallback.message,
     code: fallback.code,
+    message: fallback.message,
+    name: 'Error',
   };
 }
 
@@ -247,8 +247,8 @@ function compactError(error: {
   details?: unknown;
 }): SerializableError {
   return {
-    name: error.name,
     message: error.message,
+    name: error.name,
     ...(error.stack !== undefined ? { stack: error.stack } : {}),
     ...(error.code !== undefined ? { code: error.code } : {}),
     ...(error.details !== undefined ? { details: error.details } : {}),
@@ -328,9 +328,9 @@ function boundedString(
   maxBytes: number,
   fallback: string,
 ): string {
-  if (typeof value !== 'string') return fallback;
+  if (typeof value !== 'string') {return fallback;}
   const bytes = Buffer.from(value);
-  if (bytes.byteLength <= maxBytes) return value;
+  if (bytes.byteLength <= maxBytes) {return value;}
   const suffix = '…[truncated]';
   const suffixBytes = Buffer.byteLength(suffix);
   return `${bytes.subarray(0, Math.max(0, maxBytes - suffixBytes)).toString('utf8')}${suffix}`;
@@ -339,15 +339,15 @@ function boundedString(
 function sanitizeStack(value: string): string {
   return boundedString(
     value
-      .replace(/data:text\/javascript;base64,[^\s)]+/gu, '<run-worker>')
-      .replace(/file:\/\/\/[^\s)]+/gu, '<internal>'),
+      .replaceAll(/data:text\/javascript;base64,[^\s)]+/gu, '<run-worker>')
+      .replaceAll(/file:\/\/\/[^\s)]+/gu, '<internal>'),
     MAX_ERROR_STACK_BYTES,
     '',
   );
 }
 
 function sanitizeDetails(value: unknown): unknown {
-  if (value === undefined) return undefined;
+  if (value === undefined) {return undefined;}
   try {
     const encoded = JSON.stringify(value);
     if (
@@ -385,12 +385,12 @@ function enforceSerializedErrorLimit(
     return error;
   }
   return {
-    name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'Error'),
     message: boundedString(
       error.message,
       MAX_ERROR_MESSAGE_BYTES,
       'JavaScript runtime failed.',
     ),
+    name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'Error'),
     ...(error.code === undefined
       ? {}
       : { code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR') }),

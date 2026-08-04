@@ -14,8 +14,8 @@ export function hasExactKeys(
   value: Record<string, unknown>,
   expected: readonly string[],
 ): boolean {
-  const actual = Object.keys(value).sort();
-  const sortedExpected = [...expected].sort();
+  const actual = Object.keys(value).toSorted();
+  const sortedExpected = [...expected].toSorted();
   return (
     actual.length === sortedExpected.length &&
     actual.every((key, index) => key === sortedExpected[index])

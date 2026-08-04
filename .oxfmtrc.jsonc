@@ -4,9 +4,7 @@
   "bracketSameLine": false,
   "bracketSpacing": true,
   "endOfLine": "lf",
-  "ignorePatterns": [
-    "dist/**"
-  ],
+  "ignorePatterns": ["dist/**"],
   "jsxSingleQuote": false,
   "printWidth": 80,
   "quoteProps": "as-needed",
@@ -15,5 +13,5 @@
   "sortPackageJson": false,
   "tabWidth": 2,
   "trailingComma": "all",
-  "useTabs": false
+  "useTabs": false,
 }
