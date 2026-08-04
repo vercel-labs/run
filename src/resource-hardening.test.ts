@@ -8,6 +8,9 @@ import { getBindingContext } from './binding-context.js';
 import { run } from './run.js';
 import { getRuntimeDiagnostics } from './runtime/manager.js';
 import type { RunLimits } from './types.js';
+import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
+
+const deferred = createPromiseWithResolvers;
 
 const LIMIT_NAMES = [
   'timeoutMs',
@@ -69,24 +72,24 @@ describe('resource and lifecycle hardening', () => {
   });
 
   it('aborts a pending binding on timeout and releases runtime capacity', async () => {
-    const started = deferred<void>();
-    const aborted = deferred<void>();
+    const started = deferred<null>();
+    const aborted = deferred<null>();
     const execution = run({
       bindings: {
         tools: {
           wait: async () => {
             const context = getBindingContext();
-            started.resolve();
-            await new Promise((_resolve, reject) => {
-              context.abortSignal.addEventListener(
-                'abort',
-                () => {
-                  aborted.resolve();
-                  reject(new Error('binding observed abort'));
-                },
-                { once: true },
-              );
-            });
+            const binding = deferred<never>();
+            started.resolve(null);
+            context.abortSignal.addEventListener(
+              'abort',
+              () => {
+                aborted.resolve(null);
+                binding.reject(new Error('binding observed abort'));
+              },
+              { once: true },
+            );
+            await binding.promise;
           },
         },
       },
@@ -127,7 +130,7 @@ describe('resource and lifecycle hardening', () => {
   });
 
   it('makes caller abort win once and aborts active bindings', async () => {
-    const started = deferred<void>();
+    const started = deferred<null>();
     const observedReasons: unknown[] = [];
     const controller = new AbortController();
     const execution = run({
@@ -136,13 +139,13 @@ describe('resource and lifecycle hardening', () => {
         tools: {
           wait: async () => {
             const context = getBindingContext();
-            started.resolve();
-            await new Promise((_resolve, reject) => {
-              context.abortSignal.addEventListener('abort', () => {
-                observedReasons.push(context.abortSignal.reason);
-                reject(context.abortSignal.reason);
-              });
+            const binding = deferred<never>();
+            started.resolve(null);
+            context.abortSignal.addEventListener('abort', () => {
+              observedReasons.push(context.abortSignal.reason);
+              binding.reject(context.abortSignal.reason);
             });
+            await binding.promise;
           },
         },
       },
@@ -157,7 +160,7 @@ describe('resource and lifecycle hardening', () => {
   });
 
   it('rejects unobserved and observed-detached bindings and cleans up', async () => {
-    const never = vi.fn(async () => await new Promise(() => {}));
+    const never = vi.fn(() => deferred<never>().promise);
     await expect(
       run({
         bindings: { tools: { never } },
@@ -166,21 +169,21 @@ describe('resource and lifecycle hardening', () => {
     ).rejects.toBeInstanceOf(RunDetachedBridgeRequestError);
     expect(never).not.toHaveBeenCalled();
 
-    const started = deferred<void>();
-    const aborted = deferred<void>();
+    const started = deferred<null>();
+    const aborted = deferred<null>();
     await expect(
       run({
         bindings: {
           tools: {
             wait: async () => {
               const context = getBindingContext();
-              started.resolve();
-              await new Promise((_resolve, reject) => {
-                context.abortSignal.addEventListener('abort', () => {
-                  aborted.resolve();
-                  reject(new Error('detached binding aborted'));
-                });
+              const binding = deferred<never>();
+              started.resolve(null);
+              context.abortSignal.addEventListener('abort', () => {
+                aborted.resolve(null);
+                binding.reject(new Error('detached binding aborted'));
               });
+              await binding.promise;
             },
           },
         },
@@ -206,17 +209,17 @@ describe('resource and lifecycle hardening', () => {
     ).rejects.toBeInstanceOf(RunBridgeLimitError);
     expect(sequential).toHaveBeenCalledTimes(1);
 
-    const started = deferred<void>();
-    const aborted = deferred<void>();
+    const started = deferred<null>();
+    const aborted = deferred<null>();
     const parallel = vi.fn(async () => {
       const context = getBindingContext();
-      started.resolve();
-      await new Promise((_resolve, reject) => {
-        context.abortSignal.addEventListener('abort', () => {
-          aborted.resolve();
-          reject(new Error('aborted'));
-        });
+      const binding = deferred<never>();
+      started.resolve(null);
+      context.abortSignal.addEventListener('abort', () => {
+        aborted.resolve(null);
+        binding.reject(new Error('aborted'));
       });
+      await binding.promise;
     });
     const execution = run({
       bindings: { tools: { wait: parallel } },
@@ -253,13 +256,3 @@ describe('resource and lifecycle hardening', () => {
     ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
   });
 });
-
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, reject, resolve };
-}

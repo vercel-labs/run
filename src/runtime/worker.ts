@@ -18,6 +18,7 @@ import {
 } from '../errors.js';
 import { assertJsonPayloadSize } from '../utils/serialization.js';
 import { parseJson } from '../utils/parse-json.js';
+import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import { buildGuestRuntimeSetupSource, wrapUserCode } from './guest-sources.js';
 import { normalizeUserSourceStack } from './source-stack.js';
 import type { WorkerBridgeResponse, WorkerRunMessage } from './protocol.js';
@@ -44,7 +45,7 @@ let activeCancellation:
   | { invocationId: string; cancel: () => void }
   | undefined;
 
-parentPort.on('message', (value: unknown) => {
+parentPort.on('message', async (value: unknown) => {
   assertMainToWorkerMessage(value);
   const message = value;
   if (message.type === 'cancel') {
@@ -105,10 +106,12 @@ parentPort.on('message', (value: unknown) => {
 
     activeInvocationId = message.invocationId;
     bridgeRequestCounter = 0;
-    bridgeIdleGeneration++;
-    void run(message).finally(() => {
+    bridgeIdleGeneration += 1;
+    try {
+      await run(message);
+    } finally {
       activeInvocationId = undefined;
-    });
+    }
   }
 });
 
@@ -129,7 +132,7 @@ async function run(message: WorkerRunMessage): Promise<void> {
       type: 'result',
     });
   } finally {
-    bridgeIdleGeneration++;
+    bridgeIdleGeneration += 1;
     parentPort?.postMessage({
       invocationId: message.invocationId,
       type: 'ready',
@@ -152,7 +155,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   runtime.setMemoryLimit(message.options.memoryLimitBytes);
   runtime.setMaxStackSize(message.options.maxStackSizeBytes);
   runtime.setInterruptHandler(() => {
-    interruptChecks++;
+    interruptChecks += 1;
     const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
     executionTimedOut ||= timedOut;
     return cancelled || timedOut;
@@ -180,86 +183,13 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       () => resetDateNowHandle,
     );
     determinismHandle = jsToHandle(context, message.determinism);
-    const setupSource = buildGuestRuntimeSetupSource(message.bindingNamespaces);
-    const setupEvalResult = await context.evalCodeAsync(
-      setupSource,
-      'run-setup.js',
-    );
-    if (setupEvalResult.error) {
-      const error = context.dump(setupEvalResult.error);
-      if (setupEvalResult.error.alive) {
-        setupEvalResult.error.dispose();
-      }
-      throw toError(error);
-    }
-    try {
-      const setupCallResult = context.callFunction(
-        setupEvalResult.value,
-        context.undefined,
-        bridgeFunctions.invokeBinding,
-        determinismHandle,
-      );
-      if (setupCallResult.error) {
-        const error = context.dump(setupCallResult.error);
-        if (setupCallResult.error.alive) {
-          setupCallResult.error.dispose();
-        }
-        throw toError(error);
-      }
-      if (setupCallResult.value.alive) {
-        resetDateNowHandle = context.getProp(
-          setupCallResult.value,
-          'resetDateNow',
-        );
-        setupCallResult.value.dispose();
-      }
-    } finally {
-      if (setupEvalResult.value.alive) {
-        setupEvalResult.value.dispose();
-      }
-    }
-
-    const wrapped = wrapUserCode(message.source);
-    const evalResult = await context.evalCodeAsync(wrapped, 'run.js');
-
-    if (evalResult.error) {
-      const error = context.dump(evalResult.error);
-      if (evalResult.error.alive) {
-        evalResult.error.dispose();
-      }
-      throw toUserSourceError(error, message.source);
-    }
-
-    if (evalResult.value.alive) {
-      evalResult.value.dispose();
-    }
-
-    const promiseHandle = context.getProp(context.global, '__runResult');
-    const resolvedResult = await resolveQuickJSPromise(context, promiseHandle);
-    if (promiseHandle.alive) {
-      promiseHandle.dispose();
-    }
-
-    if (resolvedResult.error) {
-      const error = context.dump(resolvedResult.error);
-      if (resolvedResult.error.alive) {
-        resolvedResult.error.dispose();
-      }
-      throw toUserSourceError(error, message.source);
-    }
-
-    const valueJson = serializeQuickJSJsonPayload(
+    resetDateNowHandle = await initializeGuestRuntime(
       context,
-      resolvedResult.value,
+      message,
+      bridgeFunctions.invokeBinding,
+      determinismHandle,
     );
-    if (resolvedResult.value.alive) {
-      resolvedResult.value.dispose();
-    }
-    assertJsonPayloadSize(
-      valueJson,
-      message.options.maxResultBytes,
-      'JavaScript runtime result',
-    );
+    const valueJson = await evaluateUserSource(context, message);
     return valueJson;
   } catch (error) {
     if (executionTimedOut) {
@@ -302,6 +232,96 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   }
 }
 
+async function initializeGuestRuntime(
+  context: QuickJSAsyncContext,
+  message: WorkerRunMessage,
+  invokeBinding: QuickJSHandle,
+  determinismHandle: QuickJSHandle,
+): Promise<QuickJSHandle | undefined> {
+  const setupSource = buildGuestRuntimeSetupSource(message.bindingNamespaces);
+  const setupEvalResult = await context.evalCodeAsync(
+    setupSource,
+    'run-setup.js',
+  );
+  if (setupEvalResult.error) {
+    const error = context.dump(setupEvalResult.error);
+    if (setupEvalResult.error.alive) {
+      setupEvalResult.error.dispose();
+    }
+    throw toError(error);
+  }
+  try {
+    const setupCallResult = context.callFunction(
+      setupEvalResult.value,
+      context.undefined,
+      invokeBinding,
+      determinismHandle,
+    );
+    if (setupCallResult.error) {
+      const error = context.dump(setupCallResult.error);
+      if (setupCallResult.error.alive) {
+        setupCallResult.error.dispose();
+      }
+      throw toError(error);
+    }
+    if (!setupCallResult.value.alive) {
+      return undefined;
+    }
+    const resetDateNowHandle = context.getProp(
+      setupCallResult.value,
+      'resetDateNow',
+    );
+    setupCallResult.value.dispose();
+    return resetDateNowHandle;
+  } finally {
+    if (setupEvalResult.value.alive) {
+      setupEvalResult.value.dispose();
+    }
+  }
+}
+
+async function evaluateUserSource(
+  context: QuickJSAsyncContext,
+  message: WorkerRunMessage,
+): Promise<string> {
+  const wrapped = wrapUserCode(message.source);
+  const evalResult = await context.evalCodeAsync(wrapped, 'run.js');
+  if (evalResult.error) {
+    const error = context.dump(evalResult.error);
+    if (evalResult.error.alive) {
+      evalResult.error.dispose();
+    }
+    throw toUserSourceError(error, message.source);
+  }
+  if (evalResult.value.alive) {
+    evalResult.value.dispose();
+  }
+
+  const promiseHandle = context.getProp(context.global, '__runResult');
+  const resolvedResult = await resolveQuickJSPromise(context, promiseHandle);
+  if (promiseHandle.alive) {
+    promiseHandle.dispose();
+  }
+  if (resolvedResult.error) {
+    const error = context.dump(resolvedResult.error);
+    if (resolvedResult.error.alive) {
+      resolvedResult.error.dispose();
+    }
+    throw toUserSourceError(error, message.source);
+  }
+
+  const valueJson = serializeQuickJSJsonPayload(context, resolvedResult.value);
+  if (resolvedResult.value.alive) {
+    resolvedResult.value.dispose();
+  }
+  assertJsonPayloadSize(
+    valueJson,
+    message.options.maxResultBytes,
+    'JavaScript runtime result',
+  );
+  return valueJson;
+}
+
 function rejectPendingBridgeRequests(
   context: QuickJSAsyncContext,
   invocationId: string,
@@ -323,10 +343,12 @@ async function createQuickJSContext(): Promise<QuickJSAsyncContext> {
     const variant = newVariant(RELEASE_ASYNC, {
       wasmModule: () => getEmbeddedQuickJsWasmModule(embeddedWasmBase64),
     });
-    return (await newQuickJSAsyncWASMModule(variant)).newContext();
+    const module = await newQuickJSAsyncWASMModule(variant);
+    return module.newContext();
   }
 
-  return (await newQuickJSAsyncWASMModule(RELEASE_ASYNC)).newContext();
+  const module = await newQuickJSAsyncWASMModule(RELEASE_ASYNC);
+  return module.newContext();
 }
 
 function getEmbeddedQuickJsWasmBase64(): string | undefined {
@@ -545,25 +567,24 @@ function requestHost(
   payload: Record<string, unknown>,
   resetDateNow?: QuickJSHandle,
 ): QuickJSHandle {
-  const requestId = `${invocationId}:bridge-${++bridgeRequestCounter}`;
+  bridgeRequestCounter += 1;
+  const requestId = `${invocationId}:bridge-${bridgeRequestCounter}`;
   const deferred = context.newPromise();
   pendingBridgeRequests.set(requestId, {
     context,
     deferred,
     invocationId,
-    ...(resetDateNow !== undefined ? { resetDateNow } : {}),
+    ...(resetDateNow === undefined ? {} : { resetDateNow }),
   });
-  deferred.settled.then(() => {
-    context.runtime.executePendingJobs();
-    deferred.dispose();
-  });
+  completeDeferredWhenSettled(context, deferred);
   parentPort?.postMessage({
     invocationId,
     requestId,
     type: 'binding-request',
     ...payload,
   });
-  const idleGeneration = ++bridgeIdleGeneration;
+  bridgeIdleGeneration += 1;
+  const idleGeneration = bridgeIdleGeneration;
   setImmediate(() => {
     if (idleGeneration === bridgeIdleGeneration) {
       parentPort?.postMessage({
@@ -574,6 +595,15 @@ function requestHost(
     }
   });
   return deferred.handle;
+}
+
+async function completeDeferredWhenSettled(
+  context: QuickJSAsyncContext,
+  deferred: QuickJSDeferredPromise,
+): Promise<void> {
+  await deferred.settled;
+  context.runtime.executePendingJobs();
+  deferred.dispose();
 }
 
 function resolveBridgeResponse(
@@ -677,17 +707,15 @@ async function resolveQuickJSPromise(
   promiseHandle: QuickJSHandle,
 ) {
   const resolved = context.resolvePromise(promiseHandle);
+  const notSettled = Symbol('not-settled');
   for (;;) {
     drainPendingJobs(context);
-    const result = await Promise.race([
-      resolved.then(value => ({ settled: true as const, value })),
-      new Promise<{ settled: false }>(resolve =>
-        setTimeout(() => resolve({ settled: false }), 0),
-      ),
-    ]);
-    if (result.settled) {
+    const nextTurn = createPromiseWithResolvers<typeof notSettled>();
+    setTimeout(() => nextTurn.resolve(notSettled), 0);
+    const result = await Promise.race([resolved, nextTurn.promise]);
+    if (result !== notSettled) {
       drainPendingJobs(context);
-      return result.value;
+      return result;
     }
   }
 }
@@ -707,11 +735,9 @@ function toError(value: unknown): Error {
       details?: unknown;
     };
     const error = new Error(errorValue.message);
-    if (
-      'name' in value &&
-      typeof (value as { name?: unknown }).name === 'string'
-    ) {
-      error.name = errorValue.name!;
+    const { name } = errorValue;
+    if (typeof name === 'string') {
+      error.name = name;
     }
     if (
       'stack' in value &&

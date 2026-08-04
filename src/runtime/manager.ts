@@ -31,6 +31,7 @@ import {
   parseJsonPayload,
   toJsonPayload,
 } from '../utils/serialization.js';
+import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import { assertSourceSize, transformSource } from '../utils/source-cache.js';
 import type {
   BindingContext,
@@ -70,7 +71,15 @@ let inlineWorkerUrl: URL | undefined;
 const idleWorkers: PooledWorker[] = [];
 let workerFactory: () => Worker = createRuntimeWorker;
 
-/** @internal Test-only worker protocol injection point. */
+const runInBackground = async (operation: Promise<unknown>): Promise<void> => {
+  await operation;
+};
+
+/**
+ * Test-only worker protocol injection point.
+ *
+ * @internal
+ */
 export function setRuntimeWorkerFactoryForTest(
   factory: (() => Worker) | undefined,
 ): void {
@@ -148,7 +157,7 @@ async function readContinuation(
         { interruptionId: resolution.interruptionId },
       );
     }
-    void toJsonPayload(
+    toJsonPayload(
       resolution.value,
       options.maxBindingOutputBytes,
       `Resolution "${resolution.interruptionId}"`,
@@ -174,22 +183,18 @@ async function raceContinuationOperation<T>(
     throw new RunAbortedError();
   }
   const operationAbortController = new AbortController();
-  let rejectOnAbort!: () => void;
-  const aborted = new Promise<never>((_resolve, reject) => {
-    rejectOnAbort = () => {
-      operationAbortController.abort(abortSignal?.reason);
-      reject(new RunAbortedError());
-    };
-  });
+  const aborted = createPromiseWithResolvers<never>();
+  const rejectOnAbort = () => {
+    operationAbortController.abort(abortSignal?.reason);
+    aborted.reject(new RunAbortedError());
+  };
   abortSignal?.addEventListener('abort', rejectOnAbort, { once: true });
   const remainingMs = Math.max(0, deadlineMs - Date.now());
-  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<never>((_resolve, reject) => {
-    timeoutHandle = setTimeout(() => {
-      operationAbortController.abort(new RunTimeoutError(timeoutMs));
-      reject(new RunTimeoutError(timeoutMs));
-    }, remainingMs);
-  });
+  const timedOut = createPromiseWithResolvers<never>();
+  const timeoutHandle = setTimeout(() => {
+    operationAbortController.abort(new RunTimeoutError(timeoutMs));
+    timedOut.reject(new RunTimeoutError(timeoutMs));
+  }, remainingMs);
   try {
     return await Promise.race([
       Promise.resolve().then(() =>
@@ -198,13 +203,11 @@ async function raceContinuationOperation<T>(
           deadlineMs,
         }),
       ),
-      aborted,
-      timedOut,
+      aborted.promise,
+      timedOut.promise,
     ]);
   } finally {
-    if (timeoutHandle !== undefined) {
-      clearTimeout(timeoutHandle);
-    }
+    clearTimeout(timeoutHandle);
     abortSignal?.removeEventListener('abort', rejectOnAbort);
   }
 }
@@ -245,19 +248,19 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
   if (activeInvocations >= maxWorkers) {
     throw new RunConcurrencyError(maxWorkers);
   }
-  activeInvocations++;
+  activeInvocations += 1;
   try {
     const run = startWorkerRun({
       ...input,
-      resolutions: normalizedResolutions,
-      source: transformSource(input.source),
-      originalSource: input.source,
-      ...(continuationState !== undefined ? { continuationState } : {}),
-      normalizedOptions: workerOptions,
-      timeoutErrorMs: normalizedOptions.timeoutMs,
-      maxWorkers,
-      scopeHash,
+      ...(continuationState === undefined ? {} : { continuationState }),
       deadlineMs,
+      maxWorkers,
+      normalizedOptions: workerOptions,
+      originalSource: input.source,
+      resolutions: normalizedResolutions,
+      scopeHash,
+      source: transformSource(input.source),
+      timeoutErrorMs: normalizedOptions.timeoutMs,
     });
     return await run.result;
   } finally {
@@ -287,7 +290,8 @@ function startWorkerRun({
   scopeHash: string;
   deadlineMs: number;
 }): ManagedWorkerRun {
-  const invocationId = `run-${++invocationCounter}`;
+  invocationCounter += 1;
+  const invocationId = `run-${invocationCounter}`;
   const pooledWorker = acquireWorker(maxWorkers);
   const { worker } = pooledWorker;
   const invocationContext = new AsyncResource('run:invocation');
@@ -317,19 +321,18 @@ function startWorkerRun({
   const ledger: RunLedgerEntry[] = structuredClone(
     continuationState?.ledger ?? [],
   );
-  let ledgerBytes =
-    Buffer.byteLength(originalSource) +
-    128 +
-    ledger.reduce((total, entry) => total + ledgerEntryBytes(entry), 0);
+  let ledgerBytes = Buffer.byteLength(originalSource) + 128;
   const resolutionMap = new Map(
     (resolutions ?? []).map(item => [item.interruptionId, item.value]),
   );
   const pendingInterruptionIndexes = new Set<number>();
-  let nextSettlementOrder = ledger.reduce(
-    (max, entry) =>
-      entry.status === 'interrupted' ? max : Math.max(max, entry.settledOrder),
-    0,
-  );
+  let nextSettlementOrder = 0;
+  for (const entry of ledger) {
+    ledgerBytes += ledgerEntryBytes(entry);
+    if (entry.status !== 'interrupted') {
+      nextSettlementOrder = Math.max(nextSettlementOrder, entry.settledOrder);
+    }
+  }
   let nextResponseOrder = 1;
   const queuedBridgeResponses = new Map<number, WorkerBridgeResponse>();
   const determinism: RunDeterminismState = continuationState?.determinism ?? {
@@ -339,12 +342,11 @@ function startWorkerRun({
   const logicalRunId =
     continuationState?.logicalRunId ?? randomBytes(16).toString('hex');
 
-  let resolveResult!: (value: RunResult) => void;
-  let rejectResult!: (reason?: unknown) => void;
-  const result = new Promise<RunResult>((resolve, reject) => {
-    resolveResult = resolve;
-    rejectResult = reject;
-  });
+  const {
+    promise: result,
+    reject: rejectResult,
+    resolve: resolveResult,
+  } = createPromiseWithResolvers<RunResult>();
 
   const abortInvocation = (reason: unknown) => {
     if (!invocationAbortController.signal.aborted) {
@@ -401,7 +403,7 @@ function startWorkerRun({
     }
     terminalReached = true;
     abortInvocation(error);
-    void settleAfterWorkerCleanup(false, () => rejectResult(error));
+    runInBackground(settleAfterWorkerCleanup(false, () => rejectResult(error)));
   };
 
   const onAbort = bindInvocationContext(() => {
@@ -443,8 +445,13 @@ function startWorkerRun({
     if (message.type === 'result') {
       try {
         if (message.success) {
+          if (message.valueJson === undefined) {
+            throw new RunProtocolError(
+              'JavaScript runtime worker result is missing its value.',
+            );
+          }
           assertJsonPayloadSize(
-            message.valueJson!,
+            message.valueJson,
             normalizedOptions.maxResultBytes,
             'JavaScript runtime result',
           );
@@ -518,13 +525,14 @@ function startWorkerRun({
 
     const bridgeIndex = markWorkerRequest(message);
     if (bridgeIndex !== undefined) {
-      void handleBindingRequest(message, bridgeIndex);
+      runInBackground(handleBindingRequest(message, bridgeIndex));
     }
   });
 
-  const onError = bindInvocationContext((error: Error) => {
+  const handleWorkerError = (error: Error) => {
     failTerminal(error);
-  });
+  };
+  const onError = bindInvocationContext(handleWorkerError);
 
   const onExit = bindInvocationContext((code: number) => {
     if (!terminalReached) {
@@ -627,8 +635,8 @@ function startWorkerRun({
       return undefined;
     }
 
-    totalBridgeRequests++;
-    inFlightBridgeRequests++;
+    totalBridgeRequests += 1;
+    inFlightBridgeRequests += 1;
     return totalBridgeRequests;
   }
 
@@ -715,11 +723,12 @@ function startWorkerRun({
         pendingInterruptionIndexes.add(entryIndex);
         return;
       }
+      nextSettlementOrder += 1;
       setLedgerEntry(entryIndex, {
         bindingName: message.bindingName,
         dateNowMs: Date.now(),
         inputJson: message.inputJson,
-        settledOrder: ++nextSettlementOrder,
+        settledOrder: nextSettlementOrder,
         status: 'fulfilled',
         valueJson: outcome.valueJson,
       });
@@ -742,12 +751,13 @@ function startWorkerRun({
       }
       const serialized = serializeBridgeErrorForGuest(error, 'binding');
       try {
+        nextSettlementOrder += 1;
         setLedgerEntry(entryIndex, {
           bindingName: message.bindingName,
           dateNowMs: Date.now(),
           error: serialized,
           inputJson: message.inputJson,
-          settledOrder: ++nextSettlementOrder,
+          settledOrder: nextSettlementOrder,
           status: 'rejected',
         });
       } catch (recordError) {
@@ -770,7 +780,7 @@ function startWorkerRun({
         type: 'bridge-response',
       });
     } finally {
-      inFlightBridgeRequests--;
+      inFlightBridgeRequests -= 1;
       if (pendingInterruptionIndexes.size > 0 && inFlightBridgeRequests === 0) {
         settleInterruptionsIfQuiescent();
       }
@@ -793,9 +803,13 @@ function startWorkerRun({
       return;
     }
     queuedBridgeResponses.set(settledOrder, message);
-    while (queuedBridgeResponses.has(nextResponseOrder)) {
-      const next = queuedBridgeResponses.get(nextResponseOrder)!;
-      queuedBridgeResponses.delete(nextResponseOrder++);
+    for (;;) {
+      const next = queuedBridgeResponses.get(nextResponseOrder);
+      if (next === undefined) {
+        break;
+      }
+      queuedBridgeResponses.delete(nextResponseOrder);
+      nextResponseOrder += 1;
       postBridgeResponse(next);
     }
   }
@@ -822,7 +836,7 @@ function startWorkerRun({
       inFlightBridgeRequests === 0 &&
       workerIdleRequestCount >= totalBridgeRequests
     ) {
-      void settleInterruptions();
+      runInBackground(settleInterruptions());
     }
   }
 
@@ -942,8 +956,8 @@ function startWorkerRun({
       }
       terminalReached = true;
       const interruptedResult = interruptedResultPending;
-      void settleAfterWorkerCleanup(true, () =>
-        resolveResult(interruptedResult),
+      runInBackground(
+        settleAfterWorkerCleanup(true, () => resolveResult(interruptedResult)),
       );
       return;
     }
@@ -958,7 +972,7 @@ function startWorkerRun({
     }
 
     if (pendingInterruptionIndexes.size > 0) {
-      void settleInterruptions();
+      runInBackground(settleInterruptions());
       return;
     }
     if (
@@ -987,12 +1001,20 @@ function startWorkerRun({
           )
         : deserializeResultError(finalResultMessage);
       abortInvocation(error);
-      void settleAfterWorkerCleanup(false, () => rejectResult(error));
+      runInBackground(
+        settleAfterWorkerCleanup(false, () => rejectResult(error)),
+      );
       return;
     }
 
-    void settleAfterWorkerCleanup(true, () =>
-      settleWithResultMessage(finalResultMessage, resolveResult, rejectResult),
+    runInBackground(
+      settleAfterWorkerCleanup(true, () =>
+        settleWithResultMessage(
+          finalResultMessage,
+          resolveResult,
+          rejectResult,
+        ),
+      ),
     );
   }
 
@@ -1011,7 +1033,9 @@ function startWorkerRun({
       return;
     }
     terminalReached = true;
-    void settleAfterWorkerCleanup(true, () => resolveResult(interruptedResult));
+    runInBackground(
+      settleAfterWorkerCleanup(true, () => resolveResult(interruptedResult)),
+    );
   }
 }
 
@@ -1026,11 +1050,12 @@ function createContinuationScopeHash(
   );
   const bindingManifest = Object.keys(input.bindings)
     .toSorted()
-    .flatMap(namespace =>
-      Object.keys(input.bindings[namespace]!)
+    .flatMap(namespace => {
+      const bindingGroup = input.bindings[namespace] ?? {};
+      return Object.keys(bindingGroup)
         .toSorted()
-        .map(name => `${namespace}.${name}`),
-    );
+        .map(name => `${namespace}.${name}`);
+    });
   return createHash('sha256')
     .update(
       toJsonPayload(
@@ -1108,7 +1133,7 @@ async function destroyWorker(pooledWorker: PooledWorker): Promise<void> {
   }
   pooledWorker.destroyed = true;
   pooledWorker.worker.removeAllListeners();
-  terminatingWorkers++;
+  terminatingWorkers += 1;
   try {
     await pooledWorker.worker.terminate();
   } catch {
@@ -1122,7 +1147,7 @@ function trimIdleWorkers(maxIdleWorkers: number): void {
   while (idleWorkers.length > maxIdleWorkers) {
     const pooledWorker = idleWorkers.pop();
     if (pooledWorker !== undefined) {
-      void destroyWorker(pooledWorker);
+      runInBackground(destroyWorker(pooledWorker));
     }
   }
 }
