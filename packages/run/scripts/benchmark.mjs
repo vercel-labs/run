@@ -3,11 +3,11 @@ import { createRunner, getBindingContext, run } from '../dist/index.js';
 
 const iterations = positiveInteger(process.env.RUN_BENCHMARK_ITERATIONS, 100);
 const budgets = {
-  coldRunMs: 500,
-  warmRunP99Ms: 75,
   bindingRoundTripP99Ms: 75,
-  tenBindingRoundTripsP99Ms: 100,
+  coldRunMs: 500,
   interruptAndReplayP99Ms: 300,
+  tenBindingRoundTripsP99Ms: 100,
+  warmRunP99Ms: 75,
 };
 const results = {};
 const continuationRunner = createRunner({
@@ -20,18 +20,18 @@ results.warmRunMs = await measureMany(iterations, () =>
 );
 results.bindingRoundTripMs = await measureMany(iterations, () =>
   run({
-    source: 'return await tools.echo({ value: 1 });',
     bindings: { tools: { echo: input => input } },
+    source: 'return await tools.echo({ value: 1 });',
   }),
 );
 results.tenBindingRoundTripsMs = await measureMany(iterations, () =>
   run({
+    bindings: { tools: { echo: input => input } },
     source: `
       const values = [];
       for (let index = 0; index < 10; index++) values.push(await tools.echo(index));
       return values;
     `,
-    bindings: { tools: { echo: input => input } },
   }),
 );
 results.interruptAndReplayMs = await measureMany(
@@ -42,20 +42,24 @@ results.interruptAndReplayMs = await measureMany(
       tools: {
         pause: () => {
           const context = getBindingContext();
-          if (!context.resume) context.interrupt({ kind: 'pause' });
+          if (!context.resume) {
+            context.interrupt({ kind: 'pause' });
+          }
           return context.resume.resolution;
         },
       },
     };
-    const interrupted = await continuationRunner.run({ source, bindings });
-    if (interrupted.status !== 'interrupted') throw new Error('Expected pause.');
+    const interrupted = await continuationRunner.run({ bindings, source });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected pause.');
+    }
     await continuationRunner.run({
-      source,
       bindings,
       continuation: interrupted.continuation,
       resolutions: [
         { interruptionId: interrupted.interruptions[0].id, value: true },
       ],
+      source,
     });
   },
 );
@@ -81,11 +85,11 @@ assertBudget(
 process.stdout.write(
   `${JSON.stringify(
     {
+      budgets,
       iterations,
+      memory: process.memoryUsage(),
       node: process.version,
       platform: `${process.platform}-${process.arch}`,
-      memory: process.memoryUsage(),
-      budgets,
       results,
     },
     null,
@@ -101,17 +105,17 @@ async function measureOnce(operation) {
 
 async function measureMany(count, operation) {
   const samples = [];
-  for (let index = 0; index < count; index++) {
+  for (let index = 0; index < count; index += 1) {
     samples.push(await measureOnce(operation));
   }
   samples.sort((left, right) => left - right);
   return {
     count,
+    max: samples.at(-1),
     mean: samples.reduce((sum, value) => sum + value, 0) / samples.length,
     median: percentile(samples, 50),
     p95: percentile(samples, 95),
     p99: percentile(samples, 99),
-    max: samples.at(-1),
   };
 }
 
@@ -131,7 +135,9 @@ function assertBudget(label, value, budget) {
 }
 
 function positiveInteger(value, fallback) {
-  if (value === undefined) return fallback;
+  if (value === undefined) {
+    return fallback;
+  }
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new TypeError(`Expected a positive integer, received ${value}.`);

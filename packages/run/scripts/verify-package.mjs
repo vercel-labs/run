@@ -35,7 +35,7 @@ try {
     ],
     { env: commandEnvironment, maxBuffer: 10 * 1024 * 1024 },
   );
-  const packed = JSON.parse(stdout)[0];
+  const [packed] = JSON.parse(stdout);
   if (packed.size > 650_000 || packed.unpackedSize > 2_100_000) {
     throw new Error(
       `Package size budget exceeded: ${packed.size} packed, ${packed.unpackedSize} unpacked.`,
@@ -45,9 +45,9 @@ try {
   const expectedPaths = JSON.parse(
     await readFile(join(packageRoot, 'scripts/package-files.json'), 'utf8'),
   );
-  if (JSON.stringify([...paths].sort()) !== JSON.stringify(expectedPaths)) {
+  if (JSON.stringify([...paths].toSorted()) !== JSON.stringify(expectedPaths)) {
     throw new Error(
-      `Tarball file manifest differs from the reviewed allowlist:\n${JSON.stringify([...paths].sort(), null, 2)}`,
+      `Tarball file manifest differs from the reviewed allowlist:\n${JSON.stringify([...paths].toSorted(), null, 2)}`,
     );
   }
   for (const required of [
@@ -59,7 +59,9 @@ try {
     'dist/runtime/worker-source.js',
     'package.json',
   ]) {
-    if (!paths.includes(required)) throw new Error(`Tarball misses ${required}.`);
+    if (!paths.includes(required)) {
+      throw new Error(`Tarball misses ${required}.`);
+    }
   }
   for (const path of paths) {
     if (
@@ -128,13 +130,13 @@ try {
 
   const bundlePath = join(npmProject, 'verify-bundled.mjs');
   await build({
-    entryPoints: [npmEntry],
-    outfile: bundlePath,
     bundle: true,
-    platform: 'node',
+    entryPoints: [npmEntry],
     format: 'esm',
-    target: 'node22',
+    outfile: bundlePath,
+    platform: 'node',
     sourcemap: false,
+    target: 'node22',
   });
   await execFileAsync(process.execPath, [bundlePath], {
     cwd: npmProject,
@@ -188,26 +190,28 @@ try {
   process.stdout.write(
     `${JSON.stringify(
       {
-        name: packed.name,
-        version: packed.version,
-        packageBytes: packed.size,
-        unpackedBytes: packed.unpackedSize,
-        entries: packed.entryCount,
-        npm: 'passed',
-        pnpm: 'passed',
         bundled: 'passed',
+        entries: packed.entryCount,
+        name: packed.name,
+        npm: 'passed',
+        packageBytes: packed.size,
+        pnpm: 'passed',
+        unpackedBytes: packed.unpackedSize,
+        version: packed.version,
       },
       null,
       2,
     )}\n`,
   );
 } finally {
-  await rm(directory, { recursive: true, force: true });
+  await rm(directory, { force: true, recursive: true });
 }
 
 async function assertPortableSourceMaps(root) {
   for (const path of await walk(root)) {
-    if (!path.endsWith('.map')) continue;
+    if (!path.endsWith('.map')) {
+      continue;
+    }
     const map = JSON.parse(await readFile(path, 'utf8'));
     for (const source of map.sources ?? []) {
       if (source.startsWith('/') || source.startsWith('file:')) {
@@ -221,8 +225,11 @@ async function walk(root) {
   const result = [];
   for (const entry of await readdir(root, { withFileTypes: true })) {
     const path = join(root, entry.name);
-    if (entry.isDirectory()) result.push(...(await walk(path)));
-    else result.push(path);
+    if (entry.isDirectory()) {
+      result.push(...(await walk(path)));
+    } else {
+      result.push(path);
+    }
   }
   return result;
 }

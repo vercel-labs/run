@@ -6,24 +6,24 @@ const require = createRequire(import.meta.url);
 
 const expected = [
   {
+    license: 'MIT',
     name: 'devalue',
     version: '5.8.2',
-    license: 'MIT',
   },
   {
+    license: 'MIT',
     name: 'quickjs-emscripten',
     version: '0.32.0',
-    license: 'MIT',
   },
   {
+    license: 'MIT',
     name: 'quickjs-emscripten-core',
     version: '0.32.0',
-    license: 'MIT',
   },
   {
+    license: 'MIT',
     name: '@jitl/quickjs-wasmfile-release-asyncify',
     version: '0.32.0',
-    license: 'MIT',
   },
 ];
 
@@ -59,9 +59,7 @@ const inventory = await Promise.all(
     const { manifest } =
       expectedPackage.name === 'quickjs-emscripten'
         ? {
-            manifest: JSON.parse(
-              await readFile(quickJsManifestPath, 'utf8'),
-            ),
+            manifest: JSON.parse(await readFile(quickJsManifestPath, 'utf8')),
           }
         : await findManifest(
             expectedPackage.name,
@@ -70,9 +68,9 @@ const inventory = await Promise.all(
               : quickJsRequire.resolve(expectedPackage.name),
           );
     const actual = {
+      license: manifest.license,
       name: manifest.name,
       version: manifest.version,
-      license: manifest.license,
     };
 
     for (const field of ['name', 'version', 'license']) {
@@ -91,9 +89,9 @@ const inventory = await Promise.all(
 process.stdout.write(
   `${JSON.stringify(
     {
+      dependencies: inventory,
       format: 'run-embedded-dependency-inventory',
       version: 1,
-      dependencies: inventory,
     },
     null,
     2,

@@ -414,7 +414,7 @@ describe('continuation replay hardening', () => {
   });
 
   it('checks 100,000 generated traces against a replay effect model', () => {
-    const next = createPrng(0x9E_37_79_B9);
+    const next = createPrng(2_654_435_769);
     for (let trace = 0; trace < 100_000; trace += 1) {
       const actions = Array.from({ length: 1 + (next() % 16) }, () => {
         if (next() % 5 === 0) {
@@ -453,7 +453,7 @@ describe('continuation replay hardening', () => {
   });
 
   it('matches production replay to generated sequential effect traces', async () => {
-    const next = createPrng(0xC0_DE_CA_FE);
+    const next = createPrng(3_235_826_430);
     for (let trace = 0; trace < 16; trace += 1) {
       let interruptionCount = 0;
       const actions = Array.from(
