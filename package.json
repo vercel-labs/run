@@ -3,10 +3,13 @@
   "private": true,
   "packageManager": "pnpm@10.33.4",
   "scripts": {
-    "build": "pnpm --filter run build",
+    "build": "turbo run build",
     "check": "pnpm --filter run check",
     "fix": "pnpm --filter run fix",
     "test": "pnpm --filter run test",
     "type-check": "pnpm --filter run type-check"
+  },
+  "devDependencies": {
+    "turbo": "^2.10.8"
   }
 }
