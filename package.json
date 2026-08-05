@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.33.4",
   "scripts": {
     "build": "turbo run build",
+    "build:packages": "turbo build --filter=run",
     "check": "pnpm --filter run check",
     "fix": "pnpm --filter run fix",
     "test": "pnpm --filter run test",
