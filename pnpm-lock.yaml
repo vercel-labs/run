@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  packages/run:
     devDependencies:
       '@types/node':
         specifier: 22.19.19
