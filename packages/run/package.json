@@ -29,15 +29,23 @@
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "tsup --tsconfig tsconfig.build.json && node scripts/embed-inline-worker.mjs",
+    "build": "pnpm clean && tsup --tsconfig tsconfig.build.json && node scripts/embed-inline-worker.mjs",
     "build:watch": "node scripts/build-watch.mjs",
     "check": "ultracite check",
+    "clean": "del-cli dist *.tsbuildinfo",
     "fix": "ultracite fix",
     "type-check": "tsc -p tsconfig.build.json --noEmit && tsc -p src/tsconfig.json",
     "test": "pnpm build && pnpm test:node",
+    "test:hardening": "pnpm build && vitest --config vitest.node.config.js --run",
     "test:watch": "vitest --config vitest.node.config.js",
     "test:node": "vitest --config vitest.node.config.js --run",
-    "verify:embedded-worker": "node scripts/verify-embedded-worker.mjs"
+    "hardening:fuzz": "pnpm build && node scripts/hardening-fuzz.mjs",
+    "hardening:soak": "pnpm build && node --expose-gc scripts/hardening-soak.mjs",
+    "benchmark": "pnpm build && node scripts/benchmark.mjs",
+    "verify:dependencies": "node scripts/verify-dependencies.mjs",
+    "verify:embedded-worker": "node scripts/verify-embedded-worker.mjs",
+    "verify:package": "pnpm build && pnpm type-check && node scripts/verify-embedded-worker.mjs && node scripts/verify-package.mjs",
+    "prepack": "node scripts/verify-embedded-worker.mjs"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
