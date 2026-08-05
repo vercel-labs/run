@@ -1,0 +1,11 @@
+{
+  "name": "@run/examples",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "run": "workspace:*"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
