@@ -5,12 +5,14 @@
   "scripts": {
     "build": "turbo run build",
     "build:packages": "turbo build --filter=run",
+    "changeset": "changeset",
     "check": "pnpm --filter run check",
     "fix": "pnpm --filter run fix",
     "test": "pnpm --filter run test",
     "type-check": "pnpm --filter run type-check"
   },
   "devDependencies": {
+    "@changesets/cli": "^2.31.1",
     "turbo": "^2.10.8"
   }
 }
