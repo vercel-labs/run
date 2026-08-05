@@ -14,6 +14,7 @@ Then run an example:
 ```sh
 pnpm build:packages
 pnpm tsx examples/basic.ts
+pnpm tsx examples/interruption.ts
 ```
 
 Add new TypeScript example files here and execute them the same way.

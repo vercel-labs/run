@@ -23,6 +23,10 @@ importers:
       run:
         specifier: workspace:*
         version: link:../packages/run
+    devDependencies:
+      '@types/node':
+        specifier: 22.19.19
+        version: 22.19.19
 
   packages/run:
     devDependencies:
