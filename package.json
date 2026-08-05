@@ -1,69 +1,12 @@
 {
-  "name": "run",
-  "version": "2.0.0",
-  "description": "Secure QuickJS-backed JavaScript runtime with host functions and continuations",
-  "keywords": [
-    "javascript",
-    "quickjs",
-    "runtime",
-    "sandbox",
-    "workers"
-  ],
-  "type": "module",
-  "license": "Apache-2.0",
-  "sideEffects": false,
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    "./package.json": "./package.json",
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist/**/*",
-    "LICENSE",
-    "README.md",
-    "THIRD_PARTY_NOTICES.md"
-  ],
+  "name": "run-workspace",
+  "private": true,
+  "packageManager": "pnpm@10.33.4",
   "scripts": {
-    "build": "tsup --tsconfig tsconfig.build.json && node scripts/embed-inline-worker.mjs",
-    "build:watch": "node scripts/build-watch.mjs",
-    "check": "ultracite check",
-    "fix": "ultracite fix",
-    "type-check": "tsc -p tsconfig.build.json --noEmit && tsc -p src/tsconfig.json",
-    "test": "pnpm build && pnpm test:node",
-    "test:watch": "vitest --config vitest.node.config.js",
-    "test:node": "vitest --config vitest.node.config.js --run",
-    "verify:embedded-worker": "node scripts/verify-embedded-worker.mjs"
-  },
-  "devDependencies": {
-    "@types/node": "22.19.19",
-    "devalue": "5.8.2",
-    "esbuild": "^0.28.1",
-    "oxfmt": "^0.41.0",
-    "oxlint": "^1.56.0",
-    "quickjs-emscripten": "0.32.0",
-    "tsup": "^8.5.1",
-    "typescript": "5.8.3",
-    "ultracite": "7.3.2",
-    "vitest": "^4.1.6"
-  },
-  "engines": {
-    "node": ">=22.13.0"
-  },
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
-  "homepage": "https://github.com/vercel-labs/run#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/vercel-labs/run.git"
-  },
-  "bugs": {
-    "url": "https://github.com/vercel-labs/run/issues"
+    "build": "pnpm --filter run build",
+    "check": "pnpm --filter run check",
+    "fix": "pnpm --filter run fix",
+    "test": "pnpm --filter run test",
+    "type-check": "pnpm --filter run type-check"
   }
 }

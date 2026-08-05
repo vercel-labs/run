@@ -7,7 +7,7 @@ export default defineConfig({
       {
         find: './worker-source.js',
         replacement: fileURLToPath(
-          new URL('./dist/runtime/worker-source.js', import.meta.url),
+          new URL('dist/runtime/worker-source.js', import.meta.url),
         ),
       },
     ],

@@ -4,7 +4,7 @@ import { RunError } from './index.js';
 describe('RunError', () => {
   it('identifies errors created by a duplicate package module', async () => {
     const duplicateModule = (await import(
-      `${new URL('./errors/run-error.js', import.meta.url).href}?duplicate`
+      `${new URL('errors/run-error.js', import.meta.url).href}?duplicate`
     )) as { RunError: typeof RunError };
     const duplicateError = new duplicateModule.RunError('failure');
 
