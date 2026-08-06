@@ -6,13 +6,14 @@
     "build": "turbo run build",
     "build:packages": "turbo build --filter=run",
     "changeset": "changeset",
-    "check": "pnpm --filter run check",
-    "fix": "pnpm --filter run fix",
+    "check": "pnpm --filter run check && oxfmt --check docs",
+    "fix": "pnpm --filter run fix && oxfmt docs",
     "test": "pnpm --filter run test",
     "type-check": "pnpm --filter run type-check"
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.1",
+    "oxfmt": "^0.41.0",
     "tsx": "^4.23.5",
     "turbo": "^2.10.8"
   }
