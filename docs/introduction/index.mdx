@@ -1,0 +1,72 @@
+---
+title: run
+description: Securely execute JavaScript and TypeScript with explicit host bindings and resumable interruptions.
+---
+
+# run
+
+`run` is a TypeScript package for executing untrusted JavaScript and TypeScript
+without giving it direct access to your application or system.
+
+It is designed for coding agents, code interpreters, and other applications
+that need to execute generated code. Each invocation runs in a hardened QuickJS
+sandbox with no ambient access to Node.js, the filesystem, environment
+variables, modules, or the network.
+
+## How it works
+
+Your application passes source code and a set of bindings to `run`. Bindings are
+ordinary JavaScript or TypeScript functions that define the capabilities
+available inside the sandbox.
+
+The sandbox can only interact with the outside world through the bindings you
+provide. Arguments and return values are serialized across the sandbox
+boundary, and every invocation uses a fresh QuickJS context inside a worker
+thread.
+
+Bindings can also interrupt execution for workflows that require approval,
+authentication, or another external decision. The run can then resume from a
+signed continuation without repeating bindings that already completed.
+
+## Install
+
+```bash
+pnpm add run
+```
+
+`run` requires Node.js 22.13 or newer.
+
+## Run your first program
+
+```ts
+import { run } from 'run';
+
+const result = await run({
+  source: `
+    const doubled = await tools.double(21);
+    return { message: 'Hello from the sandbox!', doubled };
+  `,
+  bindings: {
+    tools: {
+      double: (value: number) => value * 2,
+    },
+  },
+});
+
+if (result.status === 'completed') {
+  console.log(result.value);
+}
+```
+
+The `tools` binding group becomes a global named `tools` inside the sandbox.
+Calling `tools.double(21)` invokes the host function with the same arguments and
+returns its result to the sandbox.
+
+## Core APIs
+
+- `run()` executes source code with bindings and per-run options.
+- `createRunner()` creates a reusable runner with shared limits and
+  continuation configuration.
+- `getBindingContext()` gives an active binding access to cancellation,
+  invocation metadata, interruptions, and resume data.
+
