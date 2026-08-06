@@ -1,0 +1,146 @@
+---
+title: Workflows
+description: Understand how a run can pause, receive an external decision, and continue.
+---
+
+# Workflows
+
+Some programs cannot finish in a single invocation. They may need a person to
+approve an action, an application to complete authentication, or another system
+to provide information later.
+
+`run` supports these workflows by allowing a binding to interrupt execution and
+return control to the host. The host can persist the returned state, collect a
+decision, and continue the same logical run in a later invocation.
+
+## Interruptions
+
+An **interruption** is a request from a binding to pause the workflow. The
+binding supplies an application-defined payload that describes the decision
+being requested.
+
+For example, a binding responsible for sending a message might interrupt before
+performing the side effect:
+
+```ts
+const context = getBindingContext();
+
+if (context.resume === undefined) {
+  context.interrupt({
+    kind: 'approval',
+    message: 'Send this message?',
+  });
+}
+```
+
+The invocation resolves with an interrupted result after pending binding work
+has settled. Each interruption contains an ID, the complete binding name, the
+guest arguments, and the payload created by the binding.
+
+An interruption is an expected result rather than an error.
+
+## Continuations
+
+A **continuation** is the opaque token returned with an interrupted result. It
+represents the state required to replay the source and continue the logical
+run.
+
+The host should persist the token without modifying it. A continuation should
+be treated as a bearer capability because a party holding a valid token may be
+able to resume the workflow.
+
+The default signed continuation protects integrity but does not encrypt its
+contents. Sensitive information should not be placed in source, binding
+arguments, interruption payloads, or continuation context merely because the
+token is encoded.
+
+A **continuation codec** is responsible for encoding replay state into a token
+and decoding that token later. The package provides a signed codec, a stored
+codec, and an interface for custom codecs.
+
+## Resolutions
+
+A **resolution** is the host application's answer to an interruption. It
+contains the interruption ID and an application-defined value.
+
+When the run continues, the binding that created the interruption is invoked
+again. Its binding context contains **resume information** with the original
+payload and the supplied resolution.
+
+```ts
+const context = getBindingContext();
+
+if (context.resume === undefined) {
+  context.interrupt({
+    kind: 'approval',
+    message: 'Send this message?',
+  });
+}
+
+if (context.resume.resolution !== true) {
+  return { sent: false };
+}
+
+return { sent: true };
+```
+
+When an interrupted result contains several interruptions, the host must
+resolve all of them together before continuing the run.
+
+## Replay
+
+Continuing an interrupted run starts a new invocation and executes the source
+again from the beginning. This process is called **replay**.
+
+The continuation contains a **ledger**, which is an ordered record of binding
+outcomes from earlier attempts. During replay, previously fulfilled bindings
+return their recorded values and previously rejected bindings reproduce their
+recorded errors. Those settled host functions are not called again.
+
+The interrupted binding is called again after the matching resolution becomes
+available. The binding uses its resume information to decide how execution
+should continue.
+
+Replay validates that the binding names and serialized arguments occur in the
+same order as before. If the source takes a different path, continuation
+validation fails instead of applying recorded outcomes to different work.
+
+## Determinism
+
+Guest time and randomness are deterministic across replay. The logical run
+records an initial clock value and random seed, and the guest implementations
+of `Date` and `Math.random()` reproduce the same sequence in later attempts.
+
+Determinism helps the source reach the same binding calls during replay. It does
+not make host bindings or external systems deterministic. Bindings remain
+responsible for protecting side effects with idempotency keys, request
+identifiers, or transactional application logic.
+
+## Scope
+
+A continuation is tied to the source and the available binding names. It can
+also be tied to an audience and application-defined continuation context.
+
+The **continuation audience** identifies the application or endpoint expected
+to resume the workflow. A token created for one audience cannot be resumed by a
+runner configured for another.
+
+The **continuation context** contains serializable tenant, principal, or policy
+information that must remain unchanged when the run resumes. It allows the host
+to bind continuation state to the security context in which it was created.
+
+Neither the audience nor the continuation context replaces authorization. The
+host must still authenticate the caller and decide whether that caller may
+resolve and resume the workflow.
+
+## Identity
+
+Every invocation has an **invocation ID** that identifies that execution
+attempt. Replaying a run creates a new invocation ID.
+
+The **logical run ID** remains stable across the original invocation and all
+replay attempts. Each binding call also receives a **request ID** and a
+one-based **request index**.
+
+These identifiers let the host correlate logs, audit a workflow, and
+deduplicate binding side effects across attempts.
