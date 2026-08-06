@@ -1,0 +1,211 @@
+---
+title: Serialization
+description: Understand how values cross between the host and the sandbox.
+---
+
+# Serialization
+
+The host and guest do not share JavaScript memory. Every value that crosses the
+sandbox boundary must be encoded, copied, and reconstructed on the receiving
+side.
+
+Serialization is used for binding arguments, binding outputs, final run
+results, interruption payloads, resolutions, and the binding history stored in
+a continuation.
+
+## Values
+
+The serialization format supports JavaScript values that cannot be represented
+by plain JSON. In addition to strings, numbers, booleans, null values, objects,
+and arrays, it supports `undefined`, `BigInt`, `NaN`, infinity, and negative
+zero.
+
+It also supports dates, regular expressions, maps, sets, array buffers, data
+views, typed arrays, errors, and aggregate errors. Cyclic objects, sparse
+arrays, and repeated references can be represented within a single transferred
+value.
+
+For example, a binding can return a map containing a date:
+
+```ts
+const bindings = {
+  reports: {
+    load: () =>
+      new Map([
+        ['generatedAt', new Date()],
+        ['total', 42],
+      ]),
+  },
+};
+```
+
+Functions, symbols, promises, weak collections, weak references, and arbitrary
+class instances cannot be transferred as values. A binding may return a
+promise because the runtime awaits it, but the promise itself is not sent to
+the guest.
+
+Do not return objects that contain functions or depend on class behavior:
+
+```ts
+const bindings = {
+  tasks: {
+    get: () => ({
+      id: 'task_123',
+      title: 'Publish documentation',
+      complete: () => {
+        // Update the task.
+      },
+    }),
+  },
+};
+```
+
+This value cannot be serialized because `complete` is a function. Expose the
+operation as a separate binding and return only data:
+
+```ts
+const bindings = {
+  tasks: {
+    get: () => ({
+      id: 'task_123',
+      title: 'Publish documentation',
+    }),
+    complete: async (id: string) => {
+      await completeTask(id);
+      return { completed: true };
+    },
+  },
+};
+```
+
+Similarly, a binding cannot return an application-specific class instance
+directly:
+
+```ts
+const bindings = {
+  accounts: {
+    get: async (id: string) => {
+      // This fails if loadAccount returns an Account instance.
+      return loadAccount(id);
+    },
+  },
+};
+```
+
+The serializer cannot transfer the instance's custom prototype, methods, or
+private state. The binding must select the required properties and return an
+explicit data object instead:
+
+```ts
+const bindings = {
+  accounts: {
+    get: async (id: string) => {
+      const account = await loadAccount(id);
+
+      return {
+        id: account.id,
+        balance: account.balance,
+      };
+    },
+  },
+};
+```
+
+TypeScript types describe the expected shape to host developers, but they do
+not validate guest values at runtime. Bindings must validate untrusted
+arguments before using them.
+
+## Identity
+
+Object identity is preserved within one transferred value. If two properties
+refer to the same object before serialization, they refer to the same
+reconstructed object after deserialization.
+
+```ts
+const shared = { value: 42 };
+
+return {
+  first: shared,
+  second: shared,
+};
+```
+
+Identity is not preserved across separate binding calls. Returning the same
+host object twice creates a separate guest copy each time. Mutating a guest
+copy also does not mutate the original host object.
+
+Application-specific prototypes and class methods are not reconstructed.
+Bindings should exchange data rather than objects whose behavior depends on a
+custom prototype.
+
+## Errors
+
+An error transferred as ordinary data can retain its name, message, cause, and
+aggregate errors. Its original stack is not transferred as data.
+
+A thrown binding error follows a different path. The runtime converts it into a
+sanitized guest-side rejection so that host stack traces and private
+diagnostics are not exposed inside the sandbox.
+
+```ts
+try {
+  return await payments.charge(500);
+} catch (error) {
+  return {
+    charged: false,
+    message: error.message,
+  };
+}
+```
+
+If guest code does not catch the rejection, the entire invocation fails.
+
+## Limits
+
+Serialization limits are measured using the UTF-8 byte length of the encoded
+value. The default limit is 1 MiB for the arguments of one binding call, 4 MiB
+for one binding output, and 1 MiB for the final run result.
+
+Console output has a shared 64 KiB limit for each invocation. Continuation state
+has a separate 32 MiB limit, and source code has a 256 KiB limit before
+execution begins.
+
+A value that appears small as a JavaScript object can have a larger serialized
+representation. Bindings should return references, summaries, or paginated
+data instead of transferring large record sets when possible.
+
+## Contracts
+
+The serialization boundary should be treated like an API boundary. Each
+binding should have a deliberate input and output shape, and both sides should
+avoid relying on host-specific implementation details.
+
+The following binding accepts a small input object and returns a small,
+explicit result:
+
+```ts
+const bindings = {
+  search: {
+    query: async (input: { query: string; limit: number }) => {
+      if (
+        typeof input.query !== 'string' ||
+        !Number.isInteger(input.limit) ||
+        input.limit < 1 ||
+        input.limit > 20
+      ) {
+        throw new TypeError('Invalid search input.');
+      }
+
+      const matches = await searchIndex.query(input.query, input.limit);
+
+      return matches.map(match => ({
+        id: match.id,
+        title: match.title,
+      }));
+    },
+  },
+};
+```
+
+This approach keeps the boundary predictable, limits the authority of guest
+code, and makes the binding easier to test.

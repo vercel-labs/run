@@ -1,0 +1,111 @@
+---
+title: Overview
+description: Learn the core concepts behind executing code with run.
+---
+
+# Overview
+
+`run` executes JavaScript and TypeScript without giving that code direct access
+to your application or system. It is designed for applications that need to
+execute generated or otherwise untrusted code, including coding agents and code
+interpreters.
+
+The package separates the code being executed from the application executing
+it. Your application decides which functions are available, how much work the
+code may perform, and how its result should be handled.
+
+Here is a complete example:
+
+```ts
+import { run } from 'run';
+
+const result = await run({
+  source: `
+    const doubled = await tools.double(21);
+    return { doubled };
+  `,
+  bindings: {
+    tools: {
+      double: (value: number) => value * 2,
+    },
+  },
+});
+
+if (result.status === 'completed') {
+  console.log(result.value);
+}
+```
+
+The `source` property contains the program that will be executed. The
+`bindings` property contains the host functions that the program is allowed to
+call. In this example, the source can call `tools.double()`, but it cannot
+access any other function or resource from the application.
+
+## Host and guest
+
+The application that calls `run()` is called the **host**. Host code runs in
+Node.js and retains access to the resources available to your application,
+including databases, network clients, environment variables, and the
+filesystem.
+
+The source executed by `run` is called the **guest**. Guest code runs inside a
+hardened QuickJS context with a restricted set of JavaScript capabilities. The
+guest cannot access host resources unless the host exposes them through a
+binding.
+
+The environment containing the guest is referred to as the **sandbox**. The
+sandbox creates a boundary between untrusted code and the rest of your
+application.
+
+## Runs and invocations
+
+A **run** is one logical execution of a source program. Most runs consist of a
+single invocation that either returns a value or throws an error.
+
+Some runs need to pause while the host waits for approval, authentication, or
+another external decision. Continuing one of these runs starts another
+**invocation** of the same logical run. The source executes again, while
+previous binding outcomes are replayed so that completed work does not need to
+be repeated.
+
+The term **logical run** refers to the complete workflow across the original
+invocation and any later replay attempts.
+
+## Execution
+
+When the host starts a run, the package validates the input and prepares the
+source. A worker then creates a fresh QuickJS context, installs the requested
+bindings, and evaluates the source as the body of an asynchronous function.
+
+Treating the source as an asynchronous function body allows it to use
+top-level `await` and `return`:
+
+```ts
+const result = await run({
+  source: `
+    const user = await users.find("user_123");
+    return user.name;
+  `,
+  bindings: {
+    users: {
+      find: async (id: string) => {
+        return { id, name: 'Ada' };
+      },
+    },
+  },
+});
+```
+
+Each invocation receives a new QuickJS context. Guest globals, values, and
+mutations therefore do not carry into another invocation. The worker thread
+that hosts QuickJS may be reused after the context has been disposed.
+
+## Communication
+
+The host and guest do not share JavaScript objects. Arguments, binding outputs,
+and final results are serialized and copied across the sandbox boundary.
+
+A call such as `users.find("user_123")` is known internally as a **bridge
+request**. The guest sends the serialized arguments to the host, the host calls
+the binding, and the serialized outcome is returned to the guest. The binding
+may be synchronous or asynchronous.

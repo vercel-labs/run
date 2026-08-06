@@ -1,0 +1,103 @@
+---
+title: Sandbox
+description: Understand the environment where source code executes.
+---
+
+# Sandbox
+
+The sandbox is the restricted JavaScript environment in which guest source
+executes. It is implemented with QuickJS inside a Node.js worker thread and is
+created fresh for every invocation.
+
+The sandbox provides the JavaScript features needed to perform useful
+computation while removing ambient access to the host application. Any access
+to application data or external services must be provided explicitly through a
+`binding`.
+
+## Source
+
+The `source` property accepts JavaScript or type-stripped TypeScript. The source
+is evaluated as the body of an asynchronous function rather than as a module,
+so it can use top-level `await` and `return`.
+
+```ts
+const result = await run({
+  source: `
+    const values: number[] = [10, 20, 12];
+    return values.reduce((total, value) => total + value, 0);
+  `,
+});
+```
+
+## Capabilities and limitations
+
+- Guest code can use standard JavaScript values such as objects, arrays,
+  promises, maps, sets, dates, regular expressions, errors, typed arrays, and
+  internationalization APIs. It can also use a size-limited `console`, together
+  with `atob()` and `btoa()`.
+- The guest implementation of `Date` and `Math.random()` is deterministic. This
+  allows an interrupted run to execute consistently when it is replayed.
+- TypeScript annotations are removed before execution. This makes common
+  TypeScript syntax convenient to use, but it does not provide type checking or
+  the complete behavior of a TypeScript compiler.
+- The source cannot use static imports or dynamic `import()`. Dependencies must
+  either be included directly in the source or represented by a binding.
+- The sandbox does not provide Node.js globals such as `process`, `require`,
+  `module`, or `Buffer`. It also does not provide browser networking APIs such
+  as `fetch`, `WebSocket`, or `XMLHttpRequest`.
+- Guest code cannot access the filesystem, environment variables, host modules,
+  or application memory. Timers such as `setTimeout()` and `setInterval()` are
+  not available. Dynamic code generation through `eval()` and `Function()` is
+  blocked, and capabilities such as `crypto`, `WebAssembly`, and
+  `SharedArrayBuffer` are not exposed.
+
+## Globals
+
+Each binding namespace becomes a global object in the sandbox. If the host
+provides a `users` namespace with a binding named `find`, guest code can call
+`users.find()`.
+
+```ts
+const bindings = {
+  users: {
+    find: async (id: string) => {
+      return { id, name: 'Ada' };
+    },
+  },
+};
+```
+
+A binding namespace must be a valid JavaScript identifier and must not conflict
+with a reserved global. Names beginning with `__run` are reserved for the
+runtime.
+
+The sandbox also contains internal runtime helpers. These helpers are
+implementation details and are not part of the supported guest API.
+
+## Isolation
+
+Every invocation receives a separate QuickJS context with its own global
+objects and values. The context is disposed when the invocation finishes, so
+guest state does not persist between invocations.
+
+Worker threads may be pooled and reused. Reusing a worker does not reuse the
+guest context that previously ran inside it.
+
+The sandbox combines a separate JavaScript engine, a worker thread, hardened
+globals, explicit bindings, serialization, and resource limits. It is not a
+container, virtual machine, or separate operating-system process.
+
+## Trust
+
+The sandbox controls what guest code can access directly, but host bindings
+remain trusted application code. A broad binding can expose a broad
+capability, even when the sandbox itself is correctly configured.
+
+For example, a binding that accepts an arbitrary URL and forwards any request
+would effectively provide general network access. A safer binding would accept
+a specific business-level operation, validate its arguments, enforce
+authorization in the host, and return only the required data.
+
+The sandbox should therefore be treated as one part of the security model.
+Binding design and resource limits determine the practical authority available
+to guest code.
