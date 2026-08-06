@@ -44,8 +44,57 @@ class instances cannot be transferred as values. A binding may return a
 promise because the runtime awaits it, but the promise itself is not sent to
 the guest.
 
-Application-specific class instances should be converted into explicit data
-objects before they cross the boundary:
+Do not return objects that contain functions or depend on class behavior:
+
+```ts
+const bindings = {
+  tasks: {
+    get: () => ({
+      id: 'task_123',
+      title: 'Publish documentation',
+      complete: () => {
+        // Update the task.
+      },
+    }),
+  },
+};
+```
+
+This value cannot be serialized because `complete` is a function. Expose the
+operation as a separate binding and return only data:
+
+```ts
+const bindings = {
+  tasks: {
+    get: () => ({
+      id: 'task_123',
+      title: 'Publish documentation',
+    }),
+    complete: async (id: string) => {
+      await completeTask(id);
+      return { completed: true };
+    },
+  },
+};
+```
+
+Similarly, a binding cannot return an application-specific class instance
+directly:
+
+```ts
+const bindings = {
+  accounts: {
+    get: async (id: string) => {
+      // This fails if loadAccount returns an Account instance.
+      return loadAccount(id);
+    },
+  },
+};
+```
+
+The serializer cannot transfer the instance's custom prototype, methods, or
+private state. The binding must select the required properties and return an
+explicit data object instead:
 
 ```ts
 const bindings = {

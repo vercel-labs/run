@@ -10,8 +10,7 @@ boundary between the host application and guest source, the way bindings expose
 application capabilities, and the serialization format used to move values
 between them.
 
-It also explains how an invocation is executed and how longer workflows can
-pause and continue through replay.
+It also explains how an invocation can pause and later continue through replay.
 
 Start with the [overview](./overview), then continue through the remaining
 pages in order:
@@ -19,5 +18,5 @@ pages in order:
 1. [Sandbox](./sandbox) explains the environment in which guest source runs.
 2. [Bindings](./bindings) explains how guest code calls the host application.
 3. [Serialization](./serialization) explains how values cross the boundary.
-4. [Execution](./execution) explains the lifecycle and limits of an invocation.
-5. [Workflows](./workflows) explains interruptions, continuations, and replay.
+4. [Interruptions](./interruptions) explains how a run can pause and continue
+   through replay.
