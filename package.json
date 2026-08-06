@@ -6,8 +6,8 @@
     "build": "turbo run build",
     "build:packages": "turbo build --filter=run",
     "changeset": "changeset",
-    "check": "pnpm --filter run check && oxfmt --check docs",
-    "fix": "pnpm --filter run fix && oxfmt docs",
+    "check": "pnpm --filter run check && oxfmt --check content/docs",
+    "fix": "pnpm --filter run fix && oxfmt content/docs",
     "test": "pnpm --filter run test",
     "type-check": "pnpm --filter run type-check"
   },
