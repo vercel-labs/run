@@ -89,7 +89,7 @@ that may be in flight at once.
 
 ## Context
 
-A binding can call `getBindingContext()` to access information about its active
+A binding has the option to call `getBindingContext()` to access information about its active
 request:
 
 ```ts
@@ -110,18 +110,25 @@ const bindings = {
 };
 ```
 
-The **invocation ID** identifies the current execution attempt. It changes when
-an interrupted run is replayed.
+`getBindingContext()` exposes the following information and controls:
 
-The **logical run ID** identifies the complete workflow and remains stable
-across replay attempts.
-
-The **request ID** identifies one binding call within an invocation, while the
-**request index** records its one-based order. The context also includes the
-complete binding name.
+- `abortSignal` lets the binding stop its work when the run is cancelled, times
+  out, or fails.
+- `invocationId` identifies the current execution attempt. It changes when an
+  interrupted run is replayed.
+- `logicalRunId` identifies the complete workflow and remains stable across
+  replay attempts.
+- `requestId` identifies the current binding call within the invocation.
+- `requestIndex` contains the one-based order of the binding call.
+- `bindingName` contains the complete binding name, such as `users.find`.
+- `interrupt(payload)` pauses the run and returns an application-defined
+  payload to the host.
+- `resume` is available when an interrupted binding is invoked again. It
+  contains the interruption ID, original payload, and supplied resolution.
 
 These identifiers are useful for tracing, auditing, and deduplicating external
-side effects. They are not authentication credentials.
+side effects. They are not authentication credentials. We will dive deep into these 
+later. 
 
 ## Cancellation
 

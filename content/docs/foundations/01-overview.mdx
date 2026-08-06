@@ -109,16 +109,3 @@ A call such as `users.find("user_123")` is known internally as a **bridge
 request**. The guest sends the serialized arguments to the host, the host calls
 the binding, and the serialized outcome is returned to the guest. The binding
 may be synchronous or asynchronous.
-
-## Outcomes
-
-A successful invocation resolves with a result. The result has a `completed`
-status when the source returns a value and an `interrupted` status when the
-workflow needs an external decision.
-
-Timeouts, cancellation, invalid input, resource-limit violations, and uncaught
-guest errors reject the invocation instead of creating a third result status.
-Package errors extend `RunError` and include a stable error code.
-
-The following pages explain the sandbox, bindings, serialization, execution
-lifecycle, and resumable workflows in more detail.
