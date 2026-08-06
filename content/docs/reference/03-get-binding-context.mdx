@@ -1,0 +1,120 @@
+---
+title: getBindingContext
+description: API Reference for getBindingContext.
+---
+
+# `getBindingContext()`
+
+Get the context for the currently executing host binding.
+
+```ts
+import { getBindingContext, run } from 'run';
+
+await run({
+  source: 'return await users.find("user_1");',
+  bindings: {
+    users: {
+      find: async (id: string) => {
+        const { abortSignal } = getBindingContext();
+        return database.users.find(id, { signal: abortSignal });
+      },
+    },
+  },
+});
+```
+
+## Import
+
+```ts
+import { getBindingContext } from 'run';
+```
+
+## API Signature
+
+### Parameters
+
+```json
+[]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "context",
+    "type": "BindingContext",
+    "description": "The context for the active binding call.",
+    "properties": [
+      {
+        "type": "BindingContext",
+        "parameters": [
+          {
+            "name": "abortSignal",
+            "type": "AbortSignal",
+            "description": "A signal aborted when the run is aborted, times out, or fails."
+          },
+          {
+            "name": "invocationId",
+            "type": "string",
+            "description": "The stable identifier for the current run attempt."
+          },
+          {
+            "name": "logicalRunId",
+            "type": "string",
+            "description": "The stable identifier for the logical run across replay attempts."
+          },
+          {
+            "name": "requestId",
+            "type": "string",
+            "description": "The stable identifier for this binding request in the current attempt."
+          },
+          {
+            "name": "requestIndex",
+            "type": "number",
+            "description": "The one-based binding request order in the current attempt."
+          },
+          {
+            "name": "bindingName",
+            "type": "string",
+            "description": "The fully qualified binding path, for example tools.search."
+          },
+          {
+            "name": "interrupt",
+            "type": "(payload: unknown) => never",
+            "description": "Interrupts the binding and suspends the run."
+          },
+          {
+            "name": "resume",
+            "type": "BindingResumeContext",
+            "isOptional": true,
+            "description": "Resume data available when an interrupted binding is invoked again.",
+            "properties": [
+              {
+                "type": "BindingResumeContext",
+                "parameters": [
+                  {
+                    "name": "interruptionId",
+                    "type": "string",
+                    "description": "The ID of the interruption being resolved."
+                  },
+                  {
+                    "name": "payload",
+                    "type": "unknown",
+                    "description": "The original interruption payload."
+                  },
+                  {
+                    "name": "resolution",
+                    "type": "unknown",
+                    "description": "The application-defined resolution value."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+]
+```

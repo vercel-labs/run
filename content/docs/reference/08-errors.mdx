@@ -1,0 +1,269 @@
+---
+title: Errors
+description: API Reference for errors exported by run.
+---
+
+# Errors
+
+Errors exported by `run`.
+
+```ts
+import { RunError, run } from 'run';
+
+try {
+  await run({ source });
+} catch (error) {
+  if (RunError.isInstance(error)) {
+    console.error(error.code, error.details);
+  }
+}
+```
+
+## Import
+
+```ts
+import {
+  RunAbortedError,
+  RunBindingError,
+  RunBridgeLimitError,
+  RunConcurrencyError,
+  RunDetachedBridgeRequestError,
+  RunError,
+  RunProtocolError,
+  RunSourceTooLargeError,
+  RunTimeoutError,
+} from 'run';
+```
+
+## API Signature
+
+### Classes
+
+```json
+[
+  {
+    "name": "RunError",
+    "type": "Error",
+    "description": "The base class for errors raised by the JavaScript runtime.",
+    "properties": [
+      {
+        "type": "RunError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(message: string, code?: string, details?: unknown) => RunError",
+            "description": "Creates a RunError. The default code is 'RUN_ERROR'."
+          },
+          {
+            "name": "code",
+            "type": "string",
+            "description": "The stable machine-readable error code."
+          },
+          {
+            "name": "details",
+            "type": "unknown",
+            "isOptional": true,
+            "description": "Optional structured diagnostic details."
+          },
+          {
+            "name": "isInstance",
+            "type": "(error: unknown) => error is RunError",
+            "description": "Identifies RunError instances across duplicate package copies."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunAbortedError",
+    "type": "RunError",
+    "description": "Raised when the caller's abort signal aborts a run invocation.",
+    "properties": [
+      {
+        "type": "RunAbortedError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "() => RunAbortedError",
+            "description": "Creates a RunAbortedError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_ABORTED'",
+            "description": "The stable error code."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunBindingError",
+    "type": "RunError",
+    "description": "The base class for failures caused by nested host binding execution.",
+    "properties": [
+      {
+        "type": "RunBindingError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(message: string, details?: unknown) => RunBindingError",
+            "description": "Creates a RunBindingError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_BINDING_ERROR'",
+            "description": "The stable error code."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunBridgeLimitError",
+    "type": "RunError",
+    "description": "Raised when sandboxed code exceeds bridge request limits.",
+    "properties": [
+      {
+        "type": "RunBridgeLimitError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(message: string, details?: unknown) => RunBridgeLimitError",
+            "description": "Creates a RunBridgeLimitError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_BRIDGE_LIMIT'",
+            "description": "The stable error code."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunConcurrencyError",
+    "type": "RunError",
+    "description": "Raised when the process-global worker cap has been reached.",
+    "properties": [
+      {
+        "type": "RunConcurrencyError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(maxWorkers: number) => RunConcurrencyError",
+            "description": "Creates a RunConcurrencyError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_CONCURRENCY_LIMIT'",
+            "description": "The stable error code."
+          },
+          {
+            "name": "details",
+            "type": "{ maxWorkers: number }",
+            "description": "The configured worker cap."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunDetachedBridgeRequestError",
+    "type": "RunError",
+    "description": "Raised when sandboxed code returns with detached host bridge work.",
+    "properties": [
+      {
+        "type": "RunDetachedBridgeRequestError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(message: string, details?: unknown) => RunDetachedBridgeRequestError",
+            "description": "Creates a RunDetachedBridgeRequestError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_DETACHED_BRIDGE_REQUEST'",
+            "description": "The stable error code."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunProtocolError",
+    "type": "RunError",
+    "description": "Raised when the main thread and worker protocol observes an invalid or mismatched message.",
+    "properties": [
+      {
+        "type": "RunProtocolError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(message: string, details?: unknown) => RunProtocolError",
+            "description": "Creates a RunProtocolError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_PROTOCOL_ERROR'",
+            "description": "The stable error code."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunSourceTooLargeError",
+    "type": "RunError",
+    "description": "Raised when source exceeds limits.maxSourceBytes.",
+    "properties": [
+      {
+        "type": "RunSourceTooLargeError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(bytes: number, maxBytes: number) => RunSourceTooLargeError",
+            "description": "Creates a RunSourceTooLargeError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_SOURCE_TOO_LARGE'",
+            "description": "The stable error code."
+          },
+          {
+            "name": "details",
+            "type": "{ bytes: number; maxBytes: number }",
+            "description": "The source size and configured limit."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunTimeoutError",
+    "type": "RunError",
+    "description": "Raised when a sandbox invocation exceeds its timeout.",
+    "properties": [
+      {
+        "type": "RunTimeoutError",
+        "parameters": [
+          {
+            "name": "constructor",
+            "type": "(timeoutMs: number) => RunTimeoutError",
+            "description": "Creates a RunTimeoutError."
+          },
+          {
+            "name": "code",
+            "type": "'RUN_TIMEOUT'",
+            "description": "The stable error code."
+          },
+          {
+            "name": "details",
+            "type": "{ timeoutMs: number }",
+            "description": "The configured timeout in milliseconds."
+          }
+        ]
+      }
+    ]
+  }
+]
+```

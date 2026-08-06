@@ -1,0 +1,158 @@
+---
+title: createSignedContinuationCodec
+description: API Reference for createSignedContinuationCodec.
+---
+
+# `createSignedContinuationCodec()`
+
+Create an HMAC-SHA-256-signed string continuation codec.
+
+When a run is interrupted, this codec serializes its replay state into a string
+and signs it so the state cannot be modified undetected. Pass the codec to
+`createRunner()` when you need custom expiration or signing-key rotation.
+
+The token is signed but not encrypted, so its contents should not be treated as
+secret.
+
+```ts
+import { createRunner, createSignedContinuationCodec } from 'run';
+
+const continuationCodec = createSignedContinuationCodec({
+  secret: process.env.RUN_CONTINUATION_SECRET!,
+});
+
+const runner = createRunner({ continuationCodec });
+```
+
+## Import
+
+```ts
+import { createSignedContinuationCodec } from 'run';
+```
+
+## API Signature
+
+### Parameters
+
+```json
+[
+  {
+    "name": "secret",
+    "type": "string | Uint8Array",
+    "description": "The primary HMAC key used to create and verify tokens. Must contain at least 32 bytes."
+  },
+  {
+    "name": "verificationSecrets",
+    "type": "(string | Uint8Array)[]",
+    "isOptional": true,
+    "description": "Previous HMAC keys accepted only when verifying tokens. Default: []."
+  },
+  {
+    "name": "maxAgeMs",
+    "type": "number",
+    "isOptional": true,
+    "description": "The maximum token lifetime in milliseconds. Must be a positive integer. Default: 3600000."
+  },
+  {
+    "name": "maxTokenBytes",
+    "type": "number",
+    "isOptional": true,
+    "description": "The maximum encoded token size in bytes. Must be a positive integer. Default: 33554432."
+  },
+  {
+    "name": "clockSkewMs",
+    "type": "number",
+    "isOptional": true,
+    "description": "The allowed positive clock skew during issued-at validation. Must be a non-negative integer. Default: 60000."
+  }
+]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "codec",
+    "type": "ContinuationCodec<string>",
+    "description": "A signed string continuation codec.",
+    "properties": [
+      {
+        "type": "ContinuationCodec<string>",
+        "parameters": [
+          {
+            "name": "encode",
+            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => string | Promise<string>",
+            "description": "Encodes replay state into a signed string token."
+          },
+          {
+            "name": "decode",
+            "type": "(token: string, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
+            "description": "Verifies and decodes a signed string token."
+          }
+        ]
+      },
+      {
+        "type": "ContinuationOperationContext",
+        "parameters": [
+          {
+            "name": "abortSignal",
+            "type": "AbortSignal",
+            "description": "The signal for the continuation operation."
+          },
+          {
+            "name": "deadlineMs",
+            "type": "number",
+            "description": "The operation deadline as a Unix timestamp in milliseconds."
+          }
+        ]
+      },
+      {
+        "type": "RunContinuationState",
+        "parameters": [
+          {
+            "name": "version",
+            "type": "2",
+            "description": "The continuation state version."
+          },
+          {
+            "name": "runtime",
+            "type": "'run-replay-v2'",
+            "description": "The replay runtime identifier."
+          },
+          {
+            "name": "serde",
+            "type": "'run-js-v1'",
+            "description": "The serialization format identifier."
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "description": "The source associated with the continuation."
+          },
+          {
+            "name": "logicalRunId",
+            "type": "string",
+            "description": "The logical run identifier."
+          },
+          {
+            "name": "scopeHash",
+            "type": "string",
+            "description": "The authenticated continuation scope hash."
+          },
+          {
+            "name": "determinism",
+            "type": "{ dateNowMs: number; randomSeed: string }",
+            "description": "The deterministic clock and random seed."
+          },
+          {
+            "name": "ledger",
+            "type": "RunLedgerEntry[]",
+            "description": "The recorded binding outcomes."
+          }
+        ]
+      }
+    ]
+  }
+]
+```
