@@ -1,0 +1,50 @@
+---
+title: setMaxWorkers
+description: API Reference for setMaxWorkers.
+---
+
+# `setMaxWorkers()`
+
+Set the process-wide maximum number of active `run` workers.
+
+```ts
+import { setMaxWorkers } from 'run';
+
+setMaxWorkers(8);
+
+// Restore the dynamic memory-based default.
+setMaxWorkers();
+```
+
+## Import
+
+```ts
+import { setMaxWorkers } from 'run';
+```
+
+## API Signature
+
+### Parameters
+
+```json
+[
+  {
+    "name": "maxWorkers",
+    "type": "number",
+    "isOptional": true,
+    "description": "A positive integer worker cap. Omit the value or pass undefined to restore the dynamic memory-based default."
+  }
+]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "result",
+    "type": "void",
+    "description": "This function does not return a value."
+  }
+]
+```

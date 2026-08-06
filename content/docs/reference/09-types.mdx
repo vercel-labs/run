@@ -1,0 +1,753 @@
+---
+title: Types
+description: API Reference for types exported by run.
+---
+
+# Types
+
+Types exported by `run`.
+
+```ts
+import type { RunInput, RunnerOptions } from 'run';
+
+const input: RunInput = {
+  source: 'return 6 * 7;',
+};
+
+const options: RunnerOptions = {
+  limits: { timeoutMs: 10_000 },
+};
+```
+
+## Import
+
+```ts
+import type {
+  BindingContext,
+  BindingFunction,
+  BindingGroup,
+  BindingResumeContext,
+  Bindings,
+  ContinuationCodec,
+  ContinuationOperationContext,
+  ContinuationStorage,
+  RunCompletedResult,
+  RunContinuationState,
+  RunInput,
+  RunInterruptedResult,
+  RunInterruption,
+  RunLedgerEntry,
+  RunLimits,
+  RunResolution,
+  Runner,
+  RunnerOptions,
+  RunResult,
+  SignedContinuationCodecOptions,
+  StoredContinuation,
+} from 'run';
+```
+
+## API Signature
+
+### Execution Types
+
+```json
+[
+  {
+    "name": "RunInput<TOKEN = unknown>",
+    "type": "interface",
+    "description": "Input accepted by run and Runner.run.",
+    "properties": [
+      {
+        "type": "RunInput<TOKEN>",
+        "parameters": [
+          {
+            "name": "source",
+            "type": "string",
+            "description": "JavaScript or type-stripped TypeScript function-body source."
+          },
+          {
+            "name": "bindings",
+            "type": "Bindings",
+            "isOptional": true,
+            "description": "Host function groups installed as guest globals."
+          },
+          {
+            "name": "abortSignal",
+            "type": "AbortSignal",
+            "isOptional": true,
+            "description": "The signal used to cancel the invocation."
+          },
+          {
+            "name": "limits",
+            "type": "RunLimits",
+            "isOptional": true,
+            "description": "Per-run resource limits."
+          },
+          {
+            "name": "continuation",
+            "type": "TOKEN",
+            "isOptional": true,
+            "description": "An opaque continuation token."
+          },
+          {
+            "name": "resolutions",
+            "type": "RunResolution[]",
+            "isOptional": true,
+            "description": "Values that resolve pending interruptions."
+          },
+          {
+            "name": "continuationContext",
+            "type": "unknown",
+            "isOptional": true,
+            "description": "Serializable context authenticated by a continuation and required unchanged when resumed."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunResult<OUTPUT = unknown, TOKEN = unknown>",
+    "type": "RunCompletedResult<OUTPUT> | RunInterruptedResult<TOKEN>",
+    "description": "The result of a sandbox invocation."
+  },
+  {
+    "name": "RunCompletedResult<OUTPUT = unknown>",
+    "type": "interface",
+    "description": "A completed sandbox invocation.",
+    "properties": [
+      {
+        "type": "RunCompletedResult<OUTPUT>",
+        "parameters": [
+          {
+            "name": "status",
+            "type": "'completed'",
+            "description": "The completed status discriminator."
+          },
+          {
+            "name": "value",
+            "type": "OUTPUT",
+            "description": "The value returned by the sandboxed source."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunInterruptedResult<TOKEN = unknown>",
+    "type": "interface",
+    "description": "An interrupted sandbox invocation.",
+    "properties": [
+      {
+        "type": "RunInterruptedResult<TOKEN>",
+        "parameters": [
+          {
+            "name": "status",
+            "type": "'interrupted'",
+            "description": "The interrupted status discriminator."
+          },
+          {
+            "name": "interruptions",
+            "type": "RunInterruption[]",
+            "description": "The pending interruptions."
+          },
+          {
+            "name": "continuation",
+            "type": "TOKEN",
+            "description": "The opaque continuation token."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunInterruption<PAYLOAD = unknown>",
+    "type": "interface",
+    "description": "A pending binding interruption.",
+    "properties": [
+      {
+        "type": "RunInterruption<PAYLOAD>",
+        "parameters": [
+          {
+            "name": "id",
+            "type": "string",
+            "description": "The unique interruption ID."
+          },
+          {
+            "name": "bindingName",
+            "type": "string",
+            "description": "The fully qualified binding path."
+          },
+          {
+            "name": "arguments",
+            "type": "unknown[]",
+            "description": "The complete guest argument list."
+          },
+          {
+            "name": "payload",
+            "type": "PAYLOAD",
+            "description": "The application-defined interruption payload."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunResolution<VALUE = unknown>",
+    "type": "interface",
+    "description": "A resolution supplied for an interruption.",
+    "properties": [
+      {
+        "type": "RunResolution<VALUE>",
+        "parameters": [
+          {
+            "name": "interruptionId",
+            "type": "string",
+            "description": "The ID of the interruption being resolved."
+          },
+          {
+            "name": "value",
+            "type": "VALUE",
+            "description": "The application-defined resolution value."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunLimits",
+    "type": "interface",
+    "description": "Resource limits applied to one sandbox invocation.",
+    "properties": [
+      {
+        "type": "RunLimits",
+        "parameters": [
+          {
+            "name": "timeoutMs",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 30000."
+          },
+          {
+            "name": "memoryLimitBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 67108864."
+          },
+          {
+            "name": "maxStackSizeBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 2097152."
+          },
+          {
+            "name": "maxResultBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 1048576."
+          },
+          {
+            "name": "maxConsoleOutputBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 65536."
+          },
+          {
+            "name": "maxSourceBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 262144."
+          },
+          {
+            "name": "maxBindingArgumentsBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 1048576."
+          },
+          {
+            "name": "maxBindingOutputBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 4194304."
+          },
+          {
+            "name": "maxBridgeRequests",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 256."
+          },
+          {
+            "name": "maxInFlightBridgeRequests",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 32."
+          },
+          {
+            "name": "maxContinuationBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Default: 33554432."
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+### Runner Types
+
+```json
+[
+  {
+    "name": "RunnerOptions<TOKEN = string>",
+    "type": "interface",
+    "description": "Shared defaults used by a runner.",
+    "properties": [
+      {
+        "type": "RunnerOptions<TOKEN>",
+        "parameters": [
+          {
+            "name": "limits",
+            "type": "RunLimits",
+            "isOptional": true,
+            "description": "Shared resource limits."
+          },
+          {
+            "name": "continuationSecret",
+            "type": "string | Uint8Array",
+            "isOptional": true,
+            "description": "The HMAC key used for signed continuations."
+          },
+          {
+            "name": "continuationCodec",
+            "type": "ContinuationCodec<TOKEN>",
+            "isOptional": true,
+            "description": "A custom continuation codec."
+          },
+          {
+            "name": "continuationAudience",
+            "type": "string",
+            "isOptional": true,
+            "description": "The authenticated continuation audience."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "Runner<TOKEN = unknown>",
+    "type": "interface",
+    "description": "A configured JavaScript runner.",
+    "properties": [
+      {
+        "type": "Runner<TOKEN>",
+        "parameters": [
+          {
+            "name": "run",
+            "type": "<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>",
+            "description": "Executes a sandbox invocation."
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+### Binding Types
+
+```json
+[
+  {
+    "name": "BindingFunction<ARGUMENTS extends unknown[] = unknown[], OUTPUT = unknown>",
+    "type": "(...args: ARGUMENTS) => OUTPUT | Promise<OUTPUT>",
+    "description": "A host function made available to sandboxed JavaScript."
+  },
+  {
+    "name": "BindingGroup",
+    "type": "Record<string, BindingFunction<never[], unknown>>",
+    "description": "A named collection of host functions."
+  },
+  {
+    "name": "Bindings",
+    "type": "Record<string, BindingGroup>",
+    "description": "Host function groups installed as guest globals."
+  },
+  {
+    "name": "BindingContext",
+    "type": "interface",
+    "description": "Context supplied to each host binding invocation.",
+    "properties": [
+      {
+        "type": "BindingContext",
+        "parameters": [
+          {
+            "name": "abortSignal",
+            "type": "AbortSignal",
+            "description": "The signal for the active run."
+          },
+          {
+            "name": "invocationId",
+            "type": "string",
+            "description": "The current run attempt identifier."
+          },
+          {
+            "name": "logicalRunId",
+            "type": "string",
+            "description": "The logical run identifier."
+          },
+          {
+            "name": "requestId",
+            "type": "string",
+            "description": "The binding request identifier."
+          },
+          {
+            "name": "requestIndex",
+            "type": "number",
+            "description": "The one-based binding request order."
+          },
+          {
+            "name": "bindingName",
+            "type": "string",
+            "description": "The fully qualified binding path."
+          },
+          {
+            "name": "interrupt",
+            "type": "(payload: unknown) => never",
+            "description": "Interrupts the binding and suspends the run."
+          },
+          {
+            "name": "resume",
+            "type": "BindingResumeContext",
+            "isOptional": true,
+            "description": "Resume data for a replayed interrupted binding."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "BindingResumeContext",
+    "type": "interface",
+    "description": "Resume data for a replayed interrupted binding.",
+    "properties": [
+      {
+        "type": "BindingResumeContext",
+        "parameters": [
+          {
+            "name": "interruptionId",
+            "type": "string",
+            "description": "The interruption ID."
+          },
+          {
+            "name": "payload",
+            "type": "unknown",
+            "description": "The original interruption payload."
+          },
+          {
+            "name": "resolution",
+            "type": "unknown",
+            "description": "The supplied resolution."
+          }
+        ]
+      }
+    ]
+  }
+]
+```
+
+### Continuation Types
+
+```json
+[
+  {
+    "name": "ContinuationCodec<TOKEN = unknown>",
+    "type": "interface",
+    "description": "An encoder and decoder for continuation state.",
+    "properties": [
+      {
+        "type": "ContinuationCodec<TOKEN>",
+        "parameters": [
+          {
+            "name": "encode",
+            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>",
+            "description": "Encodes replay state."
+          },
+          {
+            "name": "decode",
+            "type": "(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
+            "description": "Decodes replay state."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ContinuationOperationContext",
+    "type": "interface",
+    "description": "Context supplied to a continuation codec operation.",
+    "properties": [
+      {
+        "type": "ContinuationOperationContext",
+        "parameters": [
+          {
+            "name": "abortSignal",
+            "type": "AbortSignal",
+            "description": "The operation signal."
+          },
+          {
+            "name": "deadlineMs",
+            "type": "number",
+            "description": "The operation deadline as a Unix timestamp in milliseconds."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "SignedContinuationCodecOptions",
+    "type": "interface",
+    "description": "Options for createSignedContinuationCodec.",
+    "properties": [
+      {
+        "type": "SignedContinuationCodecOptions",
+        "parameters": [
+          {
+            "name": "secret",
+            "type": "string | Uint8Array",
+            "description": "The primary HMAC key."
+          },
+          {
+            "name": "verificationSecrets",
+            "type": "(string | Uint8Array)[]",
+            "isOptional": true,
+            "description": "Previous HMAC keys accepted for verification."
+          },
+          {
+            "name": "maxAgeMs",
+            "type": "number",
+            "isOptional": true,
+            "description": "The maximum token lifetime."
+          },
+          {
+            "name": "maxTokenBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "The maximum token size."
+          },
+          {
+            "name": "clockSkewMs",
+            "type": "number",
+            "isOptional": true,
+            "description": "The allowed positive clock skew."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "ContinuationStorage",
+    "type": "interface",
+    "description": "Storage used by createStoredContinuationCodec.",
+    "properties": [
+      {
+        "type": "ContinuationStorage",
+        "parameters": [
+          {
+            "name": "set",
+            "type": "(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>",
+            "description": "Stores a continuation."
+          },
+          {
+            "name": "take",
+            "type": "(key: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>",
+            "description": "Atomically reads and removes a continuation."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "StoredContinuation",
+    "type": "interface",
+    "description": "A stored continuation value.",
+    "properties": [
+      {
+        "type": "StoredContinuation",
+        "parameters": [
+          {
+            "name": "state",
+            "type": "RunContinuationState",
+            "description": "The replay state."
+          },
+          {
+            "name": "expiresAtMs",
+            "type": "number",
+            "description": "The expiration time as a Unix timestamp in milliseconds."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunContinuationState",
+    "type": "interface",
+    "description": "Serializable replay state passed to a continuation codec.",
+    "properties": [
+      {
+        "type": "RunContinuationState",
+        "parameters": [
+          {
+            "name": "version",
+            "type": "2",
+            "description": "The continuation state version."
+          },
+          {
+            "name": "runtime",
+            "type": "'run-replay-v2'",
+            "description": "The replay runtime identifier."
+          },
+          {
+            "name": "serde",
+            "type": "'run-js-v1'",
+            "description": "The serialization format identifier."
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "description": "The source associated with the continuation."
+          },
+          {
+            "name": "logicalRunId",
+            "type": "string",
+            "description": "The logical run identifier."
+          },
+          {
+            "name": "scopeHash",
+            "type": "string",
+            "description": "The authenticated scope hash."
+          },
+          {
+            "name": "determinism",
+            "type": "{ dateNowMs: number; randomSeed: string }",
+            "description": "The deterministic clock and random seed."
+          },
+          {
+            "name": "ledger",
+            "type": "RunLedgerEntry[]",
+            "description": "The recorded binding outcomes."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "RunLedgerEntry",
+    "type": "fulfilled | rejected | interrupted",
+    "description": "A recorded binding outcome.",
+    "properties": [
+      {
+        "type": "FulfilledRunLedgerEntry",
+        "parameters": [
+          {
+            "name": "bindingName",
+            "type": "string",
+            "description": "The binding path."
+          },
+          {
+            "name": "inputJson",
+            "type": "string",
+            "description": "The serialized binding input."
+          },
+          {
+            "name": "status",
+            "type": "'fulfilled'",
+            "description": "The fulfilled status discriminator."
+          },
+          {
+            "name": "settledOrder",
+            "type": "number",
+            "description": "The settlement order."
+          },
+          {
+            "name": "dateNowMs",
+            "type": "number",
+            "description": "The deterministic clock value."
+          },
+          {
+            "name": "valueJson",
+            "type": "string",
+            "description": "The serialized fulfilled value."
+          }
+        ]
+      },
+      {
+        "type": "RejectedRunLedgerEntry",
+        "parameters": [
+          {
+            "name": "bindingName",
+            "type": "string",
+            "description": "The binding path."
+          },
+          {
+            "name": "inputJson",
+            "type": "string",
+            "description": "The serialized binding input."
+          },
+          {
+            "name": "status",
+            "type": "'rejected'",
+            "description": "The rejected status discriminator."
+          },
+          {
+            "name": "settledOrder",
+            "type": "number",
+            "description": "The settlement order."
+          },
+          {
+            "name": "dateNowMs",
+            "type": "number",
+            "description": "The deterministic clock value."
+          },
+          {
+            "name": "error",
+            "type": "{ name: string; message: string; stack?: string; code?: string; details?: unknown }",
+            "description": "The serialized rejection."
+          }
+        ]
+      },
+      {
+        "type": "InterruptedRunLedgerEntry",
+        "parameters": [
+          {
+            "name": "bindingName",
+            "type": "string",
+            "description": "The binding path."
+          },
+          {
+            "name": "inputJson",
+            "type": "string",
+            "description": "The serialized binding input."
+          },
+          {
+            "name": "status",
+            "type": "'interrupted'",
+            "description": "The interrupted status discriminator."
+          },
+          {
+            "name": "interruptionId",
+            "type": "string",
+            "description": "The interruption ID."
+          },
+          {
+            "name": "payloadJson",
+            "type": "string",
+            "description": "The serialized interruption payload."
+          }
+        ]
+      }
+    ]
+  }
+]
+```

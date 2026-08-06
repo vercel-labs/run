@@ -1,0 +1,166 @@
+---
+title: createStoredContinuationCodec
+description: API Reference for createStoredContinuationCodec.
+---
+
+# `createStoredContinuationCodec()`
+
+Create a single-use, storage-backed string continuation codec.
+
+```ts
+import { createStoredContinuationCodec } from 'run';
+
+const continuationCodec = createStoredContinuationCodec({
+  storage: {
+    set: (key, value) => store.set(key, value),
+    take: key => store.getAndDelete(key),
+  },
+});
+```
+
+## Import
+
+```ts
+import { createStoredContinuationCodec } from 'run';
+```
+
+## API Signature
+
+### Parameters
+
+```json
+[
+  {
+    "name": "storage",
+    "type": "ContinuationStorage",
+    "description": "The storage adapter used to save and atomically consume continuation state.",
+    "properties": [
+      {
+        "type": "ContinuationStorage",
+        "parameters": [
+          {
+            "name": "set",
+            "type": "(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>",
+            "description": "Stores a continuation under the generated key."
+          },
+          {
+            "name": "take",
+            "type": "(key: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>",
+            "description": "Atomically reads and removes a continuation."
+          }
+        ]
+      },
+      {
+        "type": "StoredContinuation",
+        "parameters": [
+          {
+            "name": "state",
+            "type": "RunContinuationState",
+            "description": "The serializable replay state."
+          },
+          {
+            "name": "expiresAtMs",
+            "type": "number",
+            "description": "The expiration time as a Unix timestamp in milliseconds."
+          }
+        ]
+      },
+      {
+        "type": "ContinuationOperationContext",
+        "parameters": [
+          {
+            "name": "abortSignal",
+            "type": "AbortSignal",
+            "description": "The signal for the continuation operation."
+          },
+          {
+            "name": "deadlineMs",
+            "type": "number",
+            "description": "The operation deadline as a Unix timestamp in milliseconds."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "maxAgeMs",
+    "type": "number",
+    "isOptional": true,
+    "description": "The lifetime assigned to stored continuations in milliseconds. Must be a positive integer. Default: 3600000."
+  }
+]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "codec",
+    "type": "ContinuationCodec<string>",
+    "description": "A storage-backed string continuation codec.",
+    "properties": [
+      {
+        "type": "ContinuationCodec<string>",
+        "parameters": [
+          {
+            "name": "encode",
+            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => string | Promise<string>",
+            "description": "Stores replay state and returns a random base64url key."
+          },
+          {
+            "name": "decode",
+            "type": "(key: string, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
+            "description": "Atomically consumes the stored continuation and returns its replay state."
+          }
+        ]
+      },
+      {
+        "type": "RunContinuationState",
+        "parameters": [
+          {
+            "name": "version",
+            "type": "2",
+            "description": "The continuation state version."
+          },
+          {
+            "name": "runtime",
+            "type": "'run-replay-v2'",
+            "description": "The replay runtime identifier."
+          },
+          {
+            "name": "serde",
+            "type": "'run-js-v1'",
+            "description": "The serialization format identifier."
+          },
+          {
+            "name": "source",
+            "type": "string",
+            "description": "The source associated with the continuation."
+          },
+          {
+            "name": "logicalRunId",
+            "type": "string",
+            "description": "The logical run identifier."
+          },
+          {
+            "name": "scopeHash",
+            "type": "string",
+            "description": "The authenticated continuation scope hash."
+          },
+          {
+            "name": "determinism",
+            "type": "{ dateNowMs: number; randomSeed: string }",
+            "description": "The deterministic clock and random seed."
+          },
+          {
+            "name": "ledger",
+            "type": "RunLedgerEntry[]",
+            "description": "The recorded binding outcomes."
+          }
+        ]
+      }
+    ]
+  }
+]
+```

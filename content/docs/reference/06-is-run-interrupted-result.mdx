@@ -1,0 +1,99 @@
+---
+title: isRunInterruptedResult
+description: API Reference for isRunInterruptedResult.
+---
+
+# `isRunInterruptedResult()`
+
+Check whether a value has the shape of an interrupted run result.
+
+```ts
+import { isRunInterruptedResult, run } from 'run';
+
+const result = await run({ source, bindings });
+
+if (isRunInterruptedResult(result)) {
+  await saveContinuation(result.continuation);
+}
+```
+
+## Import
+
+```ts
+import { isRunInterruptedResult } from 'run';
+```
+
+## API Signature
+
+### Parameters
+
+```json
+[
+  {
+    "name": "value",
+    "type": "unknown",
+    "description": "The value to inspect."
+  }
+]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "isInterrupted",
+    "type": "value is RunInterruptedResult<unknown>",
+    "description": "Whether the value has the shape of an interrupted run result.",
+    "properties": [
+      {
+        "type": "RunInterruptedResult<unknown>",
+        "parameters": [
+          {
+            "name": "status",
+            "type": "'interrupted'",
+            "description": "Indicates that execution was interrupted."
+          },
+          {
+            "name": "interruptions",
+            "type": "RunInterruption[]",
+            "description": "The pending interruptions.",
+            "properties": [
+              {
+                "type": "RunInterruption",
+                "parameters": [
+                  {
+                    "name": "id",
+                    "type": "string",
+                    "description": "The unique interruption ID."
+                  },
+                  {
+                    "name": "bindingName",
+                    "type": "string",
+                    "description": "The fully qualified binding path."
+                  },
+                  {
+                    "name": "arguments",
+                    "type": "unknown[]",
+                    "description": "The complete guest argument list."
+                  },
+                  {
+                    "name": "payload",
+                    "type": "unknown",
+                    "description": "The application-defined interruption payload."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "continuation",
+            "type": "unknown",
+            "description": "The opaque continuation token."
+          }
+        ]
+      }
+    ]
+  }
+]
+```

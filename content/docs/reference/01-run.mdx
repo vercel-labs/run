@@ -1,0 +1,285 @@
+---
+title: run
+description: API Reference for run.
+---
+
+# `run()`
+
+Execute JavaScript or type-stripped TypeScript in a fresh, hardened QuickJS
+context.
+
+```ts
+import { run } from 'run';
+
+const result = await run<number>({
+  source: 'return await math.add(20, 22);',
+  bindings: {
+    math: {
+      add: (left: number, right: number) => left + right,
+    },
+  },
+});
+
+if (result.status === 'completed') {
+  console.log(result.value); // 42
+}
+```
+
+## Import
+
+```ts
+import { run } from 'run';
+```
+
+## API Signature
+
+### Type Parameters
+
+```json
+[
+  {
+    "name": "OUTPUT",
+    "type": "unknown",
+    "isOptional": true,
+    "description": "The expected type of a successfully returned value. Default: unknown."
+  }
+]
+```
+
+### Parameters
+
+```json
+[
+  {
+    "name": "source",
+    "type": "string",
+    "description": "JavaScript or type-stripped TypeScript function-body source. Top-level await and return are supported."
+  },
+  {
+    "name": "bindings",
+    "type": "Bindings",
+    "isOptional": true,
+    "description": "Host function groups installed as globals in the sandbox. Default: {}.",
+    "properties": [
+      {
+        "type": "Bindings",
+        "parameters": [
+          {
+            "name": "[groupName]",
+            "type": "BindingGroup",
+            "description": "A named collection of host functions.",
+            "properties": [
+              {
+                "type": "BindingGroup",
+                "parameters": [
+                  {
+                    "name": "[bindingName]",
+                    "type": "(...args: unknown[]) => unknown | Promise<unknown>",
+                    "description": "A host function made available to sandboxed JavaScript."
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "abortSignal",
+    "type": "AbortSignal",
+    "isOptional": true,
+    "description": "An optional signal used to cancel the invocation."
+  },
+  {
+    "name": "limits",
+    "type": "RunLimits",
+    "isOptional": true,
+    "description": "Resource limits for this invocation.",
+    "properties": [
+      {
+        "type": "RunLimits",
+        "parameters": [
+          {
+            "name": "timeoutMs",
+            "type": "number",
+            "isOptional": true,
+            "description": "Invocation timeout in milliseconds. Default: 30000."
+          },
+          {
+            "name": "memoryLimitBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "QuickJS memory limit in bytes. Default: 67108864."
+          },
+          {
+            "name": "maxStackSizeBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "QuickJS stack limit in bytes. Default: 2097152."
+          },
+          {
+            "name": "maxResultBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized result size in bytes. Default: 1048576."
+          },
+          {
+            "name": "maxConsoleOutputBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum console output in bytes. Default: 65536."
+          },
+          {
+            "name": "maxSourceBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum source size in bytes. Default: 262144."
+          },
+          {
+            "name": "maxBindingArgumentsBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized arguments for one binding request in bytes. Default: 1048576."
+          },
+          {
+            "name": "maxBindingOutputBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized binding output or interruption payload in bytes. Default: 4194304."
+          },
+          {
+            "name": "maxBridgeRequests",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum bridge requests in one invocation. Default: 256."
+          },
+          {
+            "name": "maxInFlightBridgeRequests",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum bridge requests in flight at once. Default: 32."
+          },
+          {
+            "name": "maxContinuationBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized continuation state in bytes. Default: 33554432."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "continuation",
+    "type": "string",
+    "isOptional": true,
+    "description": "An opaque continuation token from an interrupted result."
+  },
+  {
+    "name": "resolutions",
+    "type": "RunResolution[]",
+    "isOptional": true,
+    "description": "Values that resolve every interruption in the supplied continuation.",
+    "properties": [
+      {
+        "type": "RunResolution",
+        "parameters": [
+          {
+            "name": "interruptionId",
+            "type": "string",
+            "description": "The ID of the interruption being resolved."
+          },
+          {
+            "name": "value",
+            "type": "unknown",
+            "description": "The application-defined resolution value."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "continuationContext",
+    "type": "unknown",
+    "isOptional": true,
+    "description": "Serializable tenant, principal, or policy context authenticated by a continuation and required unchanged when resumed."
+  }
+]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "result",
+    "type": "Promise<RunCompletedResult<OUTPUT> | RunInterruptedResult<string>>",
+    "description": "The completed or interrupted run result.",
+    "properties": [
+      {
+        "type": "RunCompletedResult<OUTPUT>",
+        "parameters": [
+          {
+            "name": "status",
+            "type": "'completed'",
+            "description": "Indicates that execution completed."
+          },
+          {
+            "name": "value",
+            "type": "OUTPUT",
+            "description": "The value returned by the sandboxed source."
+          }
+        ]
+      },
+      {
+        "type": "RunInterruptedResult<string>",
+        "parameters": [
+          {
+            "name": "status",
+            "type": "'interrupted'",
+            "description": "Indicates that execution was interrupted."
+          },
+          {
+            "name": "interruptions",
+            "type": "RunInterruption[]",
+            "description": "The pending interruptions.",
+            "properties": [
+              {
+                "type": "RunInterruption",
+                "parameters": [
+                  {
+                    "name": "id",
+                    "type": "string",
+                    "description": "The unique interruption ID."
+                  },
+                  {
+                    "name": "bindingName",
+                    "type": "string",
+                    "description": "The fully qualified binding path."
+                  },
+                  {
+                    "name": "arguments",
+                    "type": "unknown[]",
+                    "description": "The complete guest argument list."
+                  },
+                  {
+                    "name": "payload",
+                    "type": "unknown",
+                    "description": "The application-defined interruption payload."
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "name": "continuation",
+            "type": "string",
+            "description": "The opaque continuation token used to resume the run."
+          }
+        ]
+      }
+    ]
+  }
+]
+```

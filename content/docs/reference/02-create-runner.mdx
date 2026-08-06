@@ -1,0 +1,187 @@
+---
+title: createRunner
+description: API Reference for createRunner.
+---
+
+# `createRunner()`
+
+Create a reusable runner with shared resource limits and continuation
+configuration.
+
+```ts
+import { createRunner } from 'run';
+
+const runner = createRunner({
+  limits: { timeoutMs: 10_000 },
+});
+
+const result = await runner.run<number>({
+  source: 'return 6 * 7;',
+});
+```
+
+## Import
+
+```ts
+import { createRunner } from 'run';
+```
+
+## API Signature
+
+### Type Parameters
+
+```json
+[
+  {
+    "name": "TOKEN",
+    "type": "unknown",
+    "isOptional": true,
+    "description": "The token type produced and consumed by the continuation codec. Default: string."
+  }
+]
+```
+
+### Parameters
+
+```json
+[
+  {
+    "name": "limits",
+    "type": "RunLimits",
+    "isOptional": true,
+    "description": "Shared resource limits. Per-run limits override these values.",
+    "properties": [
+      {
+        "type": "RunLimits",
+        "parameters": [
+          {
+            "name": "timeoutMs",
+            "type": "number",
+            "isOptional": true,
+            "description": "Invocation timeout in milliseconds. Default: 30000."
+          },
+          {
+            "name": "memoryLimitBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "QuickJS memory limit in bytes. Default: 67108864."
+          },
+          {
+            "name": "maxStackSizeBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "QuickJS stack limit in bytes. Default: 2097152."
+          },
+          {
+            "name": "maxResultBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized result size in bytes. Default: 1048576."
+          },
+          {
+            "name": "maxConsoleOutputBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum console output in bytes. Default: 65536."
+          },
+          {
+            "name": "maxSourceBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum source size in bytes. Default: 262144."
+          },
+          {
+            "name": "maxBindingArgumentsBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized arguments for one binding request in bytes. Default: 1048576."
+          },
+          {
+            "name": "maxBindingOutputBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized binding output or interruption payload in bytes. Default: 4194304."
+          },
+          {
+            "name": "maxBridgeRequests",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum bridge requests in one invocation. Default: 256."
+          },
+          {
+            "name": "maxInFlightBridgeRequests",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum bridge requests in flight at once. Default: 32."
+          },
+          {
+            "name": "maxContinuationBytes",
+            "type": "number",
+            "isOptional": true,
+            "description": "Maximum serialized continuation state in bytes. Default: 33554432."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "continuationSecret",
+    "type": "string | Uint8Array",
+    "isOptional": true,
+    "description": "The HMAC key used by the default signed continuation codec. Must contain at least 32 bytes. Defaults to RUN_CONTINUATION_SECRET. Cannot be combined with continuationCodec."
+  },
+  {
+    "name": "continuationCodec",
+    "type": "ContinuationCodec<TOKEN>",
+    "isOptional": true,
+    "description": "A custom continuation encoder and decoder. Cannot be combined with continuationSecret.",
+    "properties": [
+      {
+        "type": "ContinuationCodec<TOKEN>",
+        "parameters": [
+          {
+            "name": "encode",
+            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>",
+            "description": "Encodes replay state into a continuation token."
+          },
+          {
+            "name": "decode",
+            "type": "(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
+            "description": "Decodes a continuation token into replay state."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "continuationAudience",
+    "type": "string",
+    "isOptional": true,
+    "description": "The authenticated application or endpoint audience for every continuation. Must contain between 1 and 512 bytes. Default: 'run'."
+  }
+]
+```
+
+### Returns
+
+```json
+[
+  {
+    "name": "runner",
+    "type": "Runner<TOKEN>",
+    "description": "A reusable configured runner.",
+    "properties": [
+      {
+        "type": "Runner<TOKEN>",
+        "parameters": [
+          {
+            "name": "run",
+            "type": "<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>",
+            "description": "Executes source in a fresh sandbox using the runner defaults."
+          }
+        ]
+      }
+    ]
+  }
+]
+```
