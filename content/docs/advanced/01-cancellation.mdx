@@ -1,0 +1,152 @@
+---
+title: Cancellation
+description: Stop an active run and propagate cancellation to host bindings.
+---
+
+# Cancellation
+
+Cancellation lets the host stop work that is no longer needed. This is useful
+when a client disconnects, a user cancels an operation, or a parent request
+ends before the sandbox has returned a result.
+
+## Concept
+
+`run` uses the standard `AbortSignal` API. The host creates an
+`AbortController` and passes its signal to `run()` or `runner.run()`. Calling
+`abort()` rejects the invocation with `RunAbortedError`.
+
+The same cancellation state is exposed to every active binding through
+`getBindingContext().abortSignal`. A binding must pass that signal to its own
+cancellable operations. The runtime cannot automatically stop a database
+query, HTTP request, or application task that ignores the signal.
+
+Cancellation stops the current invocation. It does not reverse a host side
+effect that already completed.
+
+## Implementation
+
+Create an `AbortController`, pass its signal to the run, and retain the
+controller for the lifetime of the host request:
+
+```ts
+import { run } from 'run';
+
+const controller = new AbortController();
+
+const resultPromise = run({
+  source: `
+    const result = await search.query("cancellation");
+    return result;
+  `,
+  bindings,
+  abortSignal: controller.signal,
+});
+
+// Call this when the host request is cancelled.
+controller.abort();
+```
+
+Bindings should propagate the signal returned by `getBindingContext()`:
+
+```ts
+import { getBindingContext } from 'run';
+
+const bindings = {
+  search: {
+    query: async (query: string) => {
+      const { abortSignal } = getBindingContext();
+      const response = await fetch(
+        `https://api.example.com/search?q=${encodeURIComponent(query)}`,
+        { signal: abortSignal },
+      );
+
+      return response.json();
+    },
+  },
+};
+```
+
+The `fetch()` call runs in the host, not in the sandbox. When the run is
+cancelled, the binding receives the abort event and the request can stop
+without waiting for the remote server.
+
+Handle cancellation by checking the stable package error code:
+
+```ts
+import { RunError } from 'run';
+
+try {
+  const result = await resultPromise;
+  // Handle the completed or interrupted result.
+} catch (error) {
+  if (RunError.isInstance(error) && error.code === 'RUN_ABORTED') {
+    // The caller intentionally cancelled this invocation.
+  } else {
+    throw error;
+  }
+}
+```
+
+## Requests
+
+In a server handler, connect the request signal to the run signal so that work
+stops when the request is abandoned. This example assumes the source does not
+use interruptions:
+
+```ts
+export async function POST(request: Request) {
+  const result = await run({
+    source,
+    bindings,
+    abortSignal: request.signal,
+  });
+
+  return Response.json(result);
+}
+```
+
+If an application combines several cancellation sources, it can use
+`AbortSignal.any()`:
+
+```ts
+const signal = AbortSignal.any([request.signal, applicationShutdown.signal]);
+
+const result = await run({
+  source,
+  bindings,
+  abortSignal: signal,
+});
+```
+
+## Timeouts
+
+Cancellation and timeouts both stop an invocation, but they report different
+errors. An explicit abort produces `RUN_ABORTED`, while exceeding `timeoutMs`
+produces `RUN_TIMEOUT`.
+
+The timeout covers guest execution, binding work, and continuation operations.
+Both outcomes abort the signal exposed to active bindings.
+
+Use `timeoutMs` as the runtime budget and an abort signal for lifecycle events
+such as client disconnects and application shutdown:
+
+```ts
+const result = await run({
+  source,
+  bindings,
+  abortSignal: request.signal,
+  limits: {
+    timeoutMs: 10_000,
+  },
+});
+```
+
+## Side effects
+
+An aborted binding may have completed external work before it observed
+cancellation. For example, a payment may be accepted immediately before the
+signal is aborted.
+
+Bindings that perform writes should use idempotency keys or application-level
+transactions. Cancellation is a way to stop unnecessary work, not a rollback
+mechanism.

@@ -1,0 +1,247 @@
+---
+title: Continuations
+description: Implement interrupt-and-resume flows and protect their replay state.
+---
+
+# Continuations
+
+A continuation lets the host stop an invocation at an interruption and resume
+the same logical run later. It is useful for approvals, authentication, and
+other decisions that happen outside the sandbox.
+
+## Concept
+
+An interruption does not leave a worker suspended. The invocation ends and
+returns a continuation token. When the host supplies that token and a
+resolution, `run` starts a new invocation and replays the source.
+
+Continuations do not turn `run` into a complete durable execution system. The
+host application remains responsible for storing tokens, collecting decisions,
+scheduling resumed work, authorizing callers, and handling retries.
+
+## Configuration
+
+The simplest production configuration uses a shared signing secret:
+
+```ts
+import { createRunner } from 'run';
+
+const runner = createRunner({
+  continuationSecret: process.env.RUN_CONTINUATION_SECRET!,
+  continuationAudience: 'message-approval-v1',
+});
+```
+
+The secret must contain at least 32 bytes. Every process that can create or
+resume a continuation must use the same secret and audience.
+
+The convenience `run()` function reads `RUN_CONTINUATION_SECRET`
+automatically. Continuation configuration is not needed for an invocation that
+completes without interruption, but a secret or codec must be available before
+a run can interrupt or resume.
+
+## Implementation
+
+First, define a binding that interrupts before performing an action:
+
+```ts
+import { getBindingContext } from 'run';
+
+const bindings = {
+  messages: {
+    send: async (recipient: string, body: string) => {
+      const context = getBindingContext();
+
+      if (context.resume === undefined) {
+        context.interrupt({
+          kind: 'approval',
+          recipient,
+          body,
+        });
+      }
+
+      if (context.resume.resolution !== true) {
+        return { sent: false };
+      }
+
+      await messageService.send({ recipient, body });
+      return { sent: true };
+    },
+  },
+};
+```
+
+`context.interrupt()` uses an internal throw to leave the binding. Do not catch
+it inside the binding.
+
+Next, start the run and handle the interrupted result:
+
+```ts
+const input = {
+  source: `
+    return await messages.send(
+      "ada@example.com",
+      "The report is ready."
+    );
+  `,
+  bindings,
+  continuationContext: {
+    tenantId: 'tenant_123',
+    userId: 'user_456',
+  },
+};
+
+const result = await runner.run(input);
+
+if (result.status === 'interrupted') {
+  await approvalStore.create({
+    id: 'approval_789',
+    continuation: result.continuation,
+    interruptions: result.interruptions,
+    tenantId: 'tenant_123',
+    userId: 'user_456',
+  });
+}
+```
+
+The host presents the interruption payload to an authorized actor. When a
+decision is available, load the same token and resume with a resolution for
+every interruption:
+
+```ts
+const approval = await approvalStore.get('approval_789');
+
+const resumed = await runner.run({
+  ...input,
+  continuation: approval.continuation,
+  resolutions: approval.interruptions.map(interruption => ({
+    interruptionId: interruption.id,
+    value: true,
+  })),
+});
+
+if (resumed.status === 'completed') {
+  console.log(resumed.value);
+}
+```
+
+The original source, binding names, audience, and continuation context must
+match when the run resumes. A mismatch rejects the continuation before the
+interrupted binding is invoked.
+
+Binding implementations are not compared. Deployments must preserve compatible
+behavior for interrupted bindings while old continuations remain valid.
+
+Several bindings can interrupt during the same invocation. The result contains
+the complete batch, and the host must resolve every interruption in that batch
+together. Replay may later reach another batch of interruptions.
+
+## Signing
+
+Signed continuations are self-contained tokens protected with HMAC. The
+signature prevents modification, but the token is not encrypted. Source,
+binding arguments, results, errors, and interruption payloads may be visible to
+anyone who receives it.
+
+Use `createSignedContinuationCodec()` when the application needs custom
+expiration or signing-key rotation:
+
+```ts
+import { createRunner, createSignedContinuationCodec } from 'run';
+
+const runner = createRunner({
+  continuationAudience: 'message-approval-v1',
+  continuationCodec: createSignedContinuationCodec({
+    secret: process.env.RUN_CONTINUATION_SECRET_CURRENT!,
+    verificationSecrets: [process.env.RUN_CONTINUATION_SECRET_PREVIOUS!],
+    maxAgeMs: 15 * 60 * 1000,
+  }),
+});
+```
+
+New tokens are signed with `secret`. Values in `verificationSecrets` are used
+only to verify older tokens during a key rotation.
+
+Signed tokens expire after one hour by default. They can be replayed until they
+expire, so the host must still prevent a decision from being submitted more
+times than the application permits.
+
+## Storage
+
+Use `createStoredContinuationCodec()` when replay state should remain in
+host-controlled storage or a continuation should be consumed at most once. The
+token returned to the caller is a random storage key rather than the complete
+signed state.
+
+```ts
+import {
+  createRunner,
+  createStoredContinuationCodec,
+  type ContinuationStorage,
+} from 'run';
+
+const storage: ContinuationStorage = {
+  async set(key, value, context) {
+    await continuationStore.set(key, value, {
+      deadlineMs: context?.deadlineMs,
+      signal: context?.abortSignal,
+    });
+  },
+  async take(key, context) {
+    return continuationStore.take(key, {
+      deadlineMs: context?.deadlineMs,
+      signal: context?.abortSignal,
+    });
+  },
+};
+
+const runner = createRunner({
+  continuationAudience: 'message-approval-v1',
+  continuationCodec: createStoredContinuationCodec({
+    storage,
+    maxAgeMs: 15 * 60 * 1000,
+  }),
+});
+```
+
+`take()` must atomically read and remove the stored value. A normal read
+followed by a separate delete can allow two processes to consume the same
+continuation.
+
+The codec consumes the stored value before later replay validation. If replay
+then fails because the source, bindings, context, or resolutions changed, that
+token has already been used.
+
+Storage implementations should honor the supplied abort signal and operation
+deadline.
+
+## Scope
+
+Use `continuationAudience` to separate applications or resume endpoints. Use
+`continuationContext` to bind a logical run to serializable tenant, principal,
+or policy information:
+
+```ts
+const continuationContext = {
+  tenantId,
+  userId,
+  policyVersion,
+};
+
+const result = await runner.run({
+  source,
+  bindings,
+  continuationContext,
+});
+```
+
+Pass the same context when resuming. A mismatch is rejected before replayed
+results are returned.
+
+Scope validation does not authorize the person submitting a resolution. The
+resume endpoint must authenticate the caller and verify that the caller may
+approve the requested action.
+
+Treat every continuation token as a bearer capability. Store it behind access
+controls, transmit it over an authenticated channel, and do not write the raw
+token to logs.

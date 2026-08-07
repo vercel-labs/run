@@ -1,0 +1,24 @@
+---
+title: Advanced
+description: Build production-ready execution flows with cancellation, limits, concurrency, continuations, and replay.
+---
+
+# Advanced
+
+This section explains the controls needed when `run` becomes part of a
+long-running service, approval flow, or multi-user application.
+
+Each guide begins with the concept being introduced and then shows how to
+implement it:
+
+1. [Cancellation](./cancellation) explains how the host can stop a run and how
+   active bindings receive the same cancellation signal.
+2. [Limits](./limits) explains how to set resource budgets for source,
+   execution, binding traffic, and results.
+3. [Concurrency](./concurrency) explains parallel binding calls, the
+   process-wide worker pool, and admission control.
+4. [Continuations](./continuations) explains how to implement an
+   interrupt-and-resume flow and choose how continuation state is protected.
+
+These guides focus on implementation patterns. For exact function signatures,
+options, return types, and errors, use the [API Reference](../reference/).
