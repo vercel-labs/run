@@ -1,0 +1,135 @@
+---
+title: Concurrency
+description: Control parallel binding calls and simultaneous sandbox invocations.
+---
+
+# Concurrency
+
+Concurrency appears at two different levels in `run`. Guest source can call
+several bindings at once, and the host process can execute several sandbox
+invocations at once.
+
+These levels use different limits and should be configured independently.
+
+## Concept
+
+A binding call is a request from the guest to the host. Guest source can create
+parallel binding requests with `Promise.all()`. The
+`maxInFlightBridgeRequests` limit controls how many of those requests may
+remain active at once.
+
+Each active sandbox invocation occupies one worker from the process-wide worker
+pool. The worker cap controls how many invocations may execute simultaneously
+across every runner in the process.
+
+`run` does not maintain an unbounded waiting queue. When the worker cap is
+reached, a new invocation rejects with `RunConcurrencyError`.
+
+## Bindings
+
+Use parallel binding calls when the operations are independent:
+
+```ts
+const result = await run({
+  source: `
+    const [profile, orders] = await Promise.all([
+      users.getProfile("user_123"),
+      orders.listForUser("user_123"),
+    ]);
+
+    return { profile, orders };
+  `,
+  bindings,
+  limits: {
+    maxInFlightBridgeRequests: 8,
+  },
+});
+```
+
+Both bindings execute in the host. The guest waits until both have settled
+before returning.
+
+The default in-flight limit is 32, and the default total binding-call limit is 256. Exceeding either limit rejects the invocation with
+`RUN_BRIDGE_LIMIT`.
+
+Lower the in-flight limit when bindings use a constrained dependency such as a
+database connection pool. The binding limit should not exceed the capacity
+that the host service can safely absorb.
+
+## Workers
+
+The default worker cap adapts to available process memory. It admits at least
+one invocation and caps the dynamic default at 32 active workers.
+
+Use `setMaxWorkers()` when the application needs an explicit process-wide cap:
+
+```ts
+import { setMaxWorkers } from 'run';
+
+// Configure this once during process startup.
+setMaxWorkers(8);
+```
+
+The cap applies to every `run()` call and every runner in the process. It is
+not scoped to the module or runner that called `setMaxWorkers()`.
+
+Calling the function without a value restores the dynamic memory-based
+default:
+
+```ts
+setMaxWorkers();
+```
+
+Choose the cap with both QuickJS memory and worker overhead in mind. A worker
+can consume more memory than the configured guest `memoryLimitBytes`, so the
+guest memory limit should not be treated as the total cost of an invocation.
+
+## Admission
+
+Applications should decide what happens when all workers are busy. An HTTP
+service can reject the request with backpressure:
+
+```ts
+import { RunError } from 'run';
+
+try {
+  const result = await runner.run({ source, bindings });
+  return Response.json(result);
+} catch (error) {
+  if (RunError.isInstance(error) && error.code === 'RUN_CONCURRENCY_LIMIT') {
+    return new Response('Runtime is busy.', {
+      status: 503,
+      headers: {
+        'Retry-After': '1',
+      },
+    });
+  }
+
+  throw error;
+}
+```
+
+A background system can instead place work in its existing durable job queue
+before calling the runner. The queue should live in the host application;
+`run` intentionally does not retain pending invocations.
+
+Avoid immediate retry loops around `RUN_CONCURRENCY_LIMIT`. They add load
+without creating capacity. Apply backoff, return backpressure, or enqueue the
+work through an application-controlled scheduler.
+
+## Capacity
+
+Binding concurrency and worker concurrency multiply each other. Eight active
+workers with an in-flight binding limit of eight can produce up to 64
+simultaneous host operations.
+
+Set both values from the capacity of downstream services, then measure:
+
+- Track active invocations and concurrency-limit failures.
+- Track active binding calls and their latency.
+- Track process memory under representative source and result sizes.
+- Reduce concurrency before increasing memory limits when the process is under
+  memory pressure.
+
+Concurrency improves throughput only while the host and its dependencies have
+capacity. Higher values can otherwise increase latency and failure rates.

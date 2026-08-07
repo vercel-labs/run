@@ -1,0 +1,174 @@
+---
+title: Limits
+description: Set resource budgets for sandbox execution and host binding traffic.
+---
+
+# Limits
+
+Limits bound the time, memory, data, and host interaction available to one
+invocation. They protect the host from accidental overuse and from source that
+tries to consume unbounded resources.
+
+## Concept
+
+Every invocation has a `RunLimits` budget. The budget applies to the complete
+invocation, including guest execution, binding calls, result serialization, and
+continuation operations.
+
+The package provides defaults, but production applications should choose
+budgets that match their workloads. A short data transformation and a coding
+agent should not necessarily receive the same limits.
+
+## Defaults
+
+The available limits are:
+
+- `timeoutMs` allows 30 seconds for the complete invocation by default.
+- `memoryLimitBytes` allows 64 MiB of QuickJS memory by default.
+- `maxStackSizeBytes` allows a 2 MiB QuickJS stack by default.
+- `maxSourceBytes` accepts up to 256 KiB of UTF-8 source by default.
+- `maxResultBytes` accepts up to 1 MiB of serialized result data by default.
+- `maxConsoleOutputBytes` accepts up to 64 KiB of guest console output by
+  default.
+- `maxBindingArgumentsBytes` accepts up to 1 MiB of serialized arguments for
+  one binding call by default.
+- `maxBindingOutputBytes` accepts up to 4 MiB of serialized binding output or
+  interruption payload by default.
+- `maxBridgeRequests` allows 256 total binding calls in one invocation by
+  default.
+- `maxInFlightBridgeRequests` allows 32 binding calls to be active at once by
+  default.
+- `maxContinuationBytes` accepts up to 32 MiB of serialized continuation state
+  by default.
+
+Every configured value must be a positive integer.
+
+## Implementation
+
+Use `createRunner()` when several invocations should share the same policy:
+
+```ts
+import { createRunner } from 'run';
+
+const MiB = 1024 * 1024;
+
+const runner = createRunner({
+  limits: {
+    timeoutMs: 15_000,
+    memoryLimitBytes: 32 * MiB,
+    maxStackSizeBytes: 1024 * 1024,
+    maxSourceBytes: 128 * 1024,
+    maxResultBytes: 512 * 1024,
+    maxConsoleOutputBytes: 32 * 1024,
+    maxBindingArgumentsBytes: 256 * 1024,
+    maxBindingOutputBytes: MiB,
+    maxBridgeRequests: 100,
+    maxInFlightBridgeRequests: 8,
+    maxContinuationBytes: 8 * MiB,
+  },
+});
+```
+
+Every `runner.run()` call inherits these values:
+
+```ts
+const result = await runner.run({
+  source,
+  bindings,
+});
+```
+
+An individual invocation can override only the values that need to change:
+
+```ts
+const result = await runner.run({
+  source,
+  bindings,
+  limits: {
+    timeoutMs: 5_000,
+    maxResultBytes: 128 * 1024,
+  },
+});
+```
+
+The five-second timeout and 128 KiB result budget replace the runner defaults
+for this invocation. Every other limit continues to come from the runner.
+
+The convenience `run()` function also accepts per-invocation limits:
+
+```ts
+import { run } from 'run';
+
+const result = await run({
+  source,
+  bindings,
+  limits: {
+    timeoutMs: 5_000,
+    memoryLimitBytes: 32 * 1024 * 1024,
+  },
+});
+```
+
+## Selection
+
+Start with the defaults and measure representative workloads before changing
+them. Lower a limit when the workload has a predictable shape, and raise it
+only when the application is prepared to absorb the additional resource use.
+
+Source, argument, output, result, and continuation limits are measured after
+their relevant UTF-8 encoding or serialization step. A JavaScript object that
+appears small can have a much larger serialized representation.
+
+Memory and worker concurrency should be planned together. Raising
+`memoryLimitBytes` increases the maximum memory available to every active
+worker, which may reduce the number of invocations a process can safely run at
+once.
+
+`maxBridgeRequests` controls total host interaction, while
+`maxInFlightBridgeRequests` controls parallel host interaction. Lowering the
+in-flight limit can protect a database or external service even when the total
+number of binding calls remains unchanged.
+
+## Failures
+
+Limit violations reject the invocation. The most relevant stable codes are:
+
+- `RUN_TIMEOUT` indicates that the invocation exceeded `timeoutMs`.
+- `RUN_SOURCE_TOO_LARGE` indicates that the source exceeded
+  `maxSourceBytes`.
+- `RUN_BRIDGE_LIMIT` indicates that total or in-flight binding traffic exceeded
+  its configured limit.
+- `RUN_BINDING_ERROR` can indicate that binding arguments exceeded the host
+  boundary or that a binding request was otherwise invalid.
+- `RUN_SERIALIZATION_ERROR` indicates that a transferred value was not
+  serializable or exceeded another serialization boundary.
+- `RUN_PROTOCOL_ERROR` can indicate that continuation state or a continuation
+  token exceeded `maxContinuationBytes`.
+
+QuickJS memory and stack exhaustion do not have dedicated stable error codes.
+Treat their failures as runtime failures, monitor them, and adjust the budget
+only after confirming that the source is behaving as expected.
+
+Use `RunError.isInstance()` and inspect `error.code` when the application needs
+different responses:
+
+```ts
+import { RunError } from 'run';
+
+try {
+  await runner.run({ source, bindings });
+} catch (error) {
+  if (RunError.isInstance(error)) {
+    console.error('Run failed', {
+      code: error.code,
+      details: error.details,
+    });
+  }
+
+  throw error;
+}
+```
+
+Do not automatically retry a limit violation with a larger budget. First
+determine whether the source is behaving as expected and whether host side
+effects are safe to repeat.
