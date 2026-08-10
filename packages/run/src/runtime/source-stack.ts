@@ -10,7 +10,7 @@ const escapeControlCharacters = (value: string): string =>
   value.replace(CONTROL_CHARACTERS, character =>
     character === '\t'
       ? '\t'
-      : `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`,
+      : `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
   );
 
 /**
