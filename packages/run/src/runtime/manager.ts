@@ -308,38 +308,43 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
   if (input.abortSignal?.aborted) {
     throw new RunAbortedError();
   }
-  assertSourceSize(input.source, normalizedOptions.maxSourceBytes);
-  const scopeHash = createContinuationScopeHash(input, normalizedOptions);
-  const continuationState = await readContinuation(
-    input,
-    normalizedOptions,
-    deadlineMs,
-    scopeHash,
-  );
-  const normalizedResolutions = (input.resolutions ?? []).map(resolution => ({
-    interruptionId: resolution.interruptionId,
-    value: toJsonPayload(
-      resolution.value,
-      normalizedOptions.maxBindingOutputBytes,
-      `Resolution "${resolution.interruptionId}"`,
-    ),
-  }));
-  if (input.abortSignal?.aborted) {
-    throw new RunAbortedError();
-  }
-  const workerOptions = {
-    ...normalizedOptions,
-    timeoutMs: Math.max(1, deadlineMs - Date.now()),
-  };
   const maxWorkers = getMaxWorkers({
     activeWorkers: activeInvocations,
-    memoryLimitBytes: workerOptions.memoryLimitBytes,
+    memoryLimitBytes: normalizedOptions.memoryLimitBytes,
   });
   if (activeInvocations >= maxWorkers) {
     throw new RunConcurrencyError(maxWorkers);
   }
   activeInvocations += 1;
   try {
+    assertSourceSize(input.source, normalizedOptions.maxSourceBytes);
+    const transformedSource = transformSource(input.source);
+    const scopeHash = createContinuationScopeHash(
+      input,
+      normalizedOptions,
+      transformedSource,
+    );
+    const continuationState = await readContinuation(
+      input,
+      normalizedOptions,
+      deadlineMs,
+      scopeHash,
+    );
+    const normalizedResolutions = (input.resolutions ?? []).map(resolution => ({
+      interruptionId: resolution.interruptionId,
+      value: toJsonPayload(
+        resolution.value,
+        normalizedOptions.maxBindingOutputBytes,
+        `Resolution "${resolution.interruptionId}"`,
+      ),
+    }));
+    if (input.abortSignal?.aborted) {
+      throw new RunAbortedError();
+    }
+    const workerOptions = {
+      ...normalizedOptions,
+      timeoutMs: Math.max(1, deadlineMs - Date.now()),
+    };
     const run = startWorkerRun({
       ...input,
       ...(continuationState === undefined ? {} : { continuationState }),
@@ -349,7 +354,7 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
       originalSource: input.source,
       resolutions: normalizedResolutions,
       scopeHash,
-      source: transformSource(input.source),
+      source: transformedSource,
       timeoutErrorMs: normalizedOptions.timeoutMs,
     });
     return await run.result;
@@ -1132,6 +1137,7 @@ function startWorkerRun({
 function createContinuationScopeHash(
   input: InternalRunInput,
   options: NormalizedRunOptions,
+  transformedSource: string,
 ): string {
   const continuationContext = normalizeJsonPayload(
     input.continuationContext,
@@ -1154,7 +1160,7 @@ function createContinuationScopeHash(
           bindingManifest,
           continuationContext,
           transformedSourceHash: createHash('sha256')
-            .update(transformSource(input.source))
+            .update(transformedSource)
             .digest('hex'),
         },
         Number.MAX_SAFE_INTEGER,
