@@ -7,6 +7,8 @@
     "build:packages": "turbo build --filter=run",
     "changeset": "changeset",
     "check": "pnpm --filter run check && oxfmt --check content/docs",
+    "ci:release": "pnpm build:packages && changeset publish",
+    "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
     "fix": "pnpm --filter run fix && oxfmt content/docs",
     "test": "pnpm --filter run test",
     "type-check": "pnpm --filter run type-check"
