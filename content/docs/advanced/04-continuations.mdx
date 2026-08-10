@@ -187,11 +187,19 @@ const storage: ContinuationStorage = {
       signal: context?.abortSignal,
     });
   },
-  async take(key, context) {
-    return continuationStore.take(key, {
+  async acquire(key, claimId, context) {
+    return continuationStore.claim(key, {
+      claimId,
+      claimMs: 30_000,
       deadlineMs: context?.deadlineMs,
       signal: context?.abortSignal,
     });
+  },
+  async consume(key, claimId) {
+    await continuationStore.deleteIfClaimedBy(key, claimId);
+  },
+  async release(key, claimId) {
+    await continuationStore.releaseIfClaimedBy(key, claimId);
   },
 };
 
@@ -204,16 +212,25 @@ const runner = createRunner({
 });
 ```
 
-`take()` must atomically read and remove the stored value. A normal read
-followed by a separate delete can allow two processes to consume the same
-continuation.
+These methods implement a temporary claim. `acquire()` must atomically allow
+only one caller to claim a continuation without deleting it. `consume()` and
+`release()` must only modify a record when the supplied claim identifier
+matches its current claim.
 
-The codec consumes the stored value before later replay validation. If replay
-then fails because the source, bindings, context, or resolutions changed, that
-token has already been used.
+The codec manages this lifecycle automatically:
+
+1. It calls `acquire()` before decoding.
+2. It calls `release()` when decoding is cancelled or replay validation fails.
+3. It calls `consume()` after replay validation succeeds, before the worker
+   resumes execution.
+
+Claims must expire automatically after a bounded interval. If the host process
+crashes before cleanup, expiry makes the continuation available for another
+attempt instead of leaving it permanently unavailable.
 
 Storage implementations should honor the supplied abort signal and operation
-deadline.
+deadline during `set()` and `acquire()`. Cleanup operations intentionally do not
+receive the aborted context.
 
 ## Scope
 

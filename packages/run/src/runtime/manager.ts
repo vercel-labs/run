@@ -38,6 +38,7 @@ import type {
   InternalRunInput,
   NormalizedRunOptions,
   RunContinuationState,
+  ContinuationDecodeTransaction,
   RunDeterminismState,
   RunInterruptedResult,
   RunLedgerEntry,
@@ -118,13 +119,29 @@ async function readContinuation(
   }
   assertContinuationTokenSize(input.continuation, options.maxContinuationBytes);
   let state: unknown;
+  let transaction: ContinuationDecodeTransaction | undefined;
   try {
-    state = await raceContinuationOperation(
-      context => input.continuationCodec.decode(input.continuation, context),
-      input.abortSignal,
-      deadlineMs,
-      options.timeoutMs,
-    );
+    if (input.continuationCodec.decodeTransaction === undefined) {
+      state = await raceContinuationOperation(
+        context => input.continuationCodec.decode(input.continuation, context),
+        input.abortSignal,
+        deadlineMs,
+        options.timeoutMs,
+      );
+    } else {
+      transaction = await raceContinuationOperation(
+        context =>
+          input.continuationCodec.decodeTransaction?.(
+            input.continuation,
+            context,
+          ) as Promise<ContinuationDecodeTransaction>,
+        input.abortSignal,
+        deadlineMs,
+        options.timeoutMs,
+        discarded => discarded.rollback(),
+      );
+      state = transaction.state;
+    }
   } catch (error) {
     if (RunError.isInstance(error)) {
       throw error;
@@ -133,44 +150,62 @@ async function readContinuation(
       cause: error instanceof Error ? error.message : String(error),
     });
   }
-  assertContinuationState(state, input.source, scopeHash, options);
-  const pendingIds = new Set(
-    state.ledger
-      .filter(entry => entry.status === 'interrupted')
-      .map(entry => entry.interruptionId),
-  );
-  const seen = new Set<string>();
-  for (const resolution of input.resolutions ?? []) {
-    if (
-      !isPlainRecord(resolution) ||
-      !hasExactOwnKeys(resolution, ['interruptionId', 'value'])
-    ) {
-      throw new RunProtocolError('An interruption resolution is malformed.');
+  let commitStarted = false;
+  try {
+    assertContinuationState(state, input.source, scopeHash, options);
+    const pendingIds = new Set(
+      state.ledger
+        .filter(entry => entry.status === 'interrupted')
+        .map(entry => entry.interruptionId),
+    );
+    const seen = new Set<string>();
+    for (const resolution of input.resolutions ?? []) {
+      if (
+        !isPlainRecord(resolution) ||
+        !hasExactOwnKeys(resolution, ['interruptionId', 'value'])
+      ) {
+        throw new RunProtocolError('An interruption resolution is malformed.');
+      }
+      if (
+        typeof resolution.interruptionId !== 'string' ||
+        !pendingIds.has(resolution.interruptionId) ||
+        seen.has(resolution.interruptionId)
+      ) {
+        throw new RunProtocolError(
+          'A resolution does not match exactly one pending interruption.',
+          { interruptionId: resolution.interruptionId },
+        );
+      }
+      toJsonPayload(
+        resolution.value,
+        options.maxBindingOutputBytes,
+        `Resolution "${resolution.interruptionId}"`,
+      );
+      seen.add(resolution.interruptionId);
     }
-    if (
-      typeof resolution.interruptionId !== 'string' ||
-      !pendingIds.has(resolution.interruptionId) ||
-      seen.has(resolution.interruptionId)
-    ) {
+    if (pendingIds.size === 0 || seen.size !== pendingIds.size) {
       throw new RunProtocolError(
-        'A resolution does not match exactly one pending interruption.',
-        { interruptionId: resolution.interruptionId },
+        'A continuation requires exactly one resolution for every pending interruption.',
+        { pending: pendingIds.size, received: seen.size },
       );
     }
-    toJsonPayload(
-      resolution.value,
-      options.maxBindingOutputBytes,
-      `Resolution "${resolution.interruptionId}"`,
-    );
-    seen.add(resolution.interruptionId);
+    if (transaction !== undefined) {
+      if (input.abortSignal?.aborted) {
+        throw new RunAbortedError();
+      }
+      if (Date.now() >= deadlineMs) {
+        throw new RunTimeoutError(options.timeoutMs);
+      }
+      commitStarted = true;
+      await transaction.commit();
+    }
+    return state;
+  } catch (error) {
+    if (transaction !== undefined && !commitStarted) {
+      await transaction.rollback();
+    }
+    throw error;
   }
-  if (pendingIds.size === 0 || seen.size !== pendingIds.size) {
-    throw new RunProtocolError(
-      'A continuation requires exactly one resolution for every pending interruption.',
-      { pending: pendingIds.size, received: seen.size },
-    );
-  }
-  return state;
 }
 
 async function raceContinuationOperation<T>(
@@ -178,6 +213,7 @@ async function raceContinuationOperation<T>(
   abortSignal: AbortSignal | undefined,
   deadlineMs: number,
   timeoutMs: number,
+  onDiscardedResult?: (result: T) => void | Promise<void>,
 ): Promise<T> {
   if (abortSignal?.aborted) {
     throw new RunAbortedError();
@@ -195,17 +231,30 @@ async function raceContinuationOperation<T>(
     operationAbortController.abort(new RunTimeoutError(timeoutMs));
     timedOut.reject(new RunTimeoutError(timeoutMs));
   }, remainingMs);
+  const operationPromise = Promise.resolve().then(() =>
+    operation({
+      abortSignal: operationAbortController.signal,
+      deadlineMs,
+    }),
+  );
   try {
     return await Promise.race([
-      Promise.resolve().then(() =>
-        operation({
-          abortSignal: operationAbortController.signal,
-          deadlineMs,
-        }),
-      ),
+      operationPromise,
       aborted.promise,
       timedOut.promise,
     ]);
+  } catch (error) {
+    if (
+      operationAbortController.signal.aborted &&
+      onDiscardedResult !== undefined
+    ) {
+      void operationPromise
+        .then(result => onDiscardedResult(result))
+        .catch(() => {
+          // Storage leases recover abandoned claims if asynchronous cleanup fails.
+        });
+    }
+    throw error;
   } finally {
     clearTimeout(timeoutHandle);
     abortSignal?.removeEventListener('abort', rejectOnAbort);

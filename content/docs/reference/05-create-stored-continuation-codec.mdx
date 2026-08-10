@@ -13,10 +13,33 @@ import { createStoredContinuationCodec } from 'run';
 const continuationCodec = createStoredContinuationCodec({
   storage: {
     set: (key, value) => store.set(key, value),
-    take: key => store.getAndDelete(key),
+    acquire: (key, claimId, context) =>
+      store.claim(key, {
+        claimId,
+        claimMs: 30_000,
+        signal: context?.abortSignal,
+      }),
+    consume: (key, claimId) => store.deleteIfClaimedBy(key, claimId),
+    release: (key, claimId) => store.releaseIfClaimedBy(key, claimId),
   },
 });
 ```
+
+The storage methods describe a temporary claim on a continuation:
+
+- `acquire()` gives one caller exclusive access without deleting the value.
+- `consume()` permanently deletes the value after validation succeeds.
+- `release()` makes the value available again after cancellation or validation
+  failure.
+
+The codec calls these methods automatically. Application code does not need to
+choose when to consume or release a continuation.
+
+`acquire()` must create a claim that expires automatically after a bounded
+interval. Automatic expiry makes the continuation available again if the
+process crashes before it can call `consume()` or `release()`. Both finalization
+methods must only modify the record when the supplied claim identifier matches
+the record's current claim.
 
 ## Import
 
@@ -33,7 +56,7 @@ import { createStoredContinuationCodec } from 'run';
   {
     "name": "storage",
     "type": "ContinuationStorage",
-    "description": "The storage adapter used to save and atomically consume continuation state.",
+    "description": "The storage adapter used to save, temporarily claim, and atomically consume continuation state.",
     "properties": [
       {
         "type": "ContinuationStorage",
@@ -44,9 +67,19 @@ import { createStoredContinuationCodec } from 'run';
             "description": "Stores a continuation under the generated key."
           },
           {
-            "name": "take",
-            "type": "(key: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>",
-            "description": "Atomically reads and removes a continuation."
+            "name": "acquire",
+            "type": "(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>",
+            "description": "Atomically creates a temporary claim on a continuation without removing it."
+          },
+          {
+            "name": "consume",
+            "type": "(key: string, claimId: string) => void | Promise<void>",
+            "description": "Atomically removes a continuation when its claim identifier matches."
+          },
+          {
+            "name": "release",
+            "type": "(key: string, claimId: string) => void | Promise<void>",
+            "description": "Atomically releases a continuation when its claim identifier matches."
           }
         ]
       },
