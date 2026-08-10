@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { run, setMaxWorkers } from '../index.js';
+import { getBindingContext, run, setMaxWorkers } from '../index.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import * as sourceCache from '../utils/source-cache.js';
+
+const originalTransformSource = sourceCache.transformSource;
 
 describe('run admission and source transformation', () => {
   const transformSourceSpy = vi.spyOn(sourceCache, 'transformSource');
@@ -64,5 +66,43 @@ describe('run admission and source transformation', () => {
       status: 'completed',
       value: 2,
     });
+  });
+
+  it('resumes when TypeScript transform output changes between hosts', async () => {
+    const source =
+      'const approved: boolean = await tools.approve(); return approved;';
+    const bindings = {
+      tools: {
+        approve: () => {
+          const context = getBindingContext();
+          if (context.resume === undefined) {
+            context.interrupt({ kind: 'approval' });
+          }
+          return context.resume?.resolution;
+        },
+      },
+    };
+    const interrupted = await run({ bindings, source });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected interruption.');
+    }
+
+    transformSourceSpy.mockImplementationOnce(
+      value => `${originalTransformSource(value)}\n`,
+    );
+
+    await expect(
+      run({
+        bindings,
+        continuation: interrupted.continuation,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: true });
   });
 });
