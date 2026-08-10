@@ -1,6 +1,11 @@
 import os from 'node:os';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getMaxWorkers, setMaxWorkers } from './max-workers.js';
+import {
+  getMaxWorkers,
+  releaseWorkerMemory,
+  reserveWorkerMemory,
+  setMaxWorkers,
+} from './max-workers.js';
 
 describe('max workers', () => {
   afterEach(() => {
@@ -10,7 +15,7 @@ describe('max workers', () => {
 
   it('honors an explicit process-wide cap', () => {
     setMaxWorkers(7);
-    expect(getMaxWorkers({ activeWorkers: 0, memoryLimitBytes: 1 })).toBe(7);
+    expect(getMaxWorkers({ memoryLimitBytes: 1 })).toBe(7);
   });
 
   it('admits at least one worker and caps the memory heuristic at 32', () => {
@@ -18,7 +23,6 @@ describe('max workers', () => {
     vi.spyOn(process, 'availableMemory').mockReturnValue(workerBytes - 1);
     expect(
       getMaxWorkers({
-        activeWorkers: 0,
         memoryLimitBytes: 16 * 1024 * 1024,
       }),
     ).toBe(1);
@@ -26,7 +30,6 @@ describe('max workers', () => {
     vi.mocked(process.availableMemory).mockReturnValue(workerBytes * 100);
     expect(
       getMaxWorkers({
-        activeWorkers: 0,
         memoryLimitBytes: 16 * 1024 * 1024,
       }),
     ).toBe(32);
@@ -49,12 +52,37 @@ describe('max workers', () => {
       });
       expect(
         getMaxWorkers({
-          activeWorkers: 0,
           memoryLimitBytes: 16 * 1024 * 1024,
         }),
       ).toBe(2);
     } finally {
       Object.defineProperty(process, 'availableMemory', descriptor);
+    }
+  });
+
+  it('reserves mixed worker sizes against one memory snapshot', () => {
+    const mib = 1024 * 1024;
+    vi.spyOn(process, 'availableMemory').mockReturnValue(200 * mib);
+    const largeReservation = reserveWorkerMemory(128 * mib);
+    if (largeReservation === undefined) {
+      throw new Error('Expected the first worker reservation to succeed.');
+    }
+
+    try {
+      expect(largeReservation).toBe(176 * mib);
+      expect(reserveWorkerMemory(16 * mib)).toBeUndefined();
+    } finally {
+      releaseWorkerMemory(largeReservation);
+    }
+
+    const smallReservation = reserveWorkerMemory(16 * mib);
+    if (smallReservation === undefined) {
+      throw new Error('Expected released capacity to be reusable.');
+    }
+    try {
+      expect(smallReservation).toBe(64 * mib);
+    } finally {
+      releaseWorkerMemory(smallReservation);
     }
   });
 
