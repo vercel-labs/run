@@ -3,15 +3,20 @@ const USER_SOURCE_FILENAME = 'run.js';
 /** Number of generated lines before the first line of user source. */
 export const USER_SOURCE_LINE_OFFSET = 2;
 
-const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/gu;
+const CONTROL_CHARACTERS = /\p{Cc}/gu;
 const STACK_FRAME = /^\s+at .+$/u;
 
 const escapeControlCharacters = (value: string): string =>
-  value.replace(CONTROL_CHARACTERS, character =>
-    character === '\t'
-      ? '\t'
-      : `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
-  );
+  value.replace(CONTROL_CHARACTERS, character => {
+    if (character === '\t') {
+      return '\t';
+    }
+    const codePoint = character.codePointAt(0);
+    if (codePoint === undefined) {
+      return character;
+    }
+    return `\\u${codePoint.toString(16).padStart(4, '0')}`;
+  });
 
 /**
  * Converts a QuickJS stack into a stable stack whose coordinates refer to the
