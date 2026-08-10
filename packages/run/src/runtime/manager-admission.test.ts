@@ -53,6 +53,45 @@ describe('run admission and source transformation', () => {
     }
   });
 
+  it('reserves memory capacity before a concurrent worker allocates', async () => {
+    const estimatedWorkerBytes = (64 + 48) * 1024 * 1024;
+    const availableMemorySpy = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(estimatedWorkerBytes);
+    const bindingStarted = createPromiseWithResolvers<null>();
+    const releaseBinding = createPromiseWithResolvers<null>();
+    const activeRun = run({
+      bindings: {
+        tools: {
+          wait: async () => {
+            bindingStarted.resolve(null);
+            await releaseBinding.promise;
+          },
+        },
+      },
+      source: 'return await tools.wait();',
+    });
+
+    try {
+      await bindingStarted.promise;
+
+      await expect(run({ source: 'return 2;' })).rejects.toMatchObject({
+        code: 'RUN_CONCURRENCY_LIMIT',
+      });
+      releaseBinding.resolve(null);
+      await activeRun;
+
+      await expect(run({ source: 'return 3;' })).resolves.toEqual({
+        status: 'completed',
+        value: 3,
+      });
+    } finally {
+      releaseBinding.resolve(null);
+      await activeRun.catch(() => {});
+      availableMemorySpy.mockRestore();
+    }
+  });
+
   it('releases the admission slot when source transformation fails', async () => {
     setMaxWorkers(1);
     transformSourceSpy.mockImplementationOnce(() => {

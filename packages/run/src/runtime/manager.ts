@@ -45,7 +45,11 @@ import type {
   RunResult,
   ContinuationOperationContext,
 } from '../types.js';
-import { getMaxWorkers } from './max-workers.js';
+import {
+  getMaxWorkers,
+  releaseWorkerMemory,
+  reserveWorkerMemory,
+} from './max-workers.js';
 import type {
   MainToWorkerMessage,
   WorkerBridgeResponse,
@@ -309,11 +313,16 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
     throw new RunAbortedError();
   }
   const maxWorkers = getMaxWorkers({
-    activeWorkers: activeInvocations,
     memoryLimitBytes: normalizedOptions.memoryLimitBytes,
   });
   if (activeInvocations >= maxWorkers) {
     throw new RunConcurrencyError(maxWorkers);
+  }
+  const reservedMemoryBytes = reserveWorkerMemory(
+    normalizedOptions.memoryLimitBytes,
+  );
+  if (reservedMemoryBytes === undefined) {
+    throw new RunConcurrencyError(Math.max(1, activeInvocations));
   }
   activeInvocations += 1;
   try {
@@ -355,7 +364,10 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
     });
     return await run.result;
   } finally {
-    releaseInvocationSlot(normalizedOptions.memoryLimitBytes);
+    releaseInvocationSlot(
+      normalizedOptions.memoryLimitBytes,
+      reservedMemoryBytes,
+    );
   }
 }
 
@@ -1246,10 +1258,13 @@ function trimIdleWorkers(maxIdleWorkers: number): void {
   }
 }
 
-function releaseInvocationSlot(memoryLimitBytes: number): void {
+function releaseInvocationSlot(
+  memoryLimitBytes: number,
+  reservedMemoryBytes: number,
+): void {
   activeInvocations = Math.max(0, activeInvocations - 1);
+  releaseWorkerMemory(reservedMemoryBytes);
   const maxWorkers = getMaxWorkers({
-    activeWorkers: activeInvocations,
     memoryLimitBytes,
   });
   trimIdleWorkers(Math.max(0, maxWorkers - activeInvocations));

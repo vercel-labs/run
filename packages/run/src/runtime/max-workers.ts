@@ -4,6 +4,8 @@ const DEFAULT_MAX_WORKERS_CAP = 32;
 const DEFAULT_WORKER_OVERHEAD_BYTES = 48 * 1024 * 1024;
 
 let configuredMaxWorkers: number | undefined;
+let memoryBudgetBytes: number | undefined;
+let reservedMemoryBytes = 0;
 
 const availableMemory = (): number => {
   const processWithAvailableMemory = process as typeof process & {
@@ -15,6 +17,9 @@ const availableMemory = (): number => {
       : os.freemem();
   return Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
 };
+
+const estimatedWorkerBytes = (memoryLimitBytes: number): number =>
+  memoryLimitBytes + DEFAULT_WORKER_OVERHEAD_BYTES;
 
 /**
  * Sets the process-global maximum number of active run workers.
@@ -43,22 +48,54 @@ export const setMaxWorkers = (maxWorkers?: number): void => {
  */
 export const getMaxWorkers = ({
   memoryLimitBytes,
-  activeWorkers,
 }: {
   memoryLimitBytes: number;
-  activeWorkers: number;
 }): number => {
   if (configuredMaxWorkers !== undefined) {
     return configuredMaxWorkers;
   }
 
-  const estimatedBytesPerWorker =
-    memoryLimitBytes + DEFAULT_WORKER_OVERHEAD_BYTES;
-  const additionalWorkers = Math.floor(
-    availableMemory() / estimatedBytesPerWorker,
+  const memoryBasedMaxWorkers = Math.floor(
+    availableMemory() / estimatedWorkerBytes(memoryLimitBytes),
   );
-  return Math.max(
-    1,
-    Math.min(DEFAULT_MAX_WORKERS_CAP, activeWorkers + additionalWorkers),
-  );
+  return Math.max(1, Math.min(DEFAULT_MAX_WORKERS_CAP, memoryBasedMaxWorkers));
+};
+
+/**
+ * Reserves the estimated memory for an invocation before it can allocate.
+ *
+ * Returns the reservation size, zero when an explicit count cap is configured,
+ * or `undefined` when the dynamic memory budget is exhausted.
+ *
+ * @internal
+ */
+export const reserveWorkerMemory = (
+  memoryLimitBytes: number,
+): number | undefined => {
+  if (configuredMaxWorkers !== undefined) {
+    return 0;
+  }
+
+  const reservationBytes = estimatedWorkerBytes(memoryLimitBytes);
+  memoryBudgetBytes ??= Math.max(reservationBytes, availableMemory());
+  if (reservedMemoryBytes + reservationBytes > memoryBudgetBytes) {
+    return undefined;
+  }
+  reservedMemoryBytes += reservationBytes;
+  return reservationBytes;
+};
+
+/**
+ * Releases a reservation returned by `reserveWorkerMemory`.
+ *
+ * @internal
+ */
+export const releaseWorkerMemory = (reservationBytes: number): void => {
+  if (reservationBytes === 0) {
+    return;
+  }
+  reservedMemoryBytes = Math.max(0, reservedMemoryBytes - reservationBytes);
+  if (reservedMemoryBytes === 0) {
+    memoryBudgetBytes = undefined;
+  }
 };
