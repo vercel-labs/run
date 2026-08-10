@@ -353,10 +353,10 @@ provide integrity, not confidentiality: source, arguments, results, errors,
 and interruption payloads are base64-encoded but not encrypted.
 
 For sensitive or at-most-once flows, use `createStoredContinuationCodec()`.
-Its storage contract atomically consumes a token during decode and enforces
-expiry. Because `take()` happens before later replay validation, any subsequent
-failure burns that continuation. Storage implementations should honor the
-operation `AbortSignal` and deadline.
+Its storage contract temporarily claims a token during decode and enforces
+expiry. Cancellation and replay-validation failures release the claim; valid
+continuations are consumed before worker execution. Claims must expire after a
+bounded interval so process failure cannot permanently strand a token.
 
 > A custom continuation codec used across a trust boundary must authenticate
 > its state and reject tampering. An unauthenticated codec lets an attacker

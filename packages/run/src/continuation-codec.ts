@@ -3,6 +3,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { RunProtocolError } from './errors.js';
 import type {
   ContinuationCodec,
+  ContinuationDecodeTransaction,
   ContinuationOperationContext,
   RunContinuationState,
 } from './types.js';
@@ -40,11 +41,19 @@ export interface ContinuationStorage {
     value: StoredContinuation,
     context?: ContinuationOperationContext,
   ): void | Promise<void>;
-  /** Atomically reads and removes a continuation. */
-  take(
+  /**
+   * Atomically claims a continuation without removing it. Claims must become
+   * available again after a bounded interval if neither consume nor release runs.
+   */
+  acquire(
     key: string,
+    claimId: string,
     context?: ContinuationOperationContext,
   ): StoredContinuation | undefined | Promise<StoredContinuation | undefined>;
+  /** Atomically removes a continuation only when its claim identifier matches. */
+  consume(key: string, claimId: string): void | Promise<void>;
+  /** Atomically releases a continuation only when its claim identifier matches. */
+  release(key: string, claimId: string): void | Promise<void>;
 }
 
 export interface StoredContinuation {
@@ -290,33 +299,95 @@ export const createStoredContinuationCodec = ({
   if (!Number.isSafeInteger(maxAgeMs) || maxAgeMs <= 0) {
     throw new TypeError('Continuation maxAgeMs must be a positive integer.');
   }
+  const decodeTransaction = async (
+    key: string,
+    context?: ContinuationOperationContext,
+  ): Promise<ContinuationDecodeTransaction> => {
+    throwIfOperationAborted(context);
+    if (
+      typeof key !== 'string' ||
+      !/^[A-Za-z0-9_-]{43}$/u.test(key) ||
+      Buffer.from(key, 'base64url').toString('base64url') !== key
+    ) {
+      throw new RunProtocolError('Stored continuation key is invalid.');
+    }
+    const claimId = randomBytes(32).toString('base64url');
+    const stored = await storage.acquire(key, claimId, context);
+    try {
+      throwIfOperationAborted(context);
+    } catch (error) {
+      if (stored !== undefined) {
+        await storage.release(key, claimId);
+      }
+      throw error;
+    }
+    if (stored === undefined) {
+      throw new RunProtocolError('Stored continuation was not found.');
+    }
+    if (
+      !isPlainRecord(stored) ||
+      !hasExactKeys(stored, ['expiresAtMs', 'state']) ||
+      !Number.isSafeInteger(stored.expiresAtMs)
+    ) {
+      await storage.consume(key, claimId);
+      throw new RunProtocolError('Stored continuation envelope is invalid.');
+    }
+    if (stored.expiresAtMs <= Date.now()) {
+      await storage.consume(key, claimId);
+      throw new RunProtocolError('Stored continuation has expired.');
+    }
+    const decodedState = structuredClone(stored.state);
+    throwIfOperationAborted(context);
+    let finalization:
+      | {
+          kind: 'commit' | 'rollback';
+          promise: Promise<void>;
+        }
+      | undefined;
+    const commitClaim = async (): Promise<void> => {
+      try {
+        await storage.consume(key, claimId);
+      } catch (error) {
+        await storage.release(key, claimId);
+        throw error;
+      }
+    };
+    const rollbackClaim = async (): Promise<void> => {
+      await storage.release(key, claimId);
+    };
+    return {
+      commit() {
+        if (finalization === undefined) {
+          finalization = {
+            kind: 'commit',
+            promise: commitClaim(),
+          };
+        } else if (finalization.kind === 'rollback') {
+          throw new RunProtocolError(
+            'Cannot commit a released continuation transaction.',
+          );
+        }
+        return finalization.promise;
+      },
+      rollback() {
+        if (finalization === undefined) {
+          finalization = {
+            kind: 'rollback',
+            promise: rollbackClaim(),
+          };
+        }
+        return finalization.promise;
+      },
+      state: decodedState,
+    };
+  };
   return {
     async decode(key, context) {
-      throwIfOperationAborted(context);
-      if (
-        typeof key !== 'string' ||
-        !/^[A-Za-z0-9_-]{43}$/u.test(key) ||
-        Buffer.from(key, 'base64url').toString('base64url') !== key
-      ) {
-        throw new RunProtocolError('Stored continuation key is invalid.');
-      }
-      const stored = await storage.take(key, context);
-      throwIfOperationAborted(context);
-      if (stored === undefined) {
-        throw new RunProtocolError('Stored continuation was not found.');
-      }
-      if (
-        !isPlainRecord(stored) ||
-        !hasExactKeys(stored, ['expiresAtMs', 'state']) ||
-        !Number.isSafeInteger(stored.expiresAtMs)
-      ) {
-        throw new RunProtocolError('Stored continuation envelope is invalid.');
-      }
-      if (stored.expiresAtMs <= Date.now()) {
-        throw new RunProtocolError('Stored continuation has expired.');
-      }
-      return structuredClone(stored.state);
+      const transaction = await decodeTransaction(key, context);
+      await transaction.commit();
+      return transaction.state;
     },
+    decodeTransaction,
     async encode(state, context) {
       const key = randomBytes(32).toString('base64url');
       throwIfOperationAborted(context);

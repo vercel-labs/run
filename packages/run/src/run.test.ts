@@ -2,11 +2,17 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createRunner,
   createSignedContinuationCodec,
+  createStoredContinuationCodec,
   getBindingContext,
   run,
   setMaxWorkers,
 } from './index.js';
-import type { RunInterruptedResult, RunInterruption } from './index.js';
+import type {
+  ContinuationStorage,
+  RunInterruptedResult,
+  RunInterruption,
+  StoredContinuation,
+} from './index.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 
 const firstInterruption = (result: RunInterruptedResult): RunInterruption => {
@@ -21,6 +27,43 @@ const sleep = async (delay: number): Promise<void> => {
   const deferred = createPromiseWithResolvers<null>();
   setTimeout(() => deferred.resolve(null), delay);
   await deferred.promise;
+};
+
+const createMemoryContinuationStorage = (): {
+  storage: ContinuationStorage;
+  values: Map<string, StoredContinuation>;
+} => {
+  const values = new Map<string, StoredContinuation>();
+  const leases = new Map<string, string>();
+  return {
+    storage: {
+      acquire(key, leaseId) {
+        if (leases.has(key)) {
+          return;
+        }
+        const value = values.get(key);
+        if (value !== undefined) {
+          leases.set(key, leaseId);
+        }
+        return value;
+      },
+      consume(key, leaseId) {
+        if (leases.get(key) === leaseId) {
+          leases.delete(key);
+          values.delete(key);
+        }
+      },
+      release(key, leaseId) {
+        if (leases.get(key) === leaseId) {
+          leases.delete(key);
+        }
+      },
+      set(key, value) {
+        values.set(key, value);
+      },
+    },
+    values,
+  };
 };
 
 describe('run', () => {
@@ -589,6 +632,80 @@ describe('run', () => {
     abortController.abort();
     await expect(result).rejects.toMatchObject({ code: 'RUN_ABORTED' });
     expect(codecSignal?.aborted).toBe(true);
+  });
+
+  it('rolls back a continuation transaction that finishes after abort', async () => {
+    const decodeStarted = createPromiseWithResolvers<null>();
+    const finishDecode = createPromiseWithResolvers<null>();
+    const rollback = vi.fn();
+    const runner = createRunner({
+      continuationCodec: {
+        decode: () => {
+          throw new Error('transactional decode should be used');
+        },
+        async decodeTransaction() {
+          decodeStarted.resolve(null);
+          await finishDecode.promise;
+          return {
+            commit: vi.fn(),
+            rollback,
+            state: {} as never,
+          };
+        },
+        encode: () => 'unused',
+      },
+      limits: { timeoutMs: 1000 },
+    });
+    const abortController = new AbortController();
+    const result = runner.run({
+      abortSignal: abortController.signal,
+      continuation: 'pending',
+      source: 'return 1;',
+    });
+
+    await decodeStarted.promise;
+    abortController.abort();
+    await expect(result).rejects.toMatchObject({ code: 'RUN_ABORTED' });
+    finishDecode.resolve(null);
+    await vi.waitFor(() => expect(rollback).toHaveBeenCalledOnce());
+  });
+
+  it('releases stored continuations rejected by replay validation', async () => {
+    const { storage } = createMemoryContinuationStorage();
+    const runner = createRunner({
+      continuationCodec: createStoredContinuationCodec({ storage }),
+    });
+    const source = 'return await tools.pause();';
+    const bindings = {
+      tools: {
+        pause: () => {
+          const context = getBindingContext();
+          if (context.resume === undefined) {
+            context.interrupt({ kind: 'approval' });
+          }
+          return context.resume?.resolution;
+        },
+      },
+    };
+    const interrupted = await runner.run({ bindings, source });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected interruption.');
+    }
+    const resume = {
+      bindings,
+      continuation: interrupted.continuation,
+      resolutions: [
+        { interruptionId: firstInterruption(interrupted).id, value: true },
+      ],
+    };
+
+    await expect(
+      runner.run({ ...resume, source: 'return "changed";' }),
+    ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
+    await expect(runner.run({ ...resume, source })).resolves.toEqual({
+      status: 'completed',
+      value: true,
+    });
   });
 
   it('enforces aggregate continuation limits', async () => {

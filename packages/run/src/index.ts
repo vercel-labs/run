@@ -27,6 +27,7 @@ export type {
   BindingResumeContext,
   Bindings,
   ContinuationCodec,
+  ContinuationDecodeTransaction,
   ContinuationOperationContext,
   RunCompletedResult,
   RunContinuationState,

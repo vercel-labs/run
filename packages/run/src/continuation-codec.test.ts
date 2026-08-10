@@ -4,8 +4,12 @@ import {
   createSignedContinuationCodec,
   createStoredContinuationCodec,
 } from './continuation-codec.js';
-import type { StoredContinuation } from './continuation-codec.js';
+import type {
+  ContinuationStorage,
+  StoredContinuation,
+} from './continuation-codec.js';
 import type { RunContinuationState } from './types.js';
+import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 
 const state: RunContinuationState = {
   determinism: {
@@ -37,22 +41,50 @@ const tokenBody = (token: string): string => {
   return body;
 };
 
+const createMemoryStorage = (): {
+  storage: ContinuationStorage;
+  values: Map<string, StoredContinuation>;
+} => {
+  const values = new Map<string, StoredContinuation>();
+  const leases = new Map<string, string>();
+  return {
+    storage: {
+      acquire(key, leaseId) {
+        if (leases.has(key)) {
+          return;
+        }
+        const value = values.get(key);
+        if (value !== undefined) {
+          leases.set(key, leaseId);
+        }
+        return value;
+      },
+      consume(key, leaseId) {
+        if (leases.get(key) === leaseId) {
+          leases.delete(key);
+          values.delete(key);
+        }
+      },
+      release(key, leaseId) {
+        if (leases.get(key) === leaseId) {
+          leases.delete(key);
+        }
+      },
+      set(key, value) {
+        values.set(key, value);
+      },
+    },
+    values,
+  };
+};
+
 afterEach(() => vi.useRealTimers());
 
 describe('continuation codecs', () => {
   it('atomically consumes stored continuations', async () => {
-    const values = new Map<string, StoredContinuation>();
+    const { storage } = createMemoryStorage();
     const codec = createStoredContinuationCodec({
-      storage: {
-        set(key, value) {
-          values.set(key, value);
-        },
-        take(key) {
-          const value = values.get(key);
-          values.delete(key);
-          return value;
-        },
-      },
+      storage,
     });
     const token = await codec.encode(state);
     await expect(codec.decode(token)).resolves.toEqual(state);
@@ -62,19 +94,9 @@ describe('continuation codecs', () => {
   });
 
   it('allows exactly one of many concurrent stored continuation consumers', async () => {
-    const values = new Map<string, StoredContinuation>();
+    const { storage } = createMemoryStorage();
     const codec = createStoredContinuationCodec({
-      storage: {
-        set(key, value) {
-          values.set(key, value);
-        },
-        async take(key) {
-          const value = values.get(key);
-          values.delete(key);
-          await Promise.resolve();
-          return value;
-        },
-      },
+      storage,
     });
     const token = await codec.encode(state);
     const results = await Promise.allSettled(
@@ -88,22 +110,63 @@ describe('continuation codecs', () => {
     );
   });
 
-  it('enforces stored continuation expiry itself', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1000);
+  it('releases a stored continuation when acquire finishes after an abort', async () => {
     const values = new Map<string, StoredContinuation>();
+    const leases = new Map<string, string>();
+    const acquireStarted = createPromiseWithResolvers<null>();
+    const finishAcquire = createPromiseWithResolvers<null>();
     const codec = createStoredContinuationCodec({
-      maxAgeMs: 10,
       storage: {
+        async acquire(key, leaseId) {
+          if (leases.has(key)) {
+            return;
+          }
+          const value = values.get(key);
+          if (value !== undefined) {
+            leases.set(key, leaseId);
+          }
+          acquireStarted.resolve(null);
+          await finishAcquire.promise;
+          return value;
+        },
+        consume(key, leaseId) {
+          if (leases.get(key) === leaseId) {
+            leases.delete(key);
+            values.delete(key);
+          }
+        },
+        release(key, leaseId) {
+          if (leases.get(key) === leaseId) {
+            leases.delete(key);
+          }
+        },
         set(key, value) {
           values.set(key, value);
         },
-        take(key) {
-          const value = values.get(key);
-          values.delete(key);
-          return value;
-        },
       },
+    });
+    const token = await codec.encode(state);
+    const abortController = new AbortController();
+    const decode = codec.decode(token, {
+      abortSignal: abortController.signal,
+      deadlineMs: Date.now() + 1000,
+    });
+
+    await acquireStarted.promise;
+    abortController.abort();
+    finishAcquire.resolve(null);
+
+    await expect(decode).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(codec.decode(token)).resolves.toEqual(state);
+  });
+
+  it('enforces stored continuation expiry itself', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const { storage } = createMemoryStorage();
+    const codec = createStoredContinuationCodec({
+      maxAgeMs: 10,
+      storage,
     });
     const token = await codec.encode(state);
     vi.setSystemTime(1011);
@@ -262,24 +325,35 @@ describe('continuation codecs', () => {
     'a'.repeat(257),
     'bad!key',
   ])('rejects malformed stored key %j before storage access', async key => {
-    const take = vi.fn();
+    const acquire = vi.fn();
     const codec = createStoredContinuationCodec({
-      storage: { set: () => {}, take },
+      storage: {
+        acquire,
+        consume: () => {},
+        release: () => {},
+        set: () => {},
+      },
     });
     await expect(codec.decode(key)).rejects.toMatchObject({
       code: 'RUN_PROTOCOL_ERROR',
     });
-    expect(take).not.toHaveBeenCalled();
+    expect(acquire).not.toHaveBeenCalled();
   });
 
   it('does not issue a stored key before persistence succeeds', async () => {
     const codec = createStoredContinuationCodec({
       storage: {
+        acquire() {
+          throw new Error('not used');
+        },
+        consume() {
+          throw new Error('not used');
+        },
+        release() {
+          throw new Error('not used');
+        },
         set() {
           throw new Error('storage unavailable');
-        },
-        take() {
-          throw new Error('not used');
         },
       },
     });

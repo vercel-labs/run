@@ -38,6 +38,7 @@ import type {
   InternalRunInput,
   NormalizedRunOptions,
   RunContinuationState,
+  ContinuationDecodeTransaction,
   RunDeterminismState,
   RunInterruptedResult,
   RunLedgerEntry,
@@ -62,6 +63,11 @@ interface PooledWorker {
 
 interface ManagedWorkerRun {
   result: Promise<RunResult>;
+}
+
+interface DecodedContinuation {
+  state: unknown;
+  transaction?: ContinuationDecodeTransaction;
 }
 
 let invocationCounter = 0;
@@ -117,14 +123,61 @@ async function readContinuation(
     return undefined;
   }
   assertContinuationTokenSize(input.continuation, options.maxContinuationBytes);
-  let state: unknown;
+  const { state, transaction } = await decodeContinuation(
+    input,
+    input.continuation,
+    deadlineMs,
+    options.timeoutMs,
+  );
+  let commitStarted = false;
   try {
-    state = await raceContinuationOperation(
-      context => input.continuationCodec.decode(input.continuation, context),
+    assertContinuationState(state, input.source, scopeHash, options);
+    assertContinuationResolutions(state, input, options);
+    if (transaction !== undefined) {
+      if (input.abortSignal?.aborted) {
+        throw new RunAbortedError();
+      }
+      if (Date.now() >= deadlineMs) {
+        throw new RunTimeoutError(options.timeoutMs);
+      }
+      commitStarted = true;
+      await transaction.commit();
+    }
+    return state;
+  } catch (error) {
+    if (transaction !== undefined && !commitStarted) {
+      await transaction.rollback();
+    }
+    throw error;
+  }
+}
+
+async function decodeContinuation(
+  input: InternalRunInput,
+  token: unknown,
+  deadlineMs: number,
+  timeoutMs: number,
+): Promise<DecodedContinuation> {
+  try {
+    const { continuationCodec } = input;
+    const { decodeTransaction } = continuationCodec;
+    if (decodeTransaction === undefined) {
+      const state = await raceContinuationOperation(
+        context => continuationCodec.decode(token, context),
+        input.abortSignal,
+        deadlineMs,
+        timeoutMs,
+      );
+      return { state };
+    }
+    const transaction = await raceContinuationOperation(
+      context => decodeTransaction.call(continuationCodec, token, context),
       input.abortSignal,
       deadlineMs,
-      options.timeoutMs,
+      timeoutMs,
+      rollbackDiscardedTransaction,
     );
+    return { state: transaction.state, transaction };
   } catch (error) {
     if (RunError.isInstance(error)) {
       throw error;
@@ -133,7 +186,13 @@ async function readContinuation(
       cause: error instanceof Error ? error.message : String(error),
     });
   }
-  assertContinuationState(state, input.source, scopeHash, options);
+}
+
+function assertContinuationResolutions(
+  state: RunContinuationState,
+  input: InternalRunInput,
+  options: NormalizedRunOptions,
+): void {
   const pendingIds = new Set(
     state.ledger
       .filter(entry => entry.status === 'interrupted')
@@ -170,7 +229,12 @@ async function readContinuation(
       { pending: pendingIds.size, received: seen.size },
     );
   }
-  return state;
+}
+
+async function rollbackDiscardedTransaction(
+  transaction: ContinuationDecodeTransaction,
+): Promise<void> {
+  await transaction.rollback();
 }
 
 async function raceContinuationOperation<T>(
@@ -178,6 +242,7 @@ async function raceContinuationOperation<T>(
   abortSignal: AbortSignal | undefined,
   deadlineMs: number,
   timeoutMs: number,
+  onDiscardedResult?: (result: T) => void | Promise<void>,
 ): Promise<T> {
   if (abortSignal?.aborted) {
     throw new RunAbortedError();
@@ -195,20 +260,45 @@ async function raceContinuationOperation<T>(
     operationAbortController.abort(new RunTimeoutError(timeoutMs));
     timedOut.reject(new RunTimeoutError(timeoutMs));
   }, remainingMs);
+  const startOperation = async (): Promise<T> => {
+    await Promise.resolve();
+    return operation({
+      abortSignal: operationAbortController.signal,
+      deadlineMs,
+    });
+  };
+  const operationPromise = startOperation();
   try {
     return await Promise.race([
-      Promise.resolve().then(() =>
-        operation({
-          abortSignal: operationAbortController.signal,
-          deadlineMs,
-        }),
-      ),
+      operationPromise,
       aborted.promise,
       timedOut.promise,
     ]);
+  } catch (error) {
+    if (
+      operationAbortController.signal.aborted &&
+      onDiscardedResult !== undefined
+    ) {
+      runInBackground(
+        discardContinuationOperationResult(operationPromise, onDiscardedResult),
+      );
+    }
+    throw error;
   } finally {
     clearTimeout(timeoutHandle);
     abortSignal?.removeEventListener('abort', rejectOnAbort);
+  }
+}
+
+async function discardContinuationOperationResult<T>(
+  operation: Promise<T>,
+  onDiscardedResult: (result: T) => void | Promise<void>,
+): Promise<void> {
+  try {
+    const result = await operation;
+    await onDiscardedResult(result);
+  } catch {
+    // Expiring storage claims recover abandoned work if cleanup cannot finish.
   }
 }
 

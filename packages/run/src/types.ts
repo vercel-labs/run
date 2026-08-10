@@ -142,6 +142,21 @@ export interface ContinuationCodec<TOKEN = unknown> {
     token: TOKEN,
     context?: ContinuationOperationContext,
   ): RunContinuationState | Promise<RunContinuationState>;
+  /**
+   * Optionally acquires a continuation for validation before consuming it.
+   * The runtime commits valid continuations and rolls back failed or cancelled
+   * decode attempts.
+   */
+  decodeTransaction?(
+    token: TOKEN,
+    context?: ContinuationOperationContext,
+  ): ContinuationDecodeTransaction | Promise<ContinuationDecodeTransaction>;
+}
+
+export interface ContinuationDecodeTransaction {
+  state: RunContinuationState;
+  commit(): void | Promise<void>;
+  rollback(): void | Promise<void>;
 }
 
 export interface ContinuationOperationContext {
