@@ -239,10 +239,12 @@ invocation and is available through `getBindingContext()`.
 | Concurrent bridge requests             |         32 |
 | Continuation                           |     32 MiB |
 
-All limits must be positive integers. The process-wide worker cap rejects
-excess invocations with `RunConcurrencyError`; `run` does not retain an
-unbounded queue. The cap and worker pool are shared by every runner and by
-packages such as `@ai-sdk/code-mode` in the same process.
+All limits must be positive integers no greater than `2_147_483_647`. Values
+above this ceiling are rejected instead of being passed to platform APIs that
+cannot represent them safely. The process-wide worker cap rejects excess
+invocations with `RunConcurrencyError`; `run` does not retain an unbounded
+queue. The cap and worker pool are shared by every runner and by packages such
+as `@ai-sdk/code-mode` in the same process.
 
 ## Continuations
 

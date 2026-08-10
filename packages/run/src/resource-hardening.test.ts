@@ -8,9 +8,11 @@ import { getBindingContext } from './binding-context.js';
 import { run } from './run.js';
 import { getRuntimeDiagnostics } from './runtime/manager.js';
 import type { RunLimits } from './types.js';
+import { normalizeOptions } from './utils/options.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 
 const deferred = createPromiseWithResolvers;
+const MAX_LIMIT_VALUE = 2_147_483_647;
 
 const LIMIT_NAMES = [
   'timeoutMs',
@@ -40,6 +42,28 @@ describe('resource and lifecycle hardening', () => {
       }
     },
   );
+
+  it.each(LIMIT_NAMES)(
+    'rejects %s values above the supported ceiling before worker creation',
+    async name => {
+      await expect(
+        run({
+          limits: { [name]: MAX_LIMIT_VALUE + 1 },
+          source: 'return 1;',
+        }),
+      ).rejects.toThrow(`${name} must be at most ${MAX_LIMIT_VALUE}`);
+    },
+  );
+
+  it('accepts the supported ceiling for every normalized limit', () => {
+    const limits = Object.fromEntries(
+      LIMIT_NAMES.map(name => [name, MAX_LIMIT_VALUE]),
+    ) as RunLimits;
+
+    expect(Object.values(normalizeOptions(limits))).toEqual(
+      Array.from({ length: LIMIT_NAMES.length }, () => MAX_LIMIT_VALUE),
+    );
+  });
 
   it('terminates CPU, recursion, allocation, and microtask storms', async () => {
     const cases: { source: string; limits?: RunLimits }[] = [

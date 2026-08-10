@@ -11,15 +11,20 @@ const DEFAULT_MAX_TOOL_OUTPUT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_BRIDGE_REQUESTS = 256;
 const DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS = 32;
 const DEFAULT_MAX_CONTINUATION_BYTES = 32 * 1024 * 1024;
+const MAX_LIMIT_VALUE = 2_147_483_647;
 
 const positiveInteger = (
   value: number | undefined,
   fallback: number,
   path: string,
+  max = MAX_LIMIT_VALUE,
 ): number => {
   const resolved = value ?? fallback;
   if (!Number.isInteger(resolved) || resolved <= 0) {
     throw new TypeError(`${path} must be a positive integer.`);
+  }
+  if (resolved > max) {
+    throw new TypeError(`${path} must be at most ${max}.`);
   }
   return resolved;
 };
