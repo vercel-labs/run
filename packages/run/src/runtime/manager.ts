@@ -319,11 +319,7 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
   try {
     assertSourceSize(input.source, normalizedOptions.maxSourceBytes);
     const transformedSource = transformSource(input.source);
-    const scopeHash = createContinuationScopeHash(
-      input,
-      normalizedOptions,
-      transformedSource,
-    );
+    const scopeHash = createContinuationScopeHash(input, normalizedOptions);
     const continuationState = await readContinuation(
       input,
       normalizedOptions,
@@ -1137,7 +1133,6 @@ function startWorkerRun({
 function createContinuationScopeHash(
   input: InternalRunInput,
   options: NormalizedRunOptions,
-  transformedSource: string,
 ): string {
   const continuationContext = normalizeJsonPayload(
     input.continuationContext,
@@ -1159,8 +1154,11 @@ function createContinuationScopeHash(
           audience: input.continuationAudience,
           bindingManifest,
           continuationContext,
+          // Keep the existing key so continuations whose transform was an
+          // identity remain valid across this change. The original source is
+          // stable across hosts and is also exact-matched during validation.
           transformedSourceHash: createHash('sha256')
-            .update(transformedSource)
+            .update(input.source)
             .digest('hex'),
         },
         Number.MAX_SAFE_INTEGER,
