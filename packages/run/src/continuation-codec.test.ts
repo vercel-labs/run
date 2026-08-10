@@ -51,7 +51,7 @@ const createMemoryStorage = (): {
     storage: {
       acquire(key, leaseId) {
         if (leases.has(key)) {
-          return undefined;
+          return;
         }
         const value = values.get(key);
         if (value !== undefined) {
@@ -119,7 +119,7 @@ describe('continuation codecs', () => {
       storage: {
         async acquire(key, leaseId) {
           if (leases.has(key)) {
-            return undefined;
+            return;
           }
           const value = values.get(key);
           if (value !== undefined) {

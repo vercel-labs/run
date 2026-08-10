@@ -344,17 +344,23 @@ export const createStoredContinuationCodec = ({
           promise: Promise<void>;
         }
       | undefined;
+    const commitClaim = async (): Promise<void> => {
+      try {
+        await storage.consume(key, claimId);
+      } catch (error) {
+        await storage.release(key, claimId);
+        throw error;
+      }
+    };
+    const rollbackClaim = async (): Promise<void> => {
+      await storage.release(key, claimId);
+    };
     return {
       commit() {
         if (finalization === undefined) {
           finalization = {
             kind: 'commit',
-            promise: Promise.resolve()
-              .then(() => storage.consume(key, claimId))
-              .catch(async error => {
-                await storage.release(key, claimId);
-                throw error;
-              }),
+            promise: commitClaim(),
           };
         } else if (finalization.kind === 'rollback') {
           throw new RunProtocolError(
@@ -367,9 +373,7 @@ export const createStoredContinuationCodec = ({
         if (finalization === undefined) {
           finalization = {
             kind: 'rollback',
-            promise: Promise.resolve().then(() =>
-              storage.release(key, claimId),
-            ),
+            promise: rollbackClaim(),
           };
         }
         return finalization.promise;

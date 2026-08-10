@@ -39,7 +39,7 @@ const createMemoryContinuationStorage = (): {
     storage: {
       acquire(key, leaseId) {
         if (leases.has(key)) {
-          return undefined;
+          return;
         }
         const value = values.get(key);
         if (value !== undefined) {

@@ -65,6 +65,11 @@ interface ManagedWorkerRun {
   result: Promise<RunResult>;
 }
 
+interface DecodedContinuation {
+  state: unknown;
+  transaction?: ContinuationDecodeTransaction;
+}
+
 let invocationCounter = 0;
 let activeInvocations = 0;
 let terminatingWorkers = 0;
@@ -118,77 +123,16 @@ async function readContinuation(
     return undefined;
   }
   assertContinuationTokenSize(input.continuation, options.maxContinuationBytes);
-  let state: unknown;
-  let transaction: ContinuationDecodeTransaction | undefined;
-  try {
-    if (input.continuationCodec.decodeTransaction === undefined) {
-      state = await raceContinuationOperation(
-        context => input.continuationCodec.decode(input.continuation, context),
-        input.abortSignal,
-        deadlineMs,
-        options.timeoutMs,
-      );
-    } else {
-      transaction = await raceContinuationOperation(
-        context =>
-          input.continuationCodec.decodeTransaction?.(
-            input.continuation,
-            context,
-          ) as Promise<ContinuationDecodeTransaction>,
-        input.abortSignal,
-        deadlineMs,
-        options.timeoutMs,
-        discarded => discarded.rollback(),
-      );
-      state = transaction.state;
-    }
-  } catch (error) {
-    if (RunError.isInstance(error)) {
-      throw error;
-    }
-    throw new RunProtocolError('Continuation codec failed to decode token.', {
-      cause: error instanceof Error ? error.message : String(error),
-    });
-  }
+  const { state, transaction } = await decodeContinuation(
+    input,
+    input.continuation,
+    deadlineMs,
+    options.timeoutMs,
+  );
   let commitStarted = false;
   try {
     assertContinuationState(state, input.source, scopeHash, options);
-    const pendingIds = new Set(
-      state.ledger
-        .filter(entry => entry.status === 'interrupted')
-        .map(entry => entry.interruptionId),
-    );
-    const seen = new Set<string>();
-    for (const resolution of input.resolutions ?? []) {
-      if (
-        !isPlainRecord(resolution) ||
-        !hasExactOwnKeys(resolution, ['interruptionId', 'value'])
-      ) {
-        throw new RunProtocolError('An interruption resolution is malformed.');
-      }
-      if (
-        typeof resolution.interruptionId !== 'string' ||
-        !pendingIds.has(resolution.interruptionId) ||
-        seen.has(resolution.interruptionId)
-      ) {
-        throw new RunProtocolError(
-          'A resolution does not match exactly one pending interruption.',
-          { interruptionId: resolution.interruptionId },
-        );
-      }
-      toJsonPayload(
-        resolution.value,
-        options.maxBindingOutputBytes,
-        `Resolution "${resolution.interruptionId}"`,
-      );
-      seen.add(resolution.interruptionId);
-    }
-    if (pendingIds.size === 0 || seen.size !== pendingIds.size) {
-      throw new RunProtocolError(
-        'A continuation requires exactly one resolution for every pending interruption.',
-        { pending: pendingIds.size, received: seen.size },
-      );
-    }
+    assertContinuationResolutions(state, input, options);
     if (transaction !== undefined) {
       if (input.abortSignal?.aborted) {
         throw new RunAbortedError();
@@ -206,6 +150,91 @@ async function readContinuation(
     }
     throw error;
   }
+}
+
+async function decodeContinuation(
+  input: InternalRunInput,
+  token: unknown,
+  deadlineMs: number,
+  timeoutMs: number,
+): Promise<DecodedContinuation> {
+  try {
+    const { continuationCodec } = input;
+    const { decodeTransaction } = continuationCodec;
+    if (decodeTransaction === undefined) {
+      const state = await raceContinuationOperation(
+        context => continuationCodec.decode(token, context),
+        input.abortSignal,
+        deadlineMs,
+        timeoutMs,
+      );
+      return { state };
+    }
+    const transaction = await raceContinuationOperation(
+      context => decodeTransaction.call(continuationCodec, token, context),
+      input.abortSignal,
+      deadlineMs,
+      timeoutMs,
+      rollbackDiscardedTransaction,
+    );
+    return { state: transaction.state, transaction };
+  } catch (error) {
+    if (RunError.isInstance(error)) {
+      throw error;
+    }
+    throw new RunProtocolError('Continuation codec failed to decode token.', {
+      cause: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function assertContinuationResolutions(
+  state: RunContinuationState,
+  input: InternalRunInput,
+  options: NormalizedRunOptions,
+): void {
+  const pendingIds = new Set(
+    state.ledger
+      .filter(entry => entry.status === 'interrupted')
+      .map(entry => entry.interruptionId),
+  );
+  const seen = new Set<string>();
+  for (const resolution of input.resolutions ?? []) {
+    if (
+      !isPlainRecord(resolution) ||
+      !hasExactOwnKeys(resolution, ['interruptionId', 'value'])
+    ) {
+      throw new RunProtocolError('An interruption resolution is malformed.');
+    }
+    if (
+      typeof resolution.interruptionId !== 'string' ||
+      !pendingIds.has(resolution.interruptionId) ||
+      seen.has(resolution.interruptionId)
+    ) {
+      throw new RunProtocolError(
+        'A resolution does not match exactly one pending interruption.',
+        { interruptionId: resolution.interruptionId },
+      );
+    }
+    toJsonPayload(
+      resolution.value,
+      options.maxBindingOutputBytes,
+      `Resolution "${resolution.interruptionId}"`,
+    );
+    seen.add(resolution.interruptionId);
+  }
+  if (pendingIds.size === 0 || seen.size !== pendingIds.size) {
+    throw new RunProtocolError(
+      'A continuation requires exactly one resolution for every pending interruption.',
+      { pending: pendingIds.size, received: seen.size },
+    );
+  }
+}
+
+async function rollbackDiscardedTransaction(
+  transaction: ContinuationDecodeTransaction,
+): Promise<void> {
+  await transaction.rollback();
 }
 
 async function raceContinuationOperation<T>(
@@ -231,12 +260,14 @@ async function raceContinuationOperation<T>(
     operationAbortController.abort(new RunTimeoutError(timeoutMs));
     timedOut.reject(new RunTimeoutError(timeoutMs));
   }, remainingMs);
-  const operationPromise = Promise.resolve().then(() =>
-    operation({
+  const startOperation = async (): Promise<T> => {
+    await Promise.resolve();
+    return operation({
       abortSignal: operationAbortController.signal,
       deadlineMs,
-    }),
-  );
+    });
+  };
+  const operationPromise = startOperation();
   try {
     return await Promise.race([
       operationPromise,
@@ -248,16 +279,26 @@ async function raceContinuationOperation<T>(
       operationAbortController.signal.aborted &&
       onDiscardedResult !== undefined
     ) {
-      void operationPromise
-        .then(result => onDiscardedResult(result))
-        .catch(() => {
-          // Storage leases recover abandoned claims if asynchronous cleanup fails.
-        });
+      runInBackground(
+        discardContinuationOperationResult(operationPromise, onDiscardedResult),
+      );
     }
     throw error;
   } finally {
     clearTimeout(timeoutHandle);
     abortSignal?.removeEventListener('abort', rejectOnAbort);
+  }
+}
+
+async function discardContinuationOperationResult<T>(
+  operation: Promise<T>,
+  onDiscardedResult: (result: T) => void | Promise<void>,
+): Promise<void> {
+  try {
+    const result = await operation;
+    await onDiscardedResult(result);
+  } catch {
+    // Expiring storage claims recover abandoned work if cleanup cannot finish.
   }
 }
 
