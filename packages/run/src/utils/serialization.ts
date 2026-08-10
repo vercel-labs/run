@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { RunError } from '../errors.js';
 import { RUN_SERDE, deserializeRunValue, serializeRunValue } from './serde.js';
 
@@ -39,7 +40,7 @@ export const assertJsonPayloadSize = (
   maxBytes: number,
   label: string,
 ): void => {
-  const bytes = new TextEncoder().encode(valueJson).byteLength;
+  const bytes = Buffer.byteLength(valueJson);
   if (bytes > maxBytes) {
     throw new RunError(
       `${label} exceeds the ${maxBytes} byte size limit.`,

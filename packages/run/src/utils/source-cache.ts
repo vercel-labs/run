@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import { stripTypeScriptTypes } from 'node:module';
 import { RunSourceTooLargeError } from '../errors.js';
@@ -14,8 +15,7 @@ const transformedSourceCache = new Map<
 >();
 let transformedSourceCacheBytes = 0;
 
-const byteLength = (value: string): number =>
-  new TextEncoder().encode(value).byteLength;
+const byteLength = (value: string): number => Buffer.byteLength(value);
 
 const evictTransformedSourceCache = (): void => {
   while (

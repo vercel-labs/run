@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { once } from 'node:events';
 import { RunBindingError } from './errors.js';
 import { runWithBindingContext } from './binding-context.js';
@@ -45,7 +46,7 @@ const assertPayloadSize = (
   maxBytes: number,
   label: string,
 ): void => {
-  const bytes = new TextEncoder().encode(value).byteLength;
+  const bytes = Buffer.byteLength(value);
   if (bytes > maxBytes) {
     throw new RunBindingError(
       `${label} exceeds the ${maxBytes} byte size limit.`,
