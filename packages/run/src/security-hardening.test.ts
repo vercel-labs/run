@@ -246,6 +246,18 @@ describe('guest sandbox hardening', () => {
     ).rejects.toThrow('Reserved binding namespace');
   });
 
+  it.each(['__proto__', 'constructor', 'prototype', 'then'])(
+    'rejects the reserved binding namespace %s',
+    async namespace => {
+      await expect(
+        run({
+          bindings: { [namespace]: { call: () => true } },
+          source: 'return 1;',
+        }),
+      ).rejects.toThrow(`Reserved binding namespace: ${namespace}`);
+    },
+  );
+
   it.each(['__proto__', 'constructor', 'prototype', 'then', '__runBridge'])(
     'rejects the dangerous declared binding name %s',
     async name => {
@@ -257,6 +269,34 @@ describe('guest sandbox hardening', () => {
       await expect(
         run({ bindings: { tools: group }, source: 'return 1;' }),
       ).rejects.toThrow('Invalid binding name');
+    },
+  );
+
+  it.each([
+    '',
+    '1call',
+    'call-name',
+    'call.name',
+    'call name',
+    'call\nname',
+    '\0call',
+    'café',
+    '🔧',
+  ])('rejects the invalid binding name %j', async name => {
+    await expect(
+      run({
+        bindings: { tools: { [name]: () => true } },
+        source: 'return 1;',
+      }),
+    ).rejects.toThrow('Invalid binding name');
+  });
+
+  it.each(['call', '_call', '$call', 'call2'])(
+    'accepts the valid binding name %s',
+    async name => {
+      await expectValue(`return await tools[${JSON.stringify(name)}]();`, {
+        tools: { [name]: () => true },
+      }).resolves.toBe(true);
     },
   );
 });
