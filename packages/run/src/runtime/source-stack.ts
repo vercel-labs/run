@@ -3,14 +3,14 @@ const USER_SOURCE_FILENAME = 'run.js';
 /** Number of generated lines before the first line of user source. */
 export const USER_SOURCE_LINE_OFFSET = 2;
 
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/gu;
+const CONTROL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F]/gu;
 const STACK_FRAME = /^\s+at .+$/u;
 
 const escapeControlCharacters = (value: string): string =>
-  value.replace(CONTROL_CHARACTERS, (character) =>
+  value.replace(CONTROL_CHARACTERS, character =>
     character === '\t'
       ? '\t'
-      : `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`,
+      : `\\u${character.codePointAt(0).toString(16).padStart(4, '0')}`,
   );
 
 /**
@@ -37,9 +37,7 @@ export const normalizeUserSourceStack = ({
   const sourceLineCount = source.split('\n').length;
   const lines = stack.split('\n');
   const errorHeaderLines = new Set(
-    [name, message, `${name}: ${message}`].flatMap((value) =>
-      value.split('\n'),
-    ),
+    [name, message, `${name}: ${message}`].flatMap(value => value.split('\n')),
   );
   const frames: string[] = [];
 

@@ -48,8 +48,8 @@ describe('user source stack normalization', () => {
   it('escapes control characters in guest-controlled error headers', () => {
     expect(
       normalizeUserSourceStack({
-        message: 'boom\r\n    at attacker://forged:1:1\u001b[31m',
-        name: 'Err\nor\u001b',
+        message: 'boom\r\n    at attacker://forged:1:1\u001B[31m',
+        name: 'Err\nor\u001B',
         source: 'throw new Error("boom");',
         stack: undefined,
       }),
@@ -74,8 +74,6 @@ describe('user source stack normalization', () => {
         source: 'throw new Error("boom");',
         stack,
       }),
-    ).toBe(
-      'Error: boom\\u000a    at attacker://forged:1:1\n    at run.js:1:7',
-    );
+    ).toBe('Error: boom\\u000a    at attacker://forged:1:1\n    at run.js:1:7');
   });
 });
