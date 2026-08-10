@@ -131,14 +131,8 @@ export const invokeHostBinding = async ({
   }
 
   try {
-    const output = await runWithBindingContext(
-      context,
-      async () =>
-        await raceAgainstAbort(
-          Promise.resolve().then(() => binding(...args)),
-          context.abortSignal,
-        ),
-    );
+    const operation = runWithBindingContext(context, () => binding(...args));
+    const output = await raceAgainstAbort(operation, context.abortSignal);
     return {
       status: 'fulfilled',
       valueJson: toJsonPayload(

@@ -205,7 +205,7 @@ describe('run', () => {
     });
   });
 
-  it('invalidates binding context when an invocation is aborted', async () => {
+  it('keeps binding context active after abort while the binding is pending', async () => {
     const abortController = new AbortController();
     const bindingStarted = createPromiseWithResolvers<null>();
     const detachedGate = createPromiseWithResolvers<null>();
@@ -236,8 +236,8 @@ describe('run', () => {
     await expect(execution).rejects.toMatchObject({ code: 'RUN_ABORTED' });
     detachedGate.resolve(null);
     await expect(detachedContext.promise).resolves.toMatchObject({
-      message:
-        'getBindingContext() can only be called while executing a run binding.',
+      abortSignal: { aborted: true },
+      bindingName: 'tools.wait',
     });
   });
 
