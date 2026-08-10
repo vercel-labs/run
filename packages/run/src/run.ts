@@ -96,6 +96,8 @@ const RESERVED_BINDING_NAMES = new Set([
   'then',
 ]);
 
+const BINDING_IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/u;
+
 const validateBindings = (bindings: Bindings): void => {
   for (const [namespace, group] of Object.entries(bindings)) {
     if (!Object.hasOwn(bindings, namespace)) {
@@ -103,11 +105,15 @@ const validateBindings = (bindings: Bindings): void => {
     }
     if (
       Buffer.byteLength(namespace) > 512 ||
-      !/^[A-Za-z_$][\w$]*$/u.test(namespace)
+      !BINDING_IDENTIFIER_PATTERN.test(namespace)
     ) {
       throw new TypeError(`Invalid binding namespace: ${namespace}`);
     }
-    if (RESERVED_GLOBALS.has(namespace) || namespace.startsWith('__run')) {
+    if (
+      RESERVED_GLOBALS.has(namespace) ||
+      RESERVED_BINDING_NAMES.has(namespace) ||
+      namespace.startsWith('__run')
+    ) {
       throw new TypeError(`Reserved binding namespace: ${namespace}`);
     }
     if (typeof group !== 'object' || group === null || Array.isArray(group)) {
@@ -120,9 +126,8 @@ const validateBindings = (bindings: Bindings): void => {
         continue;
       }
       if (
-        name.length === 0 ||
+        !BINDING_IDENTIFIER_PATTERN.test(name) ||
         Buffer.byteLength(`${namespace}.${name}`) > 1024 ||
-        name.includes('.') ||
         RESERVED_BINDING_NAMES.has(name) ||
         name.startsWith('__run')
       ) {
