@@ -90,6 +90,30 @@ describe('continuation state validation hardening', () => {
     }
   });
 
+  it('rejects uppercase hex random seeds at the validation boundary', () => {
+    const lowercaseSeed = validState();
+    lowercaseSeed.determinism.randomSeed = 'ab'.repeat(16);
+    expect(() =>
+      assertContinuationState(
+        lowercaseSeed,
+        source,
+        scopeHash,
+        normalizeOptions(),
+      ),
+    ).not.toThrow();
+
+    const uppercaseSeed = validState();
+    uppercaseSeed.determinism.randomSeed = 'AB'.repeat(16);
+    expect(() =>
+      assertContinuationState(
+        uppercaseSeed,
+        source,
+        scopeHash,
+        normalizeOptions(),
+      ),
+    ).toThrowError('Continuation determinism state is invalid.');
+  });
+
   it('rejects sparse arrays, cycles, accessors, and non-plain objects', () => {
     const sparse = validState();
     sparse.ledger = [];

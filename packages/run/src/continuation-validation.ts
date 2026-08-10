@@ -267,7 +267,7 @@ const hasValidDeterminism = (value: unknown): boolean =>
   Number.isSafeInteger(value.dateNowMs) &&
   (value.dateNowMs as number) >= 0 &&
   typeof value.randomSeed === 'string' &&
-  /^[0-9a-f]{32}$/iu.test(value.randomSeed);
+  /^[0-9a-f]{32}$/u.test(value.randomSeed);
 
 const addSettledOrder = (orders: Set<number>, order: number): void => {
   if (orders.has(order)) {
