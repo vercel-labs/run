@@ -44,4 +44,38 @@ describe('user source stack normalization', () => {
       }),
     ).toBe('Error: boom');
   });
+
+  it('escapes control characters in guest-controlled error headers', () => {
+    expect(
+      normalizeUserSourceStack({
+        message: 'boom\r\n    at attacker://forged:1:1\u001b[31m',
+        name: 'Err\nor\u001b',
+        source: 'throw new Error("boom");',
+        stack: undefined,
+      }),
+    ).toBe(
+      'Err\\u000aor\\u001b: boom\\u000d\\u000a    at attacker://forged:1:1\\u001b[31m',
+    );
+  });
+
+  it('drops injected pseudo-frames while preserving user source frames', () => {
+    const message = 'boom\n    at attacker://forged:1:1';
+    const stack = [
+      `Error: ${message}`,
+      '    at attacker://forged:1:1',
+      'arbitrary guest-controlled text',
+      `    at run.js:${USER_SOURCE_LINE_OFFSET + 1}:7`,
+    ].join('\n');
+
+    expect(
+      normalizeUserSourceStack({
+        message,
+        name: 'Error',
+        source: 'throw new Error("boom");',
+        stack,
+      }),
+    ).toBe(
+      'Error: boom\\u000a    at attacker://forged:1:1\n    at run.js:1:7',
+    );
+  });
 });
