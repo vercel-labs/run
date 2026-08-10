@@ -19,6 +19,10 @@ const getSerializationPath = (error: unknown): string => {
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+/**
+ * Parses a payload that has already been bounded with assertJsonPayloadSize.
+ * Callers must enforce the appropriate boundary-specific limit before parsing.
+ */
 export const parseJsonPayload = (valueJson: string, label: string): unknown => {
   try {
     return deserializeRunValue(valueJson);
@@ -45,7 +49,7 @@ export const assertJsonPayloadSize = (
   }
 };
 
-export const toStrictJsonPayload = (
+export const toJsonPayload = (
   value: unknown,
   maxBytes: number,
   label: string,
@@ -72,22 +76,8 @@ export const toStrictJsonPayload = (
   return encoded;
 };
 
-export const toJsonPayload = (
-  value: unknown,
-  maxBytes: number,
-  label: string,
-): string => toStrictJsonPayload(value, maxBytes, label);
-
 export const normalizeJsonPayload = (
   value: unknown,
   maxBytes: number,
   label: string,
 ): unknown => parseJsonPayload(toJsonPayload(value, maxBytes, label), label);
-
-export const assertJsonSerializable = (
-  value: unknown,
-  maxBytes: number,
-  label: string,
-): void => {
-  toJsonPayload(value, maxBytes, label);
-};
