@@ -381,6 +381,23 @@ export const createStoredContinuationCodec = ({
       state: decodedState,
     };
   };
+  const discardStoredContinuation = async (key: string): Promise<void> => {
+    const claimId = randomBytes(32).toString('base64url');
+    const stored = await storage.acquire(key, claimId);
+    if (stored === undefined) {
+      return;
+    }
+    try {
+      await storage.consume(key, claimId);
+    } catch (error) {
+      try {
+        await storage.release(key, claimId);
+      } catch {
+        // Claims expire, so preserve the cleanup failure from consume.
+      }
+      throw error;
+    }
+  };
   return {
     async decode(key, context) {
       const transaction = await decodeTransaction(key, context);
@@ -399,7 +416,16 @@ export const createStoredContinuationCodec = ({
         },
         context,
       );
-      throwIfOperationAborted(context);
+      try {
+        throwIfOperationAborted(context);
+      } catch (error) {
+        try {
+          await discardStoredContinuation(key);
+        } catch {
+          // Preserve the abort; stored continuations expire if cleanup fails.
+        }
+        throw error;
+      }
       return key;
     },
   };
