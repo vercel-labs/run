@@ -42,10 +42,25 @@ let bridgeRequestCounter = 0;
 let bridgeIdleGeneration = 0;
 let embeddedQuickJsWasmModulePromise: Promise<WebAssembly.Module> | undefined;
 let activeCancellation:
-  | { invocationId: string; cancel: () => void }
+  | {
+      invocationId: string;
+      cancel: () => void;
+      fail: (error: unknown) => void;
+    }
+  | undefined;
+let pendingInvocationFailure:
+  | { invocationId: string; error: unknown }
   | undefined;
 
 parentPort.on('message', async (value: unknown) => {
+  try {
+    await handleMainMessage(value);
+  } catch (error) {
+    handleMainMessageFailure(error);
+  }
+});
+
+async function handleMainMessage(value: unknown): Promise<void> {
   assertMainToWorkerMessage(value);
   const message = value;
   if (message.type === 'cancel') {
@@ -53,9 +68,7 @@ parentPort.on('message', async (value: unknown) => {
       activeInvocationId !== message.invocationId ||
       activeCancellation?.invocationId !== message.invocationId
     ) {
-      throw new RunProtocolError(
-        `Worker received cancellation for inactive invocation ${message.invocationId}.`,
-      );
+      return;
     }
     activeCancellation.cancel();
     return;
@@ -63,13 +76,7 @@ parentPort.on('message', async (value: unknown) => {
   if (message.type === 'bridge-response') {
     const pending = pendingBridgeRequests.get(message.requestId);
     if (!pending) {
-      throw new RunProtocolError(
-        `Unexpected bridge response requestId: ${message.requestId}.`,
-        {
-          invocationId: message.invocationId,
-          requestId: message.requestId,
-        },
-      );
+      return;
     }
 
     if (pending.invocationId !== message.invocationId) {
@@ -83,13 +90,13 @@ parentPort.on('message', async (value: unknown) => {
       );
     }
 
-    pendingBridgeRequests.delete(message.requestId);
     resolveBridgeResponse(
       pending.context,
       pending.deferred,
       message,
       pending.resetDateNow,
     );
+    pendingBridgeRequests.delete(message.requestId);
     return;
   }
 
@@ -111,9 +118,34 @@ parentPort.on('message', async (value: unknown) => {
       await run(message);
     } finally {
       activeInvocationId = undefined;
+      if (pendingInvocationFailure?.invocationId === message.invocationId) {
+        pendingInvocationFailure = undefined;
+      }
     }
   }
-});
+}
+
+function handleMainMessageFailure(error: unknown): void {
+  if (activeInvocationId === undefined) {
+    try {
+      writeSync(
+        2,
+        `${JSON.stringify({
+          error: serializeError(error),
+          type: 'run-worker-message-error',
+        })}\n`,
+      );
+    } catch {
+      // The worker has no active invocation to report the protocol error to.
+    }
+    return;
+  }
+  pendingInvocationFailure ??= {
+    error,
+    invocationId: activeInvocationId,
+  };
+  activeCancellation?.fail(error);
+}
 
 async function run(message: WorkerRunMessage): Promise<void> {
   try {
@@ -151,6 +183,9 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let resetDateNowHandle: QuickJSHandle | undefined;
   let cancelled = false;
   let executionTimedOut = false;
+  let executionFailure: { error: unknown } | undefined;
+  const getExecutionFailure = (): { error: unknown } | undefined =>
+    executionFailure;
 
   runtime.setMemoryLimit(message.options.memoryLimitBytes);
   runtime.setMaxStackSize(message.options.maxStackSizeBytes);
@@ -169,10 +204,26 @@ async function execute(message: WorkerRunMessage): Promise<string> {
         'Worker execution cancelled by host',
       );
     },
+    fail: error => {
+      executionFailure ??= { error };
+      cancelled = true;
+      rejectPendingBridgeRequests(
+        context,
+        message.invocationId,
+        'Worker message processing failed',
+      );
+    },
     invocationId: message.invocationId,
   };
+  if (pendingInvocationFailure?.invocationId === message.invocationId) {
+    activeCancellation.fail(pendingInvocationFailure.error);
+  }
 
   try {
+    const initialFailure = getExecutionFailure();
+    if (initialFailure !== undefined) {
+      throw initialFailure.error;
+    }
     consoleFormatter = installConsole(
       context,
       message.options.maxConsoleOutputBytes,
@@ -190,8 +241,16 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       determinismHandle,
     );
     const valueJson = await evaluateUserSource(context, message);
+    const completedFailure = getExecutionFailure();
+    if (completedFailure !== undefined) {
+      throw completedFailure.error;
+    }
     return valueJson;
   } catch (error) {
+    const messageFailure = getExecutionFailure();
+    if (messageFailure !== undefined) {
+      throw messageFailure.error;
+    }
     if (executionTimedOut) {
       throw new RunTimeoutError(message.options.timeoutMs);
     }
