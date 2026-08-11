@@ -375,7 +375,7 @@ describe('guest sandbox hardening', () => {
   );
 
   it.each(['hidden', 'admin.reset'])(
-    'does not expose the non-enumerable binding %s',
+    'rejects the non-enumerable binding %s',
     async name => {
       let called = false;
       const group = { visible: () => true };
@@ -390,10 +390,21 @@ describe('guest sandbox hardening', () => {
           bindings: { tools: group },
           source: `return await tools[${JSON.stringify(name)}]();`,
         }),
-      ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+      ).rejects.toThrow(`Binding "tools.${name}" must be enumerable.`);
       expect(called).toBe(false);
     },
   );
+
+  it('rejects a non-enumerable binding namespace', async () => {
+    const bindings = {};
+    Object.defineProperty(bindings, 'tools', {
+      value: { visible: () => true },
+    });
+
+    await expect(
+      run({ bindings, source: 'return await tools.visible();' }),
+    ).rejects.toThrow('Binding namespace "tools" must be enumerable.');
+  });
 
   it('does not expose bindings added after validation', async () => {
     let called = false;
