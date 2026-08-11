@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { runManaged } from './runtime/manager.js';
 import { createSignedContinuationCodec } from './continuation-codec.js';
 import type {
+  BindingManifest,
   Bindings,
   ContinuationCodec,
   RunInput,
@@ -98,7 +99,8 @@ const RESERVED_BINDING_NAMES = new Set([
 
 const BINDING_IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/u;
 
-const validateBindings = (bindings: Bindings): void => {
+const validateBindings = (bindings: Bindings): BindingManifest => {
+  const bindingManifest = new Map<string, ReadonlySet<string>>();
   for (const [namespace, group] of Object.entries(bindings)) {
     if (!Object.hasOwn(bindings, namespace)) {
       continue;
@@ -121,6 +123,7 @@ const validateBindings = (bindings: Bindings): void => {
         `Binding namespace "${namespace}" must be an object.`,
       );
     }
+    const bindingNames = new Set<string>();
     for (const [name, binding] of Object.entries(group)) {
       if (!Object.hasOwn(group, name)) {
         continue;
@@ -138,8 +141,11 @@ const validateBindings = (bindings: Bindings): void => {
           `Binding "${namespace}.${name}" must be a function.`,
         );
       }
+      bindingNames.add(name);
     }
+    bindingManifest.set(namespace, bindingNames);
   }
+  return bindingManifest;
 };
 
 /** Creates a runner with shared defaults. */
@@ -177,9 +183,10 @@ export const createRunner = <TOKEN = string>(
       input: RunInput<TOKEN>,
     ): Promise<RunResult<OUTPUT, TOKEN>> {
       const bindings = input.bindings ?? {};
-      validateBindings(bindings);
+      const bindingManifest = validateBindings(bindings);
       const value = await runManaged({
         ...input,
+        bindingManifest,
         bindings,
         continuationAudience,
         continuationCodec,

@@ -45,6 +45,9 @@ export type BindingGroup = Record<string, BindingFunction<never[], unknown>>;
  */
 export type Bindings = Record<string, BindingGroup>;
 
+/** @internal */
+export type BindingManifest = ReadonlyMap<string, ReadonlySet<string>>;
+
 /** Resource limits applied to one sandbox invocation. */
 export interface RunLimits {
   /** @default `30_000` */
@@ -218,6 +221,7 @@ export interface Runner<TOKEN = unknown> {
 /** @internal */
 export interface InternalRunInput extends RunInput<unknown> {
   bindings: Bindings;
+  bindingManifest: BindingManifest;
   limits: RunLimits;
   continuationCodec: ContinuationCodec;
   continuationAudience: string;

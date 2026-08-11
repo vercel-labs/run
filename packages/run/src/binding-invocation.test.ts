@@ -14,6 +14,8 @@ const createContext = (bindingName: string): BindingContext => ({
   requestIndex: 1,
 });
 
+const manifest = (...names: string[]) => new Map([['tools', new Set(names)]]);
+
 describe('invokeHostBinding', () => {
   it('rejects oversized arguments before parsing them', async () => {
     const binding = vi.fn();
@@ -32,6 +34,7 @@ describe('invokeHostBinding', () => {
 
     await expect(
       invokeHostBinding({
+        bindingManifest: manifest('test'),
         bindingName: 'tools.test',
         bindings: { tools: { test: binding } },
         context,
@@ -47,6 +50,7 @@ describe('invokeHostBinding', () => {
     const context = createContext('tools.missing');
     await expect(
       invokeHostBinding({
+        bindingManifest: manifest('present'),
         bindingName: 'tools.missing',
         bindings: { tools: { present: () => true } },
         context,
@@ -61,6 +65,7 @@ describe('invokeHostBinding', () => {
 
     await expect(
       invokeHostBinding({
+        bindingManifest: manifest('present'),
         bindingName: 'tools.present',
         bindings: {
           tools: { present: true as unknown as () => boolean },
@@ -73,10 +78,33 @@ describe('invokeHostBinding', () => {
     ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
   });
 
+  it('rejects non-enumerable bindings at the invocation boundary', async () => {
+    const hidden = vi.fn();
+    const group = { present: () => true };
+    Object.defineProperty(group, 'hidden', { value: hidden });
+
+    await expect(
+      invokeHostBinding({
+        bindingManifest: manifest('present'),
+        bindingName: 'tools.hidden',
+        bindings: { tools: group },
+        context: createContext('tools.hidden'),
+        inputJson: '[[]]',
+        maxBindingInputBytes: 1024,
+        maxBindingOutputBytes: 1024,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_BINDING_ERROR',
+      details: { availableBindings: ['tools.present'] },
+    });
+    expect(hidden).not.toHaveBeenCalled();
+  });
+
   it('serializes arguments and output at the host boundary', async () => {
     const binding = vi.fn((input: unknown) => ({ input, omitted: undefined }));
     await expect(
       invokeHostBinding({
+        bindingManifest: manifest('test'),
         bindingName: 'tools.test',
         bindings: { tools: { test: binding } },
         context: createContext('tools.test'),
@@ -94,6 +122,7 @@ describe('invokeHostBinding', () => {
   it('rejects oversized binding output', async () => {
     await expect(
       invokeHostBinding({
+        bindingManifest: manifest('test'),
         bindingName: 'tools.test',
         bindings: { tools: { test: () => 'too large' } },
         context: createContext('tools.test'),

@@ -375,6 +375,7 @@ function startWorkerRun({
   source,
   originalSource,
   bindings,
+  bindingManifest,
   abortSignal,
   resolutions,
   continuationCodec,
@@ -664,7 +665,7 @@ function startWorkerRun({
   }
 
   const runMessage: MainToWorkerMessage = {
-    bindingNamespaces: Object.keys(bindings),
+    bindingNamespaces: [...bindingManifest.keys()],
     determinism,
     invocationId,
     options: {
@@ -789,6 +790,7 @@ function startWorkerRun({
       }
 
       const outcome = await invokeHostBinding({
+        bindingManifest,
         bindingName: message.bindingName,
         bindings,
         context: {
@@ -1161,14 +1163,13 @@ function createContinuationScopeHash(
     options.maxContinuationBytes,
     'Continuation context',
   );
-  const bindingManifest = Object.keys(input.bindings)
+  const bindingManifest = [...input.bindingManifest.keys()]
     .toSorted()
-    .flatMap(namespace => {
-      const bindingGroup = input.bindings[namespace] ?? {};
-      return Object.keys(bindingGroup)
+    .flatMap(namespace =>
+      [...(input.bindingManifest.get(namespace) ?? [])]
         .toSorted()
-        .map(name => `${namespace}.${name}`);
-    });
+        .map(name => `${namespace}.${name}`),
+    );
   return createHash('sha256')
     .update(
       toJsonPayload(

@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { RunBindingError } from './errors.js';
 import { runWithBindingContext } from './binding-context.js';
 import { isBindingInterruptSignal } from './interrupt.js';
-import type { BindingContext, Bindings } from './types.js';
+import type { BindingContext, BindingManifest, Bindings } from './types.js';
 import { parseJsonPayload, toJsonPayload } from './utils/serialization.js';
 
 export type BindingInvocationOutcome =
@@ -59,43 +59,59 @@ const assertPayloadSize = (
 };
 
 const unknownBindingError = (
-  bindings: Bindings,
+  bindingManifest: BindingManifest,
   bindingName: string,
 ): RunBindingError =>
   new RunBindingError(`Unknown binding: ${bindingName}`, {
-    availableBindings: Object.entries(bindings).flatMap(([group, entries]) =>
-      Object.keys(entries).map(name => `${group}.${name}`),
+    availableBindings: [...bindingManifest.entries()].flatMap(
+      ([group, names]) => [...names].map(name => `${group}.${name}`),
     ),
     bindingName,
   });
 
 const resolveBinding = (
   bindings: Bindings,
+  bindingManifest: BindingManifest,
   bindingName: string,
 ): InvokableBinding => {
   const separator = bindingName.indexOf('.');
   if (separator <= 0 || separator === bindingName.length - 1) {
-    throw unknownBindingError(bindings, bindingName);
+    throw unknownBindingError(bindingManifest, bindingName);
   }
 
   const groupName = bindingName.slice(0, separator);
   const functionName = bindingName.slice(separator + 1);
-  if (!Object.hasOwn(bindings, groupName)) {
-    throw unknownBindingError(bindings, bindingName);
+  if (bindingManifest.get(groupName)?.has(functionName) !== true) {
+    throw unknownBindingError(bindingManifest, bindingName);
   }
 
-  const group = bindings[groupName];
+  const groupDescriptor = Object.getOwnPropertyDescriptor(bindings, groupName);
   if (
-    typeof group !== 'object' ||
-    group === null ||
-    !Object.hasOwn(group, functionName)
+    groupDescriptor?.enumerable !== true ||
+    !Object.hasOwn(groupDescriptor, 'value')
   ) {
-    throw unknownBindingError(bindings, bindingName);
+    throw unknownBindingError(bindingManifest, bindingName);
   }
 
-  const binding = group[functionName];
+  const group = groupDescriptor.value as unknown;
+  if (typeof group !== 'object' || group === null) {
+    throw unknownBindingError(bindingManifest, bindingName);
+  }
+
+  const bindingDescriptor = Object.getOwnPropertyDescriptor(
+    group,
+    functionName,
+  );
+  if (
+    bindingDescriptor?.enumerable !== true ||
+    !Object.hasOwn(bindingDescriptor, 'value')
+  ) {
+    throw unknownBindingError(bindingManifest, bindingName);
+  }
+
+  const binding = bindingDescriptor.value;
   if (typeof binding !== 'function') {
-    throw unknownBindingError(bindings, bindingName);
+    throw unknownBindingError(bindingManifest, bindingName);
   }
 
   return binding as InvokableBinding;
@@ -104,6 +120,7 @@ const resolveBinding = (
 export const invokeHostBinding = async ({
   bindingName,
   inputJson,
+  bindingManifest,
   bindings,
   context,
   maxBindingInputBytes,
@@ -111,6 +128,7 @@ export const invokeHostBinding = async ({
 }: {
   bindingName: string;
   inputJson: string;
+  bindingManifest: BindingManifest;
   bindings: Bindings;
   context: BindingContext;
   maxBindingInputBytes: number;
@@ -118,7 +136,7 @@ export const invokeHostBinding = async ({
 }): Promise<BindingInvocationOutcome> => {
   throwIfAborted(context.abortSignal);
 
-  const binding = resolveBinding(bindings, bindingName);
+  const binding = resolveBinding(bindings, bindingManifest, bindingName);
   assertPayloadSize(inputJson, maxBindingInputBytes, 'Binding arguments');
   const args = parseJsonPayload(
     inputJson,
