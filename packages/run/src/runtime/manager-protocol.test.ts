@@ -1,6 +1,8 @@
 import type { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { run } from '../run.js';
+import { getBindingContext } from '../binding-context.js';
+import { createRunner, run } from '../run.js';
+import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import { setRuntimeWorkerFactoryForTest } from './manager.js';
 
 type WorkerListener = (value: unknown) => void;
@@ -194,4 +196,85 @@ describe('manager protocol state machine', () => {
       await expectCleanRun();
     },
   );
+
+  it('preserves an encoded interruption when the worker fails after its result', async () => {
+    const encodeStarted = createPromiseWithResolvers<null>();
+    const finishEncode = createPromiseWithResolvers<null>();
+    let emitWorker: WorkerEmit | undefined;
+    const postedMessages: unknown[] = [];
+    setRuntimeWorkerFactoryForTest(() =>
+      createWorkerDouble({
+        postMessage: (value, emit) => {
+          emitWorker = emit;
+          postedMessages.push(value);
+          const message = value as {
+            invocationId?: string;
+            type?: string;
+          };
+          if (message.type !== 'run' || message.invocationId === undefined) {
+            return;
+          }
+          queueMicrotask(() => {
+            emit('message', {
+              bindingName: 'tools.pause',
+              inputJson: '[[]]',
+              invocationId: message.invocationId,
+              requestId: `${message.invocationId}:bridge-1`,
+              type: 'binding-request',
+            });
+            emit('message', {
+              invocationId: message.invocationId,
+              requestCount: 1,
+              type: 'bridge-idle',
+            });
+          });
+        },
+      }),
+    );
+    const runner = createRunner({
+      continuationCodec: {
+        decode: () => {
+          throw new Error('not used');
+        },
+        async encode() {
+          encodeStarted.resolve(null);
+          await finishEncode.promise;
+          return 'encoded-interruption';
+        },
+      },
+    });
+
+    const result = runner.run({
+      bindings: {
+        tools: {
+          pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+        },
+      },
+      source: 'return await tools.pause();',
+    });
+    await encodeStarted.promise;
+    const { invocationId } = postedMessages.find(
+      value => (value as { type?: string }).type === 'run',
+    ) as { invocationId: string };
+    emitWorker?.('message', {
+      invocationId,
+      success: true,
+      type: 'result',
+      valueJson: '[null]',
+    });
+    finishEncode.resolve(null);
+    const settlementTurn = createPromiseWithResolvers<null>();
+    setImmediate(() => settlementTurn.resolve(null));
+    await settlementTurn.promise;
+    expect(postedMessages).not.toContainEqual({
+      invocationId,
+      type: 'cancel',
+    });
+    emitWorker?.('error', new Error('late worker failure'));
+
+    await expect(result).resolves.toMatchObject({
+      continuation: 'encoded-interruption',
+      status: 'interrupted',
+    });
+  });
 });

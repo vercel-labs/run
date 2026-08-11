@@ -633,6 +633,14 @@ function startWorkerRun({
   });
 
   const handleWorkerError = (error: Error) => {
+    if (interruptedResultPending !== undefined && resultMessage !== undefined) {
+      terminalReached = true;
+      const interruptedResult = interruptedResultPending;
+      runInBackground(
+        settleAfterWorkerCleanup(false, () => resolveResult(interruptedResult)),
+      );
+      return;
+    }
     failTerminal(error);
   };
   const onError = bindInvocationContext(handleWorkerError);
@@ -1025,8 +1033,10 @@ function startWorkerRun({
         finalizeInterruptedResult(interruptedResult);
         return;
       }
-      // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
-      worker.postMessage({ invocationId, type: 'cancel' });
+      if (resultMessage === undefined) {
+        // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
+        worker.postMessage({ invocationId, type: 'cancel' });
+      }
     } catch (error) {
       failTerminal(error);
     }
