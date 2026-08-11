@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { RunDetachedBridgeRequestError } from './errors.js';
 import { getBindingContext, run } from './index.js';
 import type { Bindings } from './index.js';
 
@@ -16,6 +17,24 @@ async function value(source: string, bindings?: Bindings): Promise<unknown> {
 function expectValue(source: string, bindings?: Bindings) {
   return expect(value(source, bindings));
 }
+
+const LOCKED_GUEST_GLOBALS = [
+  'BigInt64Array',
+  'BigUint64Array',
+  'FinalizationRegistry',
+  'Float16Array',
+  'InternalError',
+  'Iterator',
+  'JSON',
+  'Math',
+  'Promise',
+  'Proxy',
+  'Reflect',
+  'Symbol',
+  'WeakRef',
+  'console',
+  'globalThis',
+] as const;
 
 describe('guest sandbox hardening', () => {
   it('exposes only the reviewed global surface', async () => {
@@ -196,6 +215,72 @@ describe('guest sandbox hardening', () => {
       setName: 'Set',
       toolsType: 'function',
     });
+  });
+
+  it('locks every privileged guest global binding', async () => {
+    const results = (await value(`
+      const realmGlobal = globalThis;
+      return ${JSON.stringify(LOCKED_GUEST_GLOBALS)}.map(name => {
+        const original = realmGlobal[name];
+        try { realmGlobal[name] = { replaced: true }; } catch {}
+        const descriptor = Object.getOwnPropertyDescriptor(realmGlobal, name);
+        return {
+          name,
+          configurable: descriptor.configurable,
+          writable: descriptor.writable,
+          unchanged: realmGlobal[name] === original,
+        };
+      });
+    `)) as {
+      configurable: boolean;
+      name: string;
+      unchanged: boolean;
+      writable: boolean;
+    }[];
+
+    expect(results).toEqual(
+      LOCKED_GUEST_GLOBALS.map(name => ({
+        configurable: false,
+        name,
+        unchanged: true,
+        writable: false,
+      })),
+    );
+  });
+
+  it('uses trusted intrinsics after attempted guest replacement', async () => {
+    await expectValue(
+      `
+        try { globalThis.Math = { trunc() { throw new Error('fake Math'); } }; } catch {}
+        try { globalThis.Promise = { resolve() { throw new Error('fake Promise'); } }; } catch {}
+        try { globalThis.Proxy = function FakeProxy() { throw new Error('fake Proxy'); }; } catch {}
+        try { globalThis.Reflect = { construct() { throw new Error('fake Reflect'); } }; } catch {}
+        try { globalThis.Symbol = { toStringTag: 'then' }; } catch {}
+
+        const explicitDate = new Date(123).getTime();
+        const echoed = await tools.echo('ok');
+        return { echoed, explicitDate };
+      `,
+      { tools: { echo: (input: unknown) => input } },
+    ).resolves.toEqual({ echoed: 'ok', explicitDate: 123 });
+  });
+
+  it('does not invoke guest Error prototype setters for runtime errors', async () => {
+    await expect(
+      run({
+        bindings: { tools: { echo: () => 'ok' } },
+        source: `
+          for (const name of ['name', 'code', 'details']) {
+            Object.defineProperty(Error.prototype, name, {
+              configurable: true,
+              set() { throw new Error('intercepted ' + name); },
+            });
+          }
+          tools.echo();
+          return true;
+        `,
+      }),
+    ).rejects.toBeInstanceOf(RunDetachedBridgeRequestError);
   });
 
   it('starts with a clean realm after mutation, failure, and interruption', async () => {

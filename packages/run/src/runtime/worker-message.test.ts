@@ -61,7 +61,10 @@ it('reports message failures and ignores late messages without crashing', async 
       ) {
         postToWorker({
           dateNowMs: 1_700_000_000_001,
-          invocationId: message.invocationId,
+          invocationId:
+            message.invocationId === 'run-failure'
+              ? 'wrong-invocation'
+              : message.invocationId,
           requestId: message.requestId,
           success: true,
           type: 'bridge-response',
@@ -100,11 +103,6 @@ it('reports message failures and ignores late messages without crashing', async 
       createRunMessage(
         'run-failure',
         `
-          globalThis.Math = {
-            trunc() {
-              throw new Error('reset failed');
-            },
-          };
           return await tools.echo();
         `,
       ),
@@ -113,7 +111,10 @@ it('reports message failures and ignores late messages without crashing', async 
 
     expect(results).toHaveLength(2);
     expect(results[0]).toMatchObject({
-      error: { message: 'reset failed' },
+      error: {
+        message:
+          'Bridge response invocationId mismatch for request run-failure:bridge-1: expected run-failure, received wrong-invocation.',
+      },
       invocationId: 'run-failure',
       success: false,
     });
