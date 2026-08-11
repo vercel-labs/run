@@ -1,10 +1,15 @@
 import { createInterface } from 'node:readline/promises';
 import { createRunner, getBindingContext } from 'run';
 
+const continuationSecret = process.env.RUN_CONTINUATION_SECRET;
+if (!continuationSecret) {
+  throw new Error(
+    'RUN_CONTINUATION_SECRET is required. Generate one with: export RUN_CONTINUATION_SECRET="$(openssl rand -base64 32)"',
+  );
+}
+
 const runner = createRunner({
-  continuationSecret:
-    process.env.RUN_CONTINUATION_SECRET ??
-    'local-example-only-secret-never-use-in-production',
+  continuationSecret,
 });
 
 let renderCalls = 0;

@@ -14,6 +14,7 @@ Then run an example:
 ```sh
 pnpm build:packages
 pnpm tsx examples/basic.ts
+export RUN_CONTINUATION_SECRET="$(openssl rand -base64 32)"
 pnpm tsx examples/interruption.ts
 ```
 
