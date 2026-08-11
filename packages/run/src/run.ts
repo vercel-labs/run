@@ -193,12 +193,29 @@ export const createRunner = <TOKEN = string>(
   };
 };
 
-let defaultRunner: Runner<string> | undefined;
+let defaultRunner:
+  | {
+      continuationSecret: string | undefined;
+      runner: Runner<string>;
+    }
+  | undefined;
 
 /** Executes JavaScript in a fresh, hardened QuickJS context. */
 export const run = async <OUTPUT = unknown>(
   input: RunInput<string>,
 ): Promise<RunResult<OUTPUT, string>> => {
-  defaultRunner ??= createRunner({ continuationAudience: 'run' });
-  return await defaultRunner.run<OUTPUT>(input);
+  const continuationSecret = process.env.RUN_CONTINUATION_SECRET;
+  if (
+    defaultRunner === undefined ||
+    defaultRunner.continuationSecret !== continuationSecret
+  ) {
+    defaultRunner = {
+      continuationSecret,
+      runner: createRunner({
+        continuationAudience: 'run',
+        ...(continuationSecret === undefined ? {} : { continuationSecret }),
+      }),
+    };
+  }
+  return await defaultRunner.runner.run<OUTPUT>(input);
 };
