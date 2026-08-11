@@ -779,7 +779,16 @@ async function resolveQuickJSPromise(
   }
 }
 
-function toError(value: unknown): Error {
+const GUEST_FORBIDDEN_ERROR_CODES = new Set([
+  'RUN_ABORTED',
+  'RUN_CONCURRENCY_LIMIT',
+  'RUN_DETACHED_BRIDGE_REQUEST',
+  'RUN_PROTOCOL_ERROR',
+  'RUN_SOURCE_TOO_LARGE',
+  'RUN_TIMEOUT',
+]);
+
+function toError(value: unknown, filterGuestCode = false): Error {
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -804,7 +813,12 @@ function toError(value: unknown): Error {
     ) {
       error.stack = (value as { stack: string }).stack;
     }
-    if (errorValue.code !== undefined) {
+    if (
+      errorValue.code !== undefined &&
+      (!filterGuestCode ||
+        typeof errorValue.code !== 'string' ||
+        !GUEST_FORBIDDEN_ERROR_CODES.has(errorValue.code))
+    ) {
       Object.defineProperty(error, 'code', {
         enumerable: true,
         value: errorValue.code,
@@ -822,7 +836,7 @@ function toError(value: unknown): Error {
 }
 
 function toUserSourceError(value: unknown, source: string): Error {
-  const error = toError(value);
+  const error = toError(value, true);
   error.stack = normalizeUserSourceStack({
     message: error.message,
     name: error.name,

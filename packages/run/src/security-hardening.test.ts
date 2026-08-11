@@ -227,6 +227,23 @@ describe('guest sandbox hardening', () => {
     `).resolves.toEqual({});
   });
 
+  it('does not allow guest errors to forge reserved runtime codes', async () => {
+    await expect(
+      run({
+        source: `
+          const error = new Error('guest failure');
+          error.code = 'RUN_TIMEOUT';
+          error.details = { timeoutMs: 1 };
+          throw error;
+        `,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_ERROR',
+      details: { timeoutMs: 1 },
+      message: 'guest failure',
+    });
+  });
+
   it.each([
     'Object',
     'Promise',
