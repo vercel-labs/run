@@ -359,4 +359,66 @@ describe('continuation codecs', () => {
     });
     await expect(codec.encode(state)).rejects.toThrow('storage unavailable');
   });
+
+  it('removes a stored continuation when persistence finishes after an abort', async () => {
+    const { storage, values } = createMemoryStorage();
+    const setStarted = createPromiseWithResolvers<null>();
+    const finishSet = createPromiseWithResolvers<null>();
+    const codec = createStoredContinuationCodec({
+      storage: {
+        ...storage,
+        async set(key, value) {
+          values.set(key, value);
+          setStarted.resolve(null);
+          await finishSet.promise;
+        },
+      },
+    });
+    const abortController = new AbortController();
+    const encoding = codec.encode(state, {
+      abortSignal: abortController.signal,
+      deadlineMs: Date.now() + 1000,
+    });
+
+    await setStarted.promise;
+    abortController.abort();
+    finishSet.resolve(null);
+
+    await expect(encoding).rejects.toMatchObject({ name: 'AbortError' });
+    expect(values.size).toBe(0);
+  });
+
+  it('preserves the abort when stored continuation cleanup fails', async () => {
+    const setStarted = createPromiseWithResolvers<null>();
+    const finishSet = createPromiseWithResolvers<null>();
+    const abortReason = new Error('operation cancelled');
+    const codec = createStoredContinuationCodec({
+      storage: {
+        acquire() {
+          throw new Error('cleanup unavailable');
+        },
+        consume() {
+          throw new Error('not used');
+        },
+        release() {
+          throw new Error('not used');
+        },
+        async set() {
+          setStarted.resolve(null);
+          await finishSet.promise;
+        },
+      },
+    });
+    const abortController = new AbortController();
+    const encoding = codec.encode(state, {
+      abortSignal: abortController.signal,
+      deadlineMs: Date.now() + 1000,
+    });
+
+    await setStarted.promise;
+    abortController.abort(abortReason);
+    finishSet.resolve(null);
+
+    await expect(encoding).rejects.toBe(abortReason);
+  });
 });
