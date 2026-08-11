@@ -99,8 +99,23 @@ const RESERVED_BINDING_NAMES = new Set([
 
 const BINDING_IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/u;
 
+const assertEnumerableProperties = (
+  value: object,
+  label: (name: string) => string,
+): void => {
+  for (const name of Object.getOwnPropertyNames(value)) {
+    if (Object.getOwnPropertyDescriptor(value, name)?.enumerable !== true) {
+      throw new TypeError(`${label(name)} must be enumerable.`);
+    }
+  }
+};
+
 const validateBindings = (bindings: Bindings): BindingManifest => {
   const bindingManifest = new Map<string, ReadonlySet<string>>();
+  assertEnumerableProperties(
+    bindings,
+    namespace => `Binding namespace "${namespace}"`,
+  );
   for (const [namespace, group] of Object.entries(bindings)) {
     if (!Object.hasOwn(bindings, namespace)) {
       continue;
@@ -124,6 +139,7 @@ const validateBindings = (bindings: Bindings): BindingManifest => {
       );
     }
     const bindingNames = new Set<string>();
+    assertEnumerableProperties(group, name => `Binding "${namespace}.${name}"`);
     for (const [name, binding] of Object.entries(group)) {
       if (!Object.hasOwn(group, name)) {
         continue;
