@@ -40,6 +40,19 @@ const runReducers = {
   },
 };
 
+const errorConstructors = Object.assign(
+  Object.create(null) as Record<string, ErrorConstructor>,
+  {
+    Error,
+    EvalError,
+    RangeError,
+    ReferenceError,
+    SyntaxError,
+    TypeError,
+    URIError,
+  },
+);
+
 const reviveOwnProtoObject = (value: unknown): object => {
   if (
     !Array.isArray(value) ||
@@ -102,19 +115,17 @@ const reviveError = (value: unknown): Error => {
   const options = record.hasCause ? { cause: record.cause } : undefined;
   let error: Error;
   if (record.errors === undefined) {
-    const constructors: Record<string, ErrorConstructor> = {
-      Error,
-      EvalError,
-      RangeError,
-      ReferenceError,
-      SyntaxError,
-      TypeError,
-      URIError,
-    };
-    const Constructor = constructors[record.name] ?? Error;
+    const candidate = errorConstructors[record.name];
+    const Constructor =
+      Object.hasOwn(errorConstructors, record.name) && candidate !== undefined
+        ? candidate
+        : Error;
     error = new Constructor(record.message, options);
   } else {
     error = new AggregateError(record.errors, record.message, options);
+  }
+  if (!(error instanceof Error)) {
+    throw new TypeError('Serialized Error value could not be revived.');
   }
   error.name = record.name;
   return error;

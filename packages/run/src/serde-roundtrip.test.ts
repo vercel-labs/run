@@ -97,6 +97,55 @@ describe('run-js-v1 serialization', () => {
     expect(value.error.stack).not.toContain('run.js');
   });
 
+  it.each(['constructor', 'toString', '__proto__'])(
+    'safely revives an Error with inherited object name %s',
+    async name => {
+      const result = await run({
+        source: `
+          const error = new Error('guest message');
+          error.name = ${JSON.stringify(name)};
+          return error;
+        `,
+      });
+
+      expect(result.status).toBe('completed');
+      if (result.status !== 'completed') {
+        return;
+      }
+      expect(result.value).toBeInstanceOf(Error);
+      expect(result.value).toMatchObject({
+        message: 'guest message',
+        name,
+      });
+    },
+  );
+
+  it('passes an Error named constructor to host bindings as an Error', async () => {
+    const inspect = vi.fn((input: unknown) => {
+      expect(input).toBeInstanceOf(Error);
+      expect(input).toMatchObject({
+        message: 'guest message',
+        name: 'constructor',
+      });
+      return input instanceof Error;
+    });
+
+    const result = await run({
+      bindings: { tools: { inspect } },
+      source: `
+        const error = new Error('guest message');
+        error.name = 'constructor';
+        return await tools.inspect(error);
+      `,
+    });
+
+    expect(inspect).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: 'completed',
+      value: true,
+    });
+  });
+
   it('uses the same rich codec in both binding directions', async () => {
     const execute = vi.fn((input: ExchangeInput) => {
       expect(input.self).toBe(input);
