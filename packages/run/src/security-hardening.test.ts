@@ -374,6 +374,45 @@ describe('guest sandbox hardening', () => {
     },
   );
 
+  it.each(['hidden', 'admin.reset'])(
+    'does not expose the non-enumerable binding %s',
+    async name => {
+      let called = false;
+      const group = { visible: () => true };
+      Object.defineProperty(group, name, {
+        value: () => {
+          called = true;
+        },
+      });
+
+      await expect(
+        run({
+          bindings: { tools: group },
+          source: `return await tools[${JSON.stringify(name)}]();`,
+        }),
+      ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+      expect(called).toBe(false);
+    },
+  );
+
+  it('does not expose bindings added after validation', async () => {
+    let called = false;
+    const group: Record<string, () => unknown> = {};
+    group.install = () => {
+      group.hidden = () => {
+        called = true;
+      };
+    };
+
+    await expect(
+      run({
+        bindings: { tools: group },
+        source: 'await tools.install(); return await tools.hidden();',
+      }),
+    ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+    expect(called).toBe(false);
+  });
+
   it.each([
     '',
     '1call',

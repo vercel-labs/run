@@ -68,6 +68,7 @@ describe('serialization boundaries', () => {
 
       await expect(
         invokeHostBinding({
+          bindingManifest: new Map([['tools', new Set(['echo'])]]),
           bindingName: 'tools.echo',
           bindings: { tools: { echo: binding } },
           context: bindingContext(),
@@ -79,6 +80,7 @@ describe('serialization boundaries', () => {
 
       await expect(
         invokeHostBinding({
+          bindingManifest: new Map([['tools', new Set(['echo'])]]),
           bindingName: 'tools.echo',
           bindings: { tools: { echo: binding } },
           context: bindingContext(),
