@@ -131,7 +131,7 @@ const HARDENING_SOURCE = `
   for (const name of [
     'Int8Array','Uint8Array','Uint8ClampedArray',
     'Int16Array','Uint16Array','Int32Array','Uint32Array',
-    'Float32Array','Float64Array',
+    'Float16Array','Float32Array','Float64Array',
     'BigInt64Array','BigUint64Array',
   ]) {
     if (g[name]) toFreeze.push(g[name], g[name].prototype);
@@ -144,10 +144,13 @@ const HARDENING_SOURCE = `
 
   for (const name of [
     'AggregateError','Array','ArrayBuffer','BigInt','Boolean','DataView','Error',
-    'EvalError','Float32Array','Float64Array','Int8Array','Int16Array','Int32Array',
-    'Map','Number','Object','RangeError','ReferenceError','RegExp','Set','String',
-    'SyntaxError','TypeError','Uint8Array','Uint8ClampedArray','Uint16Array',
-    'Uint32Array','URIError','WeakMap','WeakSet'
+    'EvalError','FinalizationRegistry','Float16Array','Float32Array','Float64Array',
+    'Int8Array','Int16Array','Int32Array','InternalError','Iterator','JSON','Map',
+    'Math','Number','Object','Promise','Proxy','RangeError','ReferenceError',
+    'Reflect','RegExp','Set','String','Symbol','SyntaxError','TypeError',
+    'Uint8Array','Uint8ClampedArray','Uint16Array','Uint32Array','URIError',
+    'WeakMap','WeakRef','WeakSet','BigInt64Array','BigUint64Array','console',
+    'globalThis'
   ]) {
     if (g[name] !== undefined) {
       try {
@@ -165,12 +168,12 @@ const HARDENING_SOURCE = `
 const DETERMINISTIC_APIS_SOURCE = `
 var __runResetDateNow = (function(config) {
   var OriginalDate = Date;
-  var dateNowMs = Number(config && config.dateNowMs);
-  if (!Number.isFinite(dateNowMs)) dateNowMs = 0;
+  var dateNowMs = __runOriginalNumber(config && config.dateNowMs);
+  if (!__runOriginalNumber.isFinite(dateNowMs)) dateNowMs = 0;
 
   function resetDateNow(value) {
-    var next = Number(value);
-    if (Number.isFinite(next)) dateNowMs = Math.trunc(next);
+    var next = __runOriginalNumber(value);
+    if (__runOriginalNumber.isFinite(next)) dateNowMs = __runOriginalMath.trunc(next);
   }
 
   function nextDateMs() {
@@ -182,7 +185,7 @@ var __runResetDateNow = (function(config) {
   function RunDate() {
     if (new.target) {
       if (arguments.length === 0) return new OriginalDate(nextDateMs());
-      return Reflect.construct(OriginalDate, arguments, new.target);
+      return __runOriginalReflect.construct(OriginalDate, arguments, new.target);
     }
     return new OriginalDate(nextDateMs()).toString();
   }
@@ -241,7 +244,7 @@ var __runResetDateNow = (function(config) {
 
   Object.defineProperty(Math, 'random', {
     value: function() {
-      return Number(nextRandom64() >> 11n) / 9007199254740992;
+      return __runOriginalNumber(nextRandom64() >> 11n) / 9007199254740992;
     },
     writable: false,
     configurable: false,
@@ -256,15 +259,32 @@ const BRIDGE_TRACKING_SOURCE = `
   var records = [];
 
   function detachedError(message, record) {
-    var error = new Error(message);
-    error.name = 'RunDetachedBridgeRequestError';
-    error.code = 'RUN_DETACHED_BRIDGE_REQUEST';
-    error.details = {
-      id: record.id,
-      kind: record.kind,
-      name: record.name,
-      status: record.status
-    };
+    var error = new __runOriginalError(message);
+    __runOriginalObject.defineProperties(error, {
+      name: {
+        value: 'RunDetachedBridgeRequestError',
+        writable: true,
+        configurable: true,
+        enumerable: true
+      },
+      code: {
+        value: 'RUN_DETACHED_BRIDGE_REQUEST',
+        writable: true,
+        configurable: true,
+        enumerable: true
+      },
+      details: {
+        value: {
+          id: record.id,
+          kind: record.kind,
+          name: record.name,
+          status: record.status
+        },
+        writable: true,
+        configurable: true,
+        enumerable: true
+      }
+    });
     return error;
   }
 
@@ -272,8 +292,8 @@ const BRIDGE_TRACKING_SOURCE = `
     value: function(kind, name, start) {
       var record = {
         id: ++nextRecordId,
-        kind: String(kind),
-        name: String(name || ''),
+        kind: __runOriginalString(kind),
+        name: __runOriginalString(name || ''),
         observed: false,
         status: 'idle'
       };
@@ -284,7 +304,7 @@ const BRIDGE_TRACKING_SOURCE = `
         record.observed = true;
         if (!promise) {
           record.status = 'pending';
-          promise = Promise.resolve().then(start).then(
+          promise = __runOriginalPromise.resolve().then(start).then(
             function(value) {
               record.status = 'fulfilled';
               return value;
@@ -298,7 +318,7 @@ const BRIDGE_TRACKING_SOURCE = `
         return promise;
       }
 
-      return Object.freeze({
+      return __runOriginalObject.freeze({
         then: function(onFulfilled, onRejected) {
           return getPromise().then(onFulfilled, onRejected);
         },
@@ -308,7 +328,7 @@ const BRIDGE_TRACKING_SOURCE = `
         finally: function(onFinally) {
           return getPromise().finally(onFinally);
         },
-        get [Symbol.toStringTag]() {
+        get [__runOriginalSymbol.toStringTag]() {
           return 'Promise';
         }
       });
@@ -344,17 +364,17 @@ const BRIDGE_TRACKING_SOURCE = `
 const BINDINGS_PROXY_SOURCE = `
 (function(invokeBinding, bindingNamespaces) {
   function serializationError(label, error) {
-    var message = error && error.message ? String(error.message) : String(error);
-    var result = new TypeError(label + ': ' + message);
+    var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
+    var result = new __runOriginalTypeError(label + ': ' + message);
     result.code = 'RUN_SERIALIZATION_ERROR';
     return result;
   }
 
   function makeProxy(path) {
-    return new Proxy(function(){}, {
+    return new __runOriginalProxy(function(){}, {
       get: function(_target, prop) {
         if (prop === 'then' || typeof prop === 'symbol') return undefined;
-        return makeProxy(path.concat([String(prop)]));
+        return makeProxy(path.concat([__runOriginalString(prop)]));
       },
       apply: function(_target, _thisArg, args) {
         var bindingPath = path.join('.');
@@ -406,14 +426,14 @@ const SERIALIZATION_GUARD_SOURCE = `
     try {
       encoded = __runSerdeBundle.serializeRunValue(value);
     } catch (error) {
-      var message = error && error.message ? String(error.message) : String(error);
-      var serializationError = new TypeError('JavaScript runtime result is not serializable: ' + message);
+      var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
+      var serializationError = new __runOriginalTypeError('JavaScript runtime result is not serializable: ' + message);
       serializationError.code = 'RUN_SERIALIZATION_ERROR';
       throw serializationError;
     }
 
     if (encoded === undefined) {
-      var serializationError = new TypeError('JavaScript runtime result is not serializable.');
+      var serializationError = new __runOriginalTypeError('JavaScript runtime result is not serializable.');
       serializationError.code = 'RUN_SERIALIZATION_ERROR';
       throw serializationError;
     }
@@ -436,6 +456,16 @@ export const buildGuestRuntimeSetupSource = (
   return `
 (function(__runInvokeBinding, __runDeterminism) {
 const __runBindingNamespaces = ${namespacesJson};
+const __runOriginalError = Error;
+const __runOriginalMath = Math;
+const __runOriginalNumber = Number;
+const __runOriginalObject = Object;
+const __runOriginalPromise = Promise;
+const __runOriginalProxy = Proxy;
+const __runOriginalReflect = Reflect;
+const __runOriginalString = String;
+const __runOriginalSymbol = Symbol;
+const __runOriginalTypeError = TypeError;
 ${DETERMINISTIC_APIS_SOURCE}
 ${BASE64_SOURCE}
 ${GUEST_SERDE_SOURCE}
