@@ -32,16 +32,6 @@ const positiveInteger = (
 export const normalizeOptions = (
   limits: RunLimits = {},
 ): NormalizedRunOptions => ({
-  maxHostFunctionInputBytes: positiveInteger(
-    limits.maxHostFunctionArgumentsBytes,
-    DEFAULT_MAX_HOST_FUNCTION_ARGUMENTS_BYTES,
-    'limits.maxHostFunctionArgumentsBytes',
-  ),
-  maxHostFunctionOutputBytes: positiveInteger(
-    limits.maxHostFunctionOutputBytes,
-    DEFAULT_MAX_HOST_FUNCTION_OUTPUT_BYTES,
-    'limits.maxHostFunctionOutputBytes',
-  ),
   maxBridgeRequests: positiveInteger(
     limits.maxBridgeRequests,
     DEFAULT_MAX_BRIDGE_REQUESTS,
@@ -56,6 +46,16 @@ export const normalizeOptions = (
     limits.maxContinuationBytes,
     DEFAULT_MAX_CONTINUATION_BYTES,
     'limits.maxContinuationBytes',
+  ),
+  maxHostFunctionInputBytes: positiveInteger(
+    limits.maxHostFunctionArgumentsBytes,
+    DEFAULT_MAX_HOST_FUNCTION_ARGUMENTS_BYTES,
+    'limits.maxHostFunctionArgumentsBytes',
+  ),
+  maxHostFunctionOutputBytes: positiveInteger(
+    limits.maxHostFunctionOutputBytes,
+    DEFAULT_MAX_HOST_FUNCTION_OUTPUT_BYTES,
+    'limits.maxHostFunctionOutputBytes',
   ),
   maxInFlightBridgeRequests: positiveInteger(
     limits.maxInFlightBridgeRequests,

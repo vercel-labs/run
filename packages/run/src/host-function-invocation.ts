@@ -14,9 +14,7 @@ export type HostFunctionInvocationOutcome =
   | { status: 'fulfilled'; valueJson: string }
   | { status: 'interrupted'; payloadJson: string };
 
-type InvokableHostFunction = (
-  ...args: unknown[]
-) => unknown | Promise<unknown>;
+type InvokableHostFunction = (...args: unknown[]) => unknown | Promise<unknown>;
 
 const abortReason = (abortSignal: AbortSignal): unknown =>
   abortSignal.reason ??

@@ -342,14 +342,17 @@ describe('guest sandbox hardening', () => {
     'InternalError',
     'console',
     'globalThis',
-  ])('rejects a host function namespace that collides with %s', async namespace => {
-    await expect(
-      run({
-        hostFunctions: { [namespace]: { call: () => true } },
-        source: 'return 1;',
-      }),
-    ).rejects.toThrow('Reserved host function namespace');
-  });
+  ])(
+    'rejects a host function namespace that collides with %s',
+    async namespace => {
+      await expect(
+        run({
+          hostFunctions: { [namespace]: { call: () => true } },
+          source: 'return 1;',
+        }),
+      ).rejects.toThrow('Reserved host function namespace');
+    },
+  );
 
   it.each(['__proto__', 'constructor', 'prototype', 'then'])(
     'rejects the reserved host function namespace %s',

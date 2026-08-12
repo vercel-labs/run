@@ -272,8 +272,8 @@ describe('resource and lifecycle hardening', () => {
           },
         },
         limits: {
-          maxHostFunctionOutputBytes: 1024,
           maxContinuationBytes: 700,
+          maxHostFunctionOutputBytes: 1024,
         },
         source,
       }),

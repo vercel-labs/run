@@ -51,8 +51,8 @@ describe('continuation replay hardening', () => {
       throw new Error('Expected round one.');
     }
     const second = await run({
-      hostFunctions,
       continuation: first.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruptionId(first), value: 'one' },
       ],
@@ -62,8 +62,8 @@ describe('continuation replay hardening', () => {
       throw new Error('Expected round two.');
     }
     const completed = await run({
-      hostFunctions,
       continuation: second.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruptionId(second), value: 'two' },
       ],
@@ -152,8 +152,8 @@ describe('continuation replay hardening', () => {
     ]) {
       await expect(
         run({
-          hostFunctions,
           continuation: interrupted.continuation,
+          hostFunctions,
           resolutions,
           source,
         }),
@@ -219,8 +219,8 @@ describe('continuation replay hardening', () => {
       mutate = true;
       await expect(
         runner.run({
-          hostFunctions,
           continuation: interrupted.continuation,
+          hostFunctions,
           resolutions: [
             { interruptionId: firstInterruptionId(interrupted), value: true },
           ],
@@ -264,8 +264,8 @@ describe('continuation replay hardening', () => {
     }
     await expect(
       run({
-        hostFunctions,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           { interruptionId: firstInterruptionId(interrupted), value: true },
         ],
@@ -315,8 +315,8 @@ describe('continuation replay hardening', () => {
     }
     await expect(
       run({
-        hostFunctions,
         continuation: interrupted.continuation,
+        hostFunctions,
         limits: { maxBridgeRequests: count + 1 },
         resolutions: [
           {
@@ -354,8 +354,8 @@ describe('continuation replay hardening', () => {
       throw new Error('Expected pause.');
     }
     const input = {
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruptionId(interrupted), value: true },
       ],
@@ -501,8 +501,8 @@ describe('continuation replay hardening', () => {
       let result = await run({ hostFunctions, source });
       while (result.status === 'interrupted') {
         result = await run({
-          hostFunctions,
           continuation: result.continuation,
+          hostFunctions,
           resolutions: result.interruptions.map(interruption => ({
             interruptionId: interruption.id,
             value: true,

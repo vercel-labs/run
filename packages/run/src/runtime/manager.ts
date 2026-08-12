@@ -819,7 +819,8 @@ function startWorkerRun({
         hostFunctions,
         inputJson: message.inputJson,
         maxHostFunctionInputBytes: normalizedOptions.maxHostFunctionInputBytes,
-        maxHostFunctionOutputBytes: normalizedOptions.maxHostFunctionOutputBytes,
+        maxHostFunctionOutputBytes:
+          normalizedOptions.maxHostFunctionOutputBytes,
       });
       if (outcome.status === 'interrupted') {
         const interruptionId =

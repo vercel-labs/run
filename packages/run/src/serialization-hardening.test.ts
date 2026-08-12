@@ -68,10 +68,10 @@ describe('serialization boundaries', () => {
 
       await expect(
         invokeHostFunction({
+          context: hostFunctionContext(),
           hostFunctionManifest: new Map([['tools', new Set(['echo'])]]),
           hostFunctionName: 'tools.echo',
           hostFunctions: { tools: { echo: hostFunction } },
-          context: hostFunctionContext(),
           inputJson,
           maxHostFunctionInputBytes: exactBytes,
           maxHostFunctionOutputBytes: 1024,
@@ -80,10 +80,10 @@ describe('serialization boundaries', () => {
 
       await expect(
         invokeHostFunction({
+          context: hostFunctionContext(),
           hostFunctionManifest: new Map([['tools', new Set(['echo'])]]),
           hostFunctionName: 'tools.echo',
           hostFunctions: { tools: { echo: hostFunction } },
-          context: hostFunctionContext(),
           inputJson,
           maxHostFunctionInputBytes: exactBytes - 1,
           maxHostFunctionOutputBytes: 1024,
@@ -204,8 +204,8 @@ describe('serialization boundaries', () => {
     const date = new Date('2025-01-02T03:04:05.000Z');
     await expect(
       run({
-        hostFunctions,
         continuation: first.continuation,
+        hostFunctions,
         resolutions: [{ interruptionId: interruption.id, value: date }],
         source,
       }),

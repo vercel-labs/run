@@ -23,9 +23,9 @@ globalThis.gc?.();
 const baseline = memory();
 const counts = {
   aborts: 0,
-  hostFunctionErrors: 0,
   completed: 0,
   guestErrors: 0,
+  hostFunctionErrors: 0,
   interruptions: 0,
   timeouts: 0,
 };
@@ -95,8 +95,8 @@ for (let index = 0; index < iterations; index += 1) {
       throw new Error('Expected interruption.');
     }
     const completed = await continuationRunner.run({
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: interrupted.interruptions[0].id, value: true },
       ],

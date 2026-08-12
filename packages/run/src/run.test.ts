@@ -449,8 +449,8 @@ describe('run', () => {
     const token = interrupted.continuation as string;
     await expect(
       run({
-        hostFunctions: { tools: { pause: () => {} } },
         continuation: `${token[0] === 'A' ? 'B' : 'A'}${token.slice(1)}`,
+        hostFunctions: { tools: { pause: () => {} } },
         source: 'return await tools.pause();',
       }),
     ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
@@ -490,8 +490,8 @@ describe('run', () => {
       throw new Error('Expected interruption.');
     }
     const completed = await run({
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(interrupted).id, value: true },
       ],
@@ -529,8 +529,8 @@ describe('run', () => {
       throw new Error('Expected first round.');
     }
     const second = await run({
-      hostFunctions,
       continuation: first.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(first).id, value: 'a' },
       ],
@@ -541,8 +541,8 @@ describe('run', () => {
     }
     await expect(
       run({
-        hostFunctions,
         continuation: second.continuation,
+        hostFunctions,
         resolutions: [
           { interruptionId: firstInterruption(second).id, value: 'b' },
         ],
@@ -578,8 +578,8 @@ describe('run', () => {
       throw new Error('Expected interruption.');
     }
     await run({
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(interrupted).id, value: true },
       ],
@@ -692,8 +692,8 @@ describe('run', () => {
       throw new Error('Expected interruption.');
     }
     const resume = {
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(interrupted).id, value: true },
       ],
@@ -750,8 +750,8 @@ describe('run', () => {
     expect(interrupted.interruptions).toHaveLength(16);
     await expect(
       run({
-        hostFunctions,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: interrupted.interruptions.map((item, index) => ({
           interruptionId: item.id,
           value: index,
@@ -797,8 +797,8 @@ describe('run', () => {
     }
     await expect(
       run({
-        hostFunctions,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           { interruptionId: firstInterruption(interrupted).id, value: true },
         ],
@@ -860,16 +860,16 @@ describe('run', () => {
       continuationCodec: codec,
     });
     const first = await runner.run({
-      hostFunctions,
       continuationContext: { tenantId: 'tenant-a' },
+      hostFunctions,
       source,
     });
     if (first.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     const resume = {
-      hostFunctions,
       continuation: first.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(first).id, value: true },
       ],
@@ -894,8 +894,8 @@ describe('run', () => {
     await expect(
       runner.run({
         ...resume,
-        hostFunctions: { tools: { ...hostFunctions.tools, extra: () => true } },
         continuationContext: { tenantId: 'tenant-a' },
+        hostFunctions: { tools: { ...hostFunctions.tools, extra: () => true } },
       }),
     ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
   });
@@ -913,8 +913,8 @@ describe('run', () => {
     }
     await expect(
       run({
-        hostFunctions,
         continuation: first.continuation,
+        hostFunctions,
         resolutions: [
           {
             extra: true,
@@ -1010,8 +1010,8 @@ describe('run', () => {
     expect(firstInterruption(interrupted).arguments).toEqual(['environment']);
     await expect(
       secondRunner.run({
-        hostFunctions,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           {
             interruptionId: firstInterruption(interrupted).id,

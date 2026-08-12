@@ -603,8 +603,7 @@ function createBridgeFunctions(
         };
       }
       if (
-        Buffer.byteLength(inputJson) >
-        message.options.maxHostFunctionInputBytes
+        Buffer.byteLength(inputJson) > message.options.maxHostFunctionInputBytes
       ) {
         return {
           error: context.newError(

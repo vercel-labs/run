@@ -3,8 +3,8 @@ import { createRunner, getHostFunctionContext, run } from '../dist/index.js';
 
 const iterations = positiveInteger(process.env.RUN_BENCHMARK_ITERATIONS, 100);
 const budgets = {
-  hostFunctionRoundTripP99Ms: 75,
   coldRunMs: 500,
+  hostFunctionRoundTripP99Ms: 75,
   interruptAndReplayP99Ms: 300,
   tenHostFunctionRoundTripsP99Ms: 100,
   warmRunP99Ms: 75,
@@ -54,8 +54,8 @@ results.interruptAndReplayMs = await measureMany(
       throw new Error('Expected pause.');
     }
     await continuationRunner.run({
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: interrupted.interruptions[0].id, value: true },
       ],

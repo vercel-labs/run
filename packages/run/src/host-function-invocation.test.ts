@@ -34,10 +34,10 @@ describe('invokeHostFunction', () => {
 
     await expect(
       invokeHostFunction({
+        context,
         hostFunctionManifest: manifest('test'),
         hostFunctionName: 'tools.test',
         hostFunctions: { tools: { test: hostFunction } },
-        context,
         inputJson: `[${' '.repeat(32)}`,
         maxHostFunctionInputBytes: 8,
         maxHostFunctionOutputBytes: 1024,
@@ -50,10 +50,10 @@ describe('invokeHostFunction', () => {
     const context = createContext('tools.missing');
     await expect(
       invokeHostFunction({
+        context,
         hostFunctionManifest: manifest('present'),
         hostFunctionName: 'tools.missing',
         hostFunctions: { tools: { present: () => true } },
-        context,
         inputJson: '[[]]',
         maxHostFunctionInputBytes: 1024,
         maxHostFunctionOutputBytes: 1024,
@@ -65,12 +65,12 @@ describe('invokeHostFunction', () => {
 
     await expect(
       invokeHostFunction({
+        context: createContext('tools.present'),
         hostFunctionManifest: manifest('present'),
         hostFunctionName: 'tools.present',
         hostFunctions: {
           tools: { present: true as unknown as () => boolean },
         },
-        context: createContext('tools.present'),
         inputJson: '[[]]',
         maxHostFunctionInputBytes: 1024,
         maxHostFunctionOutputBytes: 1024,
@@ -85,10 +85,10 @@ describe('invokeHostFunction', () => {
 
     await expect(
       invokeHostFunction({
+        context: createContext('tools.hidden'),
         hostFunctionManifest: manifest('present'),
         hostFunctionName: 'tools.hidden',
         hostFunctions: { tools: group },
-        context: createContext('tools.hidden'),
         inputJson: '[[]]',
         maxHostFunctionInputBytes: 1024,
         maxHostFunctionOutputBytes: 1024,
@@ -107,10 +107,10 @@ describe('invokeHostFunction', () => {
     }));
     await expect(
       invokeHostFunction({
+        context: createContext('tools.test'),
         hostFunctionManifest: manifest('test'),
         hostFunctionName: 'tools.test',
         hostFunctions: { tools: { test: hostFunction } },
-        context: createContext('tools.test'),
         inputJson: '[[1],{"value":2},1]',
         maxHostFunctionInputBytes: 1024,
         maxHostFunctionOutputBytes: 1024,
@@ -125,10 +125,10 @@ describe('invokeHostFunction', () => {
   it('rejects oversized host function output', async () => {
     await expect(
       invokeHostFunction({
+        context: createContext('tools.test'),
         hostFunctionManifest: manifest('test'),
         hostFunctionName: 'tools.test',
         hostFunctions: { tools: { test: () => 'too large' } },
-        context: createContext('tools.test'),
         inputJson: '[[]]',
         maxHostFunctionInputBytes: 1024,
         maxHostFunctionOutputBytes: 4,

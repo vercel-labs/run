@@ -238,8 +238,8 @@ describe('run-js-v1 serialization', () => {
     };
     resolution.self = resolution;
     const completed = await run({
-      hostFunctions,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         {
           interruptionId: interruption.id,

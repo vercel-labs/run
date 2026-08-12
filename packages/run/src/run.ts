@@ -155,9 +155,7 @@ const validateHostFunctions = (
         RESERVED_HOST_FUNCTION_NAMES.has(name) ||
         name.startsWith('__run')
       ) {
-        throw new TypeError(
-          `Invalid host function name: ${namespace}.${name}`,
-        );
+        throw new TypeError(`Invalid host function name: ${namespace}.${name}`);
       }
       if (typeof hostFunction !== 'function') {
         throw new TypeError(
@@ -209,10 +207,10 @@ export const createRunner = <TOKEN = string>(
       const hostFunctionManifest = validateHostFunctions(hostFunctions);
       const value = await runManaged({
         ...input,
-        hostFunctionManifest,
-        hostFunctions,
         continuationAudience,
         continuationCodec,
+        hostFunctionManifest,
+        hostFunctions,
         limits: {
           ...options.limits,
           ...input.limits,

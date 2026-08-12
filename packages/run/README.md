@@ -125,15 +125,15 @@ aborted.
 
 `HostFunctionContext` contains:
 
-| Property             | Meaning                                                     |
-| -------------------- | ----------------------------------------------------------- |
-| `abortSignal`        | Aborted when the run is cancelled, times out, or fails      |
-| `hostFunctionName`   | Fully qualified name such as `tools.sum`                    |
-| `logicalRunId`       | Stable across every continuation replay                     |
-| `invocationId`       | Identifies the current execution attempt                    |
-| `requestId`          | Identifies this host function request in the current attempt |
-| `requestIndex`       | One-based host function request order                       |
-| `interrupt(payload)` | Suspends the run; its return type is `never`                |
+| Property             | Meaning                                                           |
+| -------------------- | ----------------------------------------------------------------- |
+| `abortSignal`        | Aborted when the run is cancelled, times out, or fails            |
+| `hostFunctionName`   | Fully qualified name such as `tools.sum`                          |
+| `logicalRunId`       | Stable across every continuation replay                           |
+| `invocationId`       | Identifies the current execution attempt                          |
+| `requestId`          | Identifies this host function request in the current attempt      |
+| `requestIndex`       | One-based host function request order                             |
+| `interrupt(payload)` | Suspends the run; its return type is `never`                      |
 | `resume`             | Resolution metadata when an interrupted host function is replayed |
 
 ## Interrupt and resume
@@ -227,19 +227,19 @@ the environment variable. Supplying both `continuationSecret` and
 Per-run limits override runner defaults. An `abortSignal` cancels an active
 invocation and is available through `getHostFunctionContext()`.
 
-| Limit                                       |    Default |
-| ------------------------------------------- | ---------: |
-| Timeout                                     | 30 seconds |
-| QuickJS memory                              |     64 MiB |
-| QuickJS stack                               |      2 MiB |
-| Source                                      |    256 KiB |
-| Result                                      |      1 MiB |
-| Console output                              |     64 KiB |
-| Host function arguments                     |      1 MiB |
+| Limit                                        |    Default |
+| -------------------------------------------- | ---------: |
+| Timeout                                      | 30 seconds |
+| QuickJS memory                               |     64 MiB |
+| QuickJS stack                                |      2 MiB |
+| Source                                       |    256 KiB |
+| Result                                       |      1 MiB |
+| Console output                               |     64 KiB |
+| Host function arguments                      |      1 MiB |
 | Host function output or interruption payload |      4 MiB |
-| Bridge requests                             |        256 |
-| Concurrent bridge requests                  |         32 |
-| Continuation                                |     32 MiB |
+| Bridge requests                              |        256 |
+| Concurrent bridge requests                   |         32 |
+| Continuation                                 |     32 MiB |
 
 All limits must be positive integers no greater than `2_147_483_647`. Values
 above this ceiling are rejected instead of being passed to platform APIs that

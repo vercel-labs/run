@@ -18,7 +18,8 @@ describe('run configuration', () => {
         run({
           hostFunctions: {
             tools: {
-              pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
+              pause: () =>
+                getHostFunctionContext().interrupt({ kind: 'pause' }),
             },
           },
           source: 'return await tools.pause();',
