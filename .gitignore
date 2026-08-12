@@ -24,3 +24,6 @@ coverage/
 pnpm-debug.log*
 .deepsec
 /findings
+
+# Website
+website/.source

@@ -109,30 +109,10 @@ export default function PlaygroundPage() {
           : 'Ready to execute';
 
   return (
-    <div className="vbg-shell">
+    <div className="vbg-report vbg-shell vbg-custom-type-scale">
       <a className="vbg-skip-link" href="#playground">
         Skip to playground
       </a>
-
-      <header className="vbg-header">
-        <div className="vbg-masthead">
-          <a
-            aria-label="Vercel"
-            className="vbg-identity"
-            href="https://vercel.com"
-          >
-            <span
-              aria-label="Vercel"
-              className="vbg-wordmark"
-              role="img"
-            />
-          </a>
-          <div className="vbg-document-meta">
-            <span className="vbg-recipient">run</span>
-            <span className="vbg-state">Playground</span>
-          </div>
-        </div>
-      </header>
 
       <main id="playground">
         <section className="vbg-opening vbg-custom-opening">
@@ -240,11 +220,6 @@ export default function PlaygroundPage() {
           </div>
         </section>
       </main>
-
-      <footer className="vbg-footer">
-        <span aria-label="Vercel" className="vbg-logo" role="img" />
-        <a href="https://github.com/vercel-labs/run">View run on GitHub</a>
-      </footer>
     </div>
   );
 }

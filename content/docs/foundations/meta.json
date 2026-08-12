@@ -1,0 +1,11 @@
+{
+  "title": "Foundations",
+  "defaultOpen": true,
+  "pages": [
+    "overview",
+    "sandbox",
+    "host-functions",
+    "serialization",
+    "interruptions"
+  ]
+}

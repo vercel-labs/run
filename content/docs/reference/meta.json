@@ -1,0 +1,14 @@
+{
+  "title": "API Reference",
+  "pages": [
+    "run",
+    "create-runner",
+    "get-host-function-context",
+    "create-signed-continuation-codec",
+    "create-stored-continuation-codec",
+    "is-run-interrupted-result",
+    "set-max-workers",
+    "errors",
+    "types"
+  ]
+}
