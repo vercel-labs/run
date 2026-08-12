@@ -1,25 +1,32 @@
 {
-  "name": "@run/playground",
+  "name": "@run/website",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
     "build": "pnpm --filter run build && next build",
     "dev": "next dev",
+    "postinstall": "fumadocs-mdx",
     "start": "next start",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@vercel/analytics": "^2.0.1",
+    "@vercel/geistdocs": "^1.20.0",
+    "fumadocs-mdx": "^14.0.4",
     "next": "^16.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "run": "workspace:*"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/mdx": "^2.0.14",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2"
   }
 }
