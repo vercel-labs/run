@@ -2,8 +2,8 @@ import { Buffer } from 'node:buffer';
 import { runManaged } from './runtime/manager.js';
 import { createSignedContinuationCodec } from './continuation-codec.js';
 import type {
-  BindingManifest,
-  Bindings,
+  HostFunctionManifest,
+  HostFunctions,
   ContinuationCodec,
   RunInput,
   Runner,
@@ -90,14 +90,14 @@ const RESERVED_GLOBALS = new Set([
   'unescape',
 ]);
 
-const RESERVED_BINDING_NAMES = new Set([
+const RESERVED_HOST_FUNCTION_NAMES = new Set([
   '__proto__',
   'constructor',
   'prototype',
   'then',
 ]);
 
-const BINDING_IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/u;
+const HOST_FUNCTION_IDENTIFIER_PATTERN = /^[A-Za-z_$][\w$]*$/u;
 
 const assertEnumerableProperties = (
   value: object,
@@ -110,58 +110,65 @@ const assertEnumerableProperties = (
   }
 };
 
-const validateBindings = (bindings: Bindings): BindingManifest => {
-  const bindingManifest = new Map<string, ReadonlySet<string>>();
+const validateHostFunctions = (
+  hostFunctions: HostFunctions,
+): HostFunctionManifest => {
+  const hostFunctionManifest = new Map<string, ReadonlySet<string>>();
   assertEnumerableProperties(
-    bindings,
-    namespace => `Binding namespace "${namespace}"`,
+    hostFunctions,
+    namespace => `Host function namespace "${namespace}"`,
   );
-  for (const [namespace, group] of Object.entries(bindings)) {
-    if (!Object.hasOwn(bindings, namespace)) {
+  for (const [namespace, group] of Object.entries(hostFunctions)) {
+    if (!Object.hasOwn(hostFunctions, namespace)) {
       continue;
     }
     if (
       Buffer.byteLength(namespace) > 512 ||
-      !BINDING_IDENTIFIER_PATTERN.test(namespace)
+      !HOST_FUNCTION_IDENTIFIER_PATTERN.test(namespace)
     ) {
-      throw new TypeError(`Invalid binding namespace: ${namespace}`);
+      throw new TypeError(`Invalid host function namespace: ${namespace}`);
     }
     if (
       RESERVED_GLOBALS.has(namespace) ||
-      RESERVED_BINDING_NAMES.has(namespace) ||
+      RESERVED_HOST_FUNCTION_NAMES.has(namespace) ||
       namespace.startsWith('__run')
     ) {
-      throw new TypeError(`Reserved binding namespace: ${namespace}`);
+      throw new TypeError(`Reserved host function namespace: ${namespace}`);
     }
     if (typeof group !== 'object' || group === null || Array.isArray(group)) {
       throw new TypeError(
-        `Binding namespace "${namespace}" must be an object.`,
+        `Host function namespace "${namespace}" must be an object.`,
       );
     }
-    const bindingNames = new Set<string>();
-    assertEnumerableProperties(group, name => `Binding "${namespace}.${name}"`);
-    for (const [name, binding] of Object.entries(group)) {
+    const hostFunctionNames = new Set<string>();
+    assertEnumerableProperties(
+      group,
+      name => `Host function "${namespace}.${name}"`,
+    );
+    for (const [name, hostFunction] of Object.entries(group)) {
       if (!Object.hasOwn(group, name)) {
         continue;
       }
       if (
-        !BINDING_IDENTIFIER_PATTERN.test(name) ||
+        !HOST_FUNCTION_IDENTIFIER_PATTERN.test(name) ||
         Buffer.byteLength(`${namespace}.${name}`) > 1024 ||
-        RESERVED_BINDING_NAMES.has(name) ||
+        RESERVED_HOST_FUNCTION_NAMES.has(name) ||
         name.startsWith('__run')
       ) {
-        throw new TypeError(`Invalid binding name: ${namespace}.${name}`);
-      }
-      if (typeof binding !== 'function') {
         throw new TypeError(
-          `Binding "${namespace}.${name}" must be a function.`,
+          `Invalid host function name: ${namespace}.${name}`,
         );
       }
-      bindingNames.add(name);
+      if (typeof hostFunction !== 'function') {
+        throw new TypeError(
+          `Host function "${namespace}.${name}" must be a function.`,
+        );
+      }
+      hostFunctionNames.add(name);
     }
-    bindingManifest.set(namespace, bindingNames);
+    hostFunctionManifest.set(namespace, hostFunctionNames);
   }
-  return bindingManifest;
+  return hostFunctionManifest;
 };
 
 /** Creates a runner with shared defaults. */
@@ -198,12 +205,12 @@ export const createRunner = <TOKEN = string>(
     async run<OUTPUT = unknown>(
       input: RunInput<TOKEN>,
     ): Promise<RunResult<OUTPUT, TOKEN>> {
-      const bindings = input.bindings ?? {};
-      const bindingManifest = validateBindings(bindings);
+      const hostFunctions = input.hostFunctions ?? {};
+      const hostFunctionManifest = validateHostFunctions(hostFunctions);
       const value = await runManaged({
         ...input,
-        bindingManifest,
-        bindings,
+        hostFunctionManifest,
+        hostFunctions,
         continuationAudience,
         continuationCodec,
         limits: {

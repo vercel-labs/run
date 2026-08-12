@@ -1,23 +1,23 @@
 ---
-title: Bindings
+title: Host functions
 description: Learn how sandboxed code calls functions in the host application.
 ---
 
-# Bindings
+# Host functions
 
-Bindings are host functions that guest code is allowed to call. They are the
+Host functions are functions that guest code is allowed to call. They are the
 only supported way for source running in the sandbox to interact with your
 application or the systems connected to it.
 
-A binding should represent a focused capability. Instead of exposing a
+A host function should represent a focused capability. Instead of exposing a
 database client, for example, the host can expose a function that loads one
 kind of record after applying the application's validation and authorization
 rules.
 
-## Defining bindings
+## Defining host functions
 
-Bindings are defined under a namespace. The namespace becomes a global object
-in the sandbox, and each binding becomes a method on that object.
+Host functions are defined under a namespace. The namespace becomes a global
+object in the sandbox, and each host function becomes a method on that object.
 
 ```ts
 import { run } from 'run';
@@ -27,7 +27,7 @@ const result = await run({
     const user = await users.find("user_123");
     return user;
   `,
-  bindings: {
+  hostFunctions: {
     users: {
       find: async (id: string) => {
         return { id, name: 'Ada' };
@@ -37,23 +37,23 @@ const result = await run({
 });
 ```
 
-The complete name of the binding in this example is `users.find`. The `users`
-namespace is available only for this invocation.
+The complete name of the host function in this example is `users.find`. The
+`users` namespace is available only for this invocation.
 
 A namespace must be a valid JavaScript identifier, must not conflict with a
 reserved global, and must not begin with `__run`.
 
 ## Calls
 
-Calling a binding creates a request from the guest to the host. The arguments
-are serialized, copied to the host, and passed to the binding as ordinary
-function arguments. The returned value is then serialized and copied back to
-the guest.
+Calling a host function creates a request from the guest to the host. The
+arguments are serialized, copied to the host, and passed to the host function
+as ordinary function arguments. The returned value is then serialized and
+copied back to the guest.
 
-Bindings may return values directly or return promises:
+Host functions may return values directly or return promises:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   math: {
     double: (value: number) => value * 2,
   },
@@ -65,16 +65,16 @@ const bindings = {
 };
 ```
 
-Guest code should await every binding call. Returning while binding work is
-still pending can fail the invocation because the runtime cannot safely detach
-host work from the guest that requested it.
+Guest code should await every host function call. Returning while host
+function work is still pending can fail the invocation because the runtime
+cannot safely detach host work from the guest that requested it.
 
 ```ts
 await events.record({ name: 'opened' });
 return { recorded: true };
 ```
 
-Several binding calls can run concurrently when the guest awaits them
+Several host function calls can run concurrently when the guest awaits them
 together:
 
 ```ts
@@ -84,21 +84,21 @@ const [profile, orders] = await Promise.all([
 ]);
 ```
 
-The invocation limits both the total number of binding calls and the number
-that may be in flight at once.
+The invocation limits both the total number of host function calls and the
+number that may be in flight at once.
 
 ## Context
 
-A binding has the option to call `getBindingContext()` to access information about its active
-request:
+A host function has the option to call `getHostFunctionContext()` to access
+information about its active request:
 
 ```ts
-import { getBindingContext } from 'run';
+import { getHostFunctionContext } from 'run';
 
-const bindings = {
+const hostFunctions = {
   users: {
     find: async (id: string) => {
-      const context = getBindingContext();
+      const context = getHostFunctionContext();
 
       return {
         id,
@@ -110,20 +110,22 @@ const bindings = {
 };
 ```
 
-`getBindingContext()` exposes the following information and controls:
+`getHostFunctionContext()` exposes the following information and controls:
 
-- `abortSignal` lets the binding stop its work when the run is cancelled, times
-  out, or fails.
+- `abortSignal` lets the host function stop its work when the run is
+  cancelled, times out, or fails.
 - `invocationId` identifies the current execution attempt. It changes when an
   interrupted run is replayed.
 - `logicalRunId` identifies the complete workflow and remains stable across
   replay attempts.
-- `requestId` identifies the current binding call within the invocation.
-- `requestIndex` contains the one-based order of the binding call.
-- `bindingName` contains the complete binding name, such as `users.find`.
+- `requestId` identifies the current host function call within the
+  invocation.
+- `requestIndex` contains the one-based order of the host function call.
+- `hostFunctionName` contains the complete host function name, such as
+  `users.find`.
 - `interrupt(payload)` pauses the run and returns an application-defined
   payload to the host.
-- `resume` is available when an interrupted binding is invoked again. It
+- `resume` is available when an interrupted host function is invoked again. It
   contains the interruption ID, original payload, and supplied resolution.
 
 These identifiers are useful for tracing, auditing, and deduplicating external
@@ -132,16 +134,16 @@ later.
 
 ## Cancellation
 
-The binding context includes an `AbortSignal`. It becomes aborted when the
-invocation is cancelled, times out, or otherwise fails.
+The host function context includes an `AbortSignal`. It becomes aborted when
+the invocation is cancelled, times out, or otherwise fails.
 
-Bindings should pass this signal to operations that support cancellation:
+Host functions should pass this signal to operations that support cancellation:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   search: {
     query: async (query: string) => {
-      const { abortSignal } = getBindingContext();
+      const { abortSignal } = getHostFunctionContext();
 
       return searchClient.query(query, {
         signal: abortSignal,
@@ -152,13 +154,13 @@ const bindings = {
 ```
 
 Aborting the signal cannot automatically undo work that has already completed.
-Bindings that perform writes should use application-level idempotency and
+Host functions that perform writes should use application-level idempotency and
 deduplication.
 
 ## Failures
 
-When a binding throws, its guest-side promise rejects. Guest code may catch the
-error and continue:
+When a host function throws, its guest-side promise rejects. Guest code may
+catch the error and continue:
 
 ```ts
 try {
@@ -175,5 +177,5 @@ The guest receives a sanitized error without the host stack or private
 diagnostic details. The host should record the complete error before rethrowing
 it when those diagnostics are needed.
 
-Bindings are trusted code. They should validate every argument, enforce
+Host functions are trusted code. They should validate every argument, enforce
 authorization in the host, and return only the data required by the source.

@@ -1,6 +1,6 @@
 ---
 title: Limits
-description: Set resource budgets for sandbox execution and host binding traffic.
+description: Set resource budgets for sandbox execution and host function traffic.
 ---
 
 # Limits
@@ -12,8 +12,8 @@ tries to consume unbounded resources.
 ## Concept
 
 Every invocation has a `RunLimits` budget. The budget applies to the complete
-invocation, including guest execution, binding calls, result serialization, and
-continuation operations.
+invocation, including guest execution, host function calls, result
+serialization, and continuation operations.
 
 The package provides defaults, but production applications should choose
 budgets that match their workloads. A short data transformation and a coding
@@ -30,14 +30,14 @@ The available limits are:
 - `maxResultBytes` accepts up to 1 MiB of serialized result data by default.
 - `maxConsoleOutputBytes` accepts up to 64 KiB of guest console output by
   default.
-- `maxBindingArgumentsBytes` accepts up to 1 MiB of serialized arguments for
-  one binding call by default.
-- `maxBindingOutputBytes` accepts up to 4 MiB of serialized binding output or
-  interruption payload by default.
-- `maxBridgeRequests` allows 256 total binding calls in one invocation by
+- `maxHostFunctionArgumentsBytes` accepts up to 1 MiB of serialized arguments
+  for one host function call by default.
+- `maxHostFunctionOutputBytes` accepts up to 4 MiB of serialized host function
+  output or interruption payload by default.
+- `maxBridgeRequests` allows 256 total host function calls in one invocation by
   default.
-- `maxInFlightBridgeRequests` allows 32 binding calls to be active at once by
-  default.
+- `maxInFlightBridgeRequests` allows 32 host function calls to be active at once
+  by default.
 - `maxContinuationBytes` accepts up to 32 MiB of serialized continuation state
   by default.
 
@@ -60,8 +60,8 @@ const runner = createRunner({
     maxSourceBytes: 128 * 1024,
     maxResultBytes: 512 * 1024,
     maxConsoleOutputBytes: 32 * 1024,
-    maxBindingArgumentsBytes: 256 * 1024,
-    maxBindingOutputBytes: MiB,
+    maxHostFunctionArgumentsBytes: 256 * 1024,
+    maxHostFunctionOutputBytes: MiB,
     maxBridgeRequests: 100,
     maxInFlightBridgeRequests: 8,
     maxContinuationBytes: 8 * MiB,
@@ -74,7 +74,7 @@ Every `runner.run()` call inherits these values:
 ```ts
 const result = await runner.run({
   source,
-  bindings,
+  hostFunctions,
 });
 ```
 
@@ -83,7 +83,7 @@ An individual invocation can override only the values that need to change:
 ```ts
 const result = await runner.run({
   source,
-  bindings,
+  hostFunctions,
   limits: {
     timeoutMs: 5_000,
     maxResultBytes: 128 * 1024,
@@ -101,7 +101,7 @@ import { run } from 'run';
 
 const result = await run({
   source,
-  bindings,
+  hostFunctions,
   limits: {
     timeoutMs: 5_000,
     memoryLimitBytes: 32 * 1024 * 1024,
@@ -127,7 +127,7 @@ once.
 `maxBridgeRequests` controls total host interaction, while
 `maxInFlightBridgeRequests` controls parallel host interaction. Lowering the
 in-flight limit can protect a database or external service even when the total
-number of binding calls remains unchanged.
+number of host function calls remains unchanged.
 
 ## Failures
 
@@ -136,10 +136,10 @@ Limit violations reject the invocation. The most relevant stable codes are:
 - `RUN_TIMEOUT` indicates that the invocation exceeded `timeoutMs`.
 - `RUN_SOURCE_TOO_LARGE` indicates that the source exceeded
   `maxSourceBytes`.
-- `RUN_BRIDGE_LIMIT` indicates that total or in-flight binding traffic exceeded
-  its configured limit.
-- `RUN_BINDING_ERROR` can indicate that binding arguments exceeded the host
-  boundary or that a binding request was otherwise invalid.
+- `RUN_BRIDGE_LIMIT` indicates that total or in-flight host function traffic
+  exceeded its configured limit.
+- `RUN_HOST_FUNCTION_ERROR` can indicate that host function arguments exceeded
+  the host boundary or that a host function request was otherwise invalid.
 - `RUN_SERIALIZATION_ERROR` indicates that a transferred value was not
   serializable or exceeded another serialization boundary.
 - `RUN_PROTOCOL_ERROR` can indicate that continuation state or a continuation
@@ -156,7 +156,7 @@ different responses:
 import { RunError } from 'run';
 
 try {
-  await runner.run({ source, bindings });
+  await runner.run({ source, hostFunctions });
 } catch (error) {
   if (RunError.isInstance(error)) {
     console.error('Run failed', {

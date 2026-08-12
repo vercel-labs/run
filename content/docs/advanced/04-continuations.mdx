@@ -42,15 +42,15 @@ a run can interrupt or resume.
 
 ## Implementation
 
-First, define a binding that interrupts before performing an action:
+First, define a host function that interrupts before performing an action:
 
 ```ts
-import { getBindingContext } from 'run';
+import { getHostFunctionContext } from 'run';
 
-const bindings = {
+const hostFunctions = {
   messages: {
     send: async (recipient: string, body: string) => {
-      const context = getBindingContext();
+      const context = getHostFunctionContext();
 
       if (context.resume === undefined) {
         context.interrupt({
@@ -71,8 +71,8 @@ const bindings = {
 };
 ```
 
-`context.interrupt()` uses an internal throw to leave the binding. Do not catch
-it inside the binding.
+`context.interrupt()` uses an internal throw to leave the host function. Do not
+catch it inside the host function.
 
 Next, start the run and handle the interrupted result:
 
@@ -84,7 +84,7 @@ const input = {
       "The report is ready."
     );
   `,
-  bindings,
+  hostFunctions,
   continuationContext: {
     tenantId: 'tenant_123',
     userId: 'user_456',
@@ -125,23 +125,24 @@ if (resumed.status === 'completed') {
 }
 ```
 
-The original source, binding names, audience, and continuation context must
-match when the run resumes. A mismatch rejects the continuation before the
-interrupted binding is invoked.
+The original source, host function names, audience, and continuation context
+must match when the run resumes. A mismatch rejects the continuation before the
+interrupted host function is invoked.
 
-Binding implementations are not compared. Deployments must preserve compatible
-behavior for interrupted bindings while old continuations remain valid.
+Host function implementations are not compared. Deployments must preserve
+compatible behavior for interrupted host functions while old continuations
+remain valid.
 
-Several bindings can interrupt during the same invocation. The result contains
-the complete batch, and the host must resolve every interruption in that batch
-together. Replay may later reach another batch of interruptions.
+Several host functions can interrupt during the same invocation. The result
+contains the complete batch, and the host must resolve every interruption in
+that batch together. Replay may later reach another batch of interruptions.
 
 ## Signing
 
 Signed continuations are self-contained tokens protected with HMAC. The
 signature prevents modification, but the token is not encrypted. Source,
-binding arguments, results, errors, and interruption payloads may be visible to
-anyone who receives it.
+host function arguments, results, errors, and interruption payloads may be
+visible to anyone who receives it.
 
 Use `createSignedContinuationCodec()` when the application needs custom
 expiration or signing-key rotation:
@@ -247,7 +248,7 @@ const continuationContext = {
 
 const result = await runner.run({
   source,
-  bindings,
+  hostFunctions,
   continuationContext,
 });
 ```

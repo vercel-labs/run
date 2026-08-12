@@ -24,7 +24,7 @@ try {
 ```ts
 import {
   RunAbortedError,
-  RunBindingError,
+  RunHostFunctionError,
   RunBridgeLimitError,
   RunConcurrencyError,
   RunDetachedBridgeRequestError,
@@ -97,21 +97,21 @@ import {
     ]
   },
   {
-    "name": "RunBindingError",
+    "name": "RunHostFunctionError",
     "type": "RunError",
-    "description": "The base class for failures caused by nested host binding execution.",
+    "description": "The base class for failures caused by nested host function execution.",
     "properties": [
       {
-        "type": "RunBindingError",
+        "type": "RunHostFunctionError",
         "parameters": [
           {
             "name": "constructor",
-            "type": "(message: string, details?: unknown) => RunBindingError",
-            "description": "Creates a RunBindingError."
+            "type": "(message: string, details?: unknown) => RunHostFunctionError",
+            "description": "Creates a RunHostFunctionError."
           },
           {
             "name": "code",
-            "type": "'RUN_BINDING_ERROR'",
+            "type": "'RUN_HOST_FUNCTION_ERROR'",
             "description": "The stable error code."
           }
         ]

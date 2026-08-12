@@ -3,10 +3,10 @@ import { buildGuestRuntimeSetupSource, wrapUserCode } from './guest-sources.js';
 import { USER_SOURCE_LINE_OFFSET } from './source-stack.js';
 
 describe('guest runtime sources', () => {
-  it('installs only the configured binding namespaces', () => {
+  it('installs only the configured host function namespaces', () => {
     const source = buildGuestRuntimeSetupSource(['tools', 'users']);
     expect(source).toContain(
-      'const __runBindingNamespaces = ["tools","users"];',
+      'const __runHostFunctionNamespaces = ["tools","users"];',
     );
     expect(source).toContain('__runCreateBridgePromise');
     expect(source).toContain('__runAssertNoDetachedBridgeCalls');

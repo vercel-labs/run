@@ -14,7 +14,7 @@ import {
   deserializeError,
   serializeBridgeErrorForGuest,
 } from '../errors.js';
-import { invokeHostBinding } from '../binding-invocation.js';
+import { invokeHostFunction } from '../host-function-invocation.js';
 import {
   assertContinuationState,
   assertContinuationTokenSize,
@@ -34,7 +34,7 @@ import {
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import { assertSourceSize, transformSource } from '../utils/source-cache.js';
 import type {
-  BindingContext,
+  HostFunctionContext,
   InternalRunInput,
   NormalizedRunOptions,
   RunContinuationState,
@@ -55,7 +55,7 @@ import type {
   WorkerBridgeResponse,
   WorkerReadyMessage,
   WorkerResultMessage,
-  WorkerBindingRequest,
+  WorkerHostFunctionRequest,
 } from './protocol.js';
 import { assertWorkerToMainMessage } from './protocol-validation.js';
 import { INLINE_RUN_WORKER_SOURCE } from './worker-source.js';
@@ -222,7 +222,7 @@ function assertContinuationResolutions(
     }
     toJsonPayload(
       resolution.value,
-      options.maxBindingOutputBytes,
+      options.maxHostFunctionOutputBytes,
       `Resolution "${resolution.interruptionId}"`,
     );
     seen.add(resolution.interruptionId);
@@ -339,7 +339,7 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
       interruptionId: resolution.interruptionId,
       value: toJsonPayload(
         resolution.value,
-        normalizedOptions.maxBindingOutputBytes,
+        normalizedOptions.maxHostFunctionOutputBytes,
         `Resolution "${resolution.interruptionId}"`,
       ),
     }));
@@ -374,8 +374,8 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
 function startWorkerRun({
   source,
   originalSource,
-  bindings,
-  bindingManifest,
+  hostFunctions,
+  hostFunctionManifest,
   abortSignal,
   resolutions,
   continuationCodec,
@@ -629,7 +629,7 @@ function startWorkerRun({
 
     const bridgeIndex = markWorkerRequest(message);
     if (bridgeIndex !== undefined) {
-      runInBackground(handleBindingRequest(message, bridgeIndex));
+      runInBackground(handleHostFunctionRequest(message, bridgeIndex));
     }
   });
 
@@ -665,15 +665,15 @@ function startWorkerRun({
   }
 
   const runMessage: MainToWorkerMessage = {
-    bindingNamespaces: [...bindingManifest.keys()],
     determinism,
+    hostFunctionNamespaces: [...hostFunctionManifest.keys()],
     invocationId,
     options: {
       executionTimeoutMs: getWorkerExecutionTimeoutMs(
         normalizedOptions.timeoutMs,
       ),
-      maxBindingInputBytes: normalizedOptions.maxBindingInputBytes,
       maxConsoleOutputBytes: normalizedOptions.maxConsoleOutputBytes,
+      maxHostFunctionInputBytes: normalizedOptions.maxHostFunctionInputBytes,
       maxResultBytes: normalizedOptions.maxResultBytes,
       maxStackSizeBytes: normalizedOptions.maxStackSizeBytes,
       memoryLimitBytes: normalizedOptions.memoryLimitBytes,
@@ -695,7 +695,7 @@ function startWorkerRun({
   return { result };
 
   function markWorkerRequest(
-    message: WorkerBindingRequest,
+    message: WorkerHostFunctionRequest,
   ): number | undefined {
     if (terminalReached) {
       return undefined;
@@ -752,8 +752,8 @@ function startWorkerRun({
     return totalBridgeRequests;
   }
 
-  async function handleBindingRequest(
-    message: WorkerBindingRequest,
+  async function handleHostFunctionRequest(
+    message: WorkerHostFunctionRequest,
     bridgeIndex: number,
   ): Promise<void> {
     const entryIndex = bridgeIndex - 1;
@@ -789,13 +789,10 @@ function startWorkerRun({
         }
       }
 
-      const outcome = await invokeHostBinding({
-        bindingManifest,
-        bindingName: message.bindingName,
-        bindings,
+      const outcome = await invokeHostFunction({
         context: {
           abortSignal: invocationAbortController.signal,
-          bindingName: message.bindingName,
+          hostFunctionName: message.hostFunctionName,
           interrupt,
           invocationId,
           logicalRunId,
@@ -816,10 +813,13 @@ function startWorkerRun({
                 },
               }
             : {}),
-        } satisfies BindingContext,
+        } satisfies HostFunctionContext,
+        hostFunctionManifest,
+        hostFunctionName: message.hostFunctionName,
+        hostFunctions,
         inputJson: message.inputJson,
-        maxBindingInputBytes: normalizedOptions.maxBindingInputBytes,
-        maxBindingOutputBytes: normalizedOptions.maxBindingOutputBytes,
+        maxHostFunctionInputBytes: normalizedOptions.maxHostFunctionInputBytes,
+        maxHostFunctionOutputBytes: normalizedOptions.maxHostFunctionOutputBytes,
       });
       if (outcome.status === 'interrupted') {
         const interruptionId =
@@ -827,7 +827,7 @@ function startWorkerRun({
             ? replayEntry.interruptionId
             : `interrupt-${bridgeIndex}`;
         setLedgerEntry(entryIndex, {
-          bindingName: message.bindingName,
+          bindingName: message.hostFunctionName,
           inputJson: message.inputJson,
           interruptionId,
           payloadJson: outcome.payloadJson,
@@ -838,7 +838,7 @@ function startWorkerRun({
       }
       nextSettlementOrder += 1;
       setLedgerEntry(entryIndex, {
-        bindingName: message.bindingName,
+        bindingName: message.hostFunctionName,
         dateNowMs: Date.now(),
         inputJson: message.inputJson,
         settledOrder: nextSettlementOrder,
@@ -862,11 +862,11 @@ function startWorkerRun({
         failTerminal(error);
         return;
       }
-      const serialized = serializeBridgeErrorForGuest(error, 'binding');
+      const serialized = serializeBridgeErrorForGuest(error, 'hostFunction');
       try {
         nextSettlementOrder += 1;
         setLedgerEntry(entryIndex, {
-          bindingName: message.bindingName,
+          bindingName: message.hostFunctionName,
           dateNowMs: Date.now(),
           error: serialized,
           inputJson: message.inputJson,
@@ -955,18 +955,18 @@ function startWorkerRun({
 
   function assertReplayMatches(
     entry: RunLedgerEntry,
-    message: WorkerBindingRequest,
+    message: WorkerHostFunctionRequest,
   ): void {
     if (
-      entry.bindingName !== message.bindingName ||
+      entry.bindingName !== message.hostFunctionName ||
       entry.inputJson !== message.inputJson
     ) {
       throw new RunProtocolError(
-        'Continuation replay diverged from the recorded binding ledger.',
+        'Continuation replay diverged from the recorded host function ledger.',
         {
           bridgeIndex: message.requestId,
-          expectedBindingName: entry.bindingName,
-          receivedBindingName: message.bindingName,
+          expectedHostFunctionName: entry.bindingName,
+          receivedHostFunctionName: message.hostFunctionName,
         },
       );
     }
@@ -993,7 +993,7 @@ function startWorkerRun({
               entry.inputJson,
               `Interruption "${entry.interruptionId}" arguments`,
             ) as unknown[],
-            bindingName: entry.bindingName,
+            hostFunctionName: entry.bindingName,
             id: entry.interruptionId,
             payload: parseJsonPayload(
               entry.payloadJson,
@@ -1096,7 +1096,7 @@ function startWorkerRun({
     ) {
       failTerminal(
         new RunProtocolError(
-          'Continuation completed before replaying the full binding ledger.',
+          'Continuation completed before replaying the full host function ledger.',
         ),
       );
       return;
@@ -1163,10 +1163,10 @@ function createContinuationScopeHash(
     options.maxContinuationBytes,
     'Continuation context',
   );
-  const bindingManifest = [...input.bindingManifest.keys()]
+  const hostFunctionManifest = [...input.hostFunctionManifest.keys()]
     .toSorted()
     .flatMap(namespace =>
-      [...(input.bindingManifest.get(namespace) ?? [])]
+      [...(input.hostFunctionManifest.get(namespace) ?? [])]
         .toSorted()
         .map(name => `${namespace}.${name}`),
     );
@@ -1175,7 +1175,7 @@ function createContinuationScopeHash(
       toJsonPayload(
         {
           audience: input.continuationAudience,
-          bindingManifest,
+          bindingManifest: hostFunctionManifest,
           continuationContext,
           // Keep the existing key so continuations whose transform was an
           // identity remain valid across this change. The original source is

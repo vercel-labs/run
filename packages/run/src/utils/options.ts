@@ -6,8 +6,8 @@ const DEFAULT_STACK_LIMIT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_RESULT_BYTES = 1024 * 1024;
 const DEFAULT_MAX_CONSOLE_OUTPUT_BYTES = 64 * 1024;
 const DEFAULT_MAX_SOURCE_BYTES = 256 * 1024;
-const DEFAULT_MAX_BINDING_ARGUMENTS_BYTES = 1024 * 1024;
-const DEFAULT_MAX_TOOL_OUTPUT_BYTES = 4 * 1024 * 1024;
+const DEFAULT_MAX_HOST_FUNCTION_ARGUMENTS_BYTES = 1024 * 1024;
+const DEFAULT_MAX_HOST_FUNCTION_OUTPUT_BYTES = 4 * 1024 * 1024;
 const DEFAULT_MAX_BRIDGE_REQUESTS = 256;
 const DEFAULT_MAX_IN_FLIGHT_BRIDGE_REQUESTS = 32;
 const DEFAULT_MAX_CONTINUATION_BYTES = 32 * 1024 * 1024;
@@ -32,15 +32,15 @@ const positiveInteger = (
 export const normalizeOptions = (
   limits: RunLimits = {},
 ): NormalizedRunOptions => ({
-  maxBindingInputBytes: positiveInteger(
-    limits.maxBindingArgumentsBytes,
-    DEFAULT_MAX_BINDING_ARGUMENTS_BYTES,
-    'limits.maxBindingArgumentsBytes',
+  maxHostFunctionInputBytes: positiveInteger(
+    limits.maxHostFunctionArgumentsBytes,
+    DEFAULT_MAX_HOST_FUNCTION_ARGUMENTS_BYTES,
+    'limits.maxHostFunctionArgumentsBytes',
   ),
-  maxBindingOutputBytes: positiveInteger(
-    limits.maxBindingOutputBytes,
-    DEFAULT_MAX_TOOL_OUTPUT_BYTES,
-    'limits.maxBindingOutputBytes',
+  maxHostFunctionOutputBytes: positiveInteger(
+    limits.maxHostFunctionOutputBytes,
+    DEFAULT_MAX_HOST_FUNCTION_OUTPUT_BYTES,
+    'limits.maxHostFunctionOutputBytes',
   ),
   maxBridgeRequests: positiveInteger(
     limits.maxBridgeRequests,

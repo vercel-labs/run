@@ -5,7 +5,7 @@ const result = await run({
     const doubled = await tools.double(21);
     return { message: "Hello from the sandbox!", doubled };
   `,
-  bindings: {
+  hostFunctions: {
     tools: {
       double: (value: number) => value * 2,
     },

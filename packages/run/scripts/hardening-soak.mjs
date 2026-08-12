@@ -1,5 +1,5 @@
 import { monitorEventLoopDelay } from 'node:perf_hooks';
-import { createRunner, getBindingContext, run } from '../dist/index.js';
+import { createRunner, getHostFunctionContext, run } from '../dist/index.js';
 import { getRuntimeDiagnostics } from '../dist/runtime/manager.js';
 
 const iterations = positiveInteger(
@@ -23,7 +23,7 @@ globalThis.gc?.();
 const baseline = memory();
 const counts = {
   aborts: 0,
-  bindingErrors: 0,
+  hostFunctionErrors: 0,
   completed: 0,
   guestErrors: 0,
   interruptions: 0,
@@ -39,7 +39,7 @@ for (let index = 0; index < iterations; index += 1) {
     counts.completed += 1;
   } else if (kind < 14) {
     const result = await run({
-      bindings: { tools: { echo: input => input } },
+      hostFunctions: { tools: { echo: input => input } },
       source: 'return await tools.echo({ value: 1 });',
     });
     assertCompleted(result, { value: 1 });
@@ -62,27 +62,27 @@ for (let index = 0; index < iterations; index += 1) {
     let rejected = false;
     try {
       await run({
-        bindings: {
+        hostFunctions: {
           tools: { fail: () => Promise.reject(new Error('expected')) },
         },
         source: 'return await tools.fail();',
       });
     } catch (error) {
-      if (error?.code !== 'RUN_HOST_BINDING_ERROR') {
+      if (error?.code !== 'RUN_HOST_FUNCTION_ERROR') {
         throw error;
       }
       rejected = true;
-      counts.bindingErrors += 1;
+      counts.hostFunctionErrors += 1;
     }
     if (!rejected) {
-      throw new Error('Expected binding error.');
+      throw new Error('Expected host function error.');
     }
   } else if (kind < 18) {
     const source = 'return await tools.pause();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -90,12 +90,12 @@ for (let index = 0; index < iterations; index += 1) {
         },
       },
     };
-    const interrupted = await continuationRunner.run({ bindings, source });
+    const interrupted = await continuationRunner.run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     const completed = await continuationRunner.run({
-      bindings,
+      hostFunctions,
       continuation: interrupted.continuation,
       resolutions: [
         { interruptionId: interrupted.interruptions[0].id, value: true },

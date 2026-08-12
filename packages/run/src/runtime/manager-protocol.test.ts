@@ -1,6 +1,6 @@
 import type { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getBindingContext } from '../binding-context.js';
+import { getHostFunctionContext } from '../host-function-context.js';
 import { createRunner, run } from '../run.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import { setRuntimeWorkerFactoryForTest } from './manager.js';
@@ -151,24 +151,27 @@ describe('manager protocol state machine', () => {
     await expectCleanRun();
   });
 
-  it('rejects binding traffic after a terminal result without dispatch', async () => {
-    const binding = vi.fn(() => 'effect');
+  it('rejects host function traffic after a terminal result without dispatch', async () => {
+    const hostFunction = vi.fn(() => 'effect');
     setRuntimeWorkerFactoryForTest(() =>
       createProtocolWorker(invocationId => [
         { invocationId, success: true, type: 'result', valueJson: '[1]' },
         {
-          bindingName: 'tools.effect',
+          hostFunctionName: 'tools.effect',
           inputJson: '[[]]',
           invocationId,
           requestId: `${invocationId}:bridge-1`,
-          type: 'binding-request',
+          type: 'host-function-request',
         },
       ]),
     );
     await expect(
-      run({ bindings: { tools: { effect: binding } }, source: 'return 1;' }),
+      run({
+        hostFunctions: { tools: { effect: hostFunction } },
+        source: 'return 1;',
+      }),
     ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
-    expect(binding).not.toHaveBeenCalled();
+    expect(hostFunction).not.toHaveBeenCalled();
     await expectCleanRun();
   });
 
@@ -216,11 +219,11 @@ describe('manager protocol state machine', () => {
           }
           queueMicrotask(() => {
             emit('message', {
-              bindingName: 'tools.pause',
+              hostFunctionName: 'tools.pause',
               inputJson: '[[]]',
               invocationId: message.invocationId,
               requestId: `${message.invocationId}:bridge-1`,
-              type: 'binding-request',
+              type: 'host-function-request',
             });
             emit('message', {
               invocationId: message.invocationId,
@@ -245,9 +248,9 @@ describe('manager protocol state machine', () => {
     });
 
     const result = runner.run({
-      bindings: {
+      hostFunctions: {
         tools: {
-          pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+          pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
         },
       },
       source: 'return await tools.pause();',

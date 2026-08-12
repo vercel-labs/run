@@ -1,41 +1,41 @@
 /**
  * A host function made available to sandboxed JavaScript.
  */
-export type BindingFunction<
+export type HostFunction<
   ARGUMENTS extends unknown[] = unknown[],
   OUTPUT = unknown,
 > = (...args: ARGUMENTS) => OUTPUT | Promise<OUTPUT>;
 
 /**
- * Context supplied to each host binding invocation.
+ * Context supplied to each host function invocation.
  */
-export interface BindingContext {
+export interface HostFunctionContext {
   /** Signal aborted when the run is aborted, times out, or fails. */
   abortSignal: AbortSignal;
   /** Stable identifier for the current run attempt. */
   invocationId: string;
   /** Stable identifier for the logical run across every replay attempt. */
   logicalRunId: string;
-  /** Stable identifier for this binding request within the run attempt. */
+  /** Stable identifier for this host function request within the run attempt. */
   requestId: string;
   /** One-based request order within the run attempt. */
   requestIndex: number;
-  /** Fully qualified binding path, for example `tools.search`. */
-  bindingName: string;
-  /** Interrupts this binding and suspends the run. */
+  /** Fully qualified host function path, for example `tools.search`. */
+  hostFunctionName: string;
+  /** Interrupts this host function and suspends the run. */
   interrupt(payload: unknown): never;
-  /** Present when an interrupted binding is reinvoked during replay. */
-  resume?: BindingResumeContext;
+  /** Present when an interrupted host function is reinvoked during replay. */
+  resume?: HostFunctionResumeContext;
 }
 
-export interface BindingResumeContext {
+export interface HostFunctionResumeContext {
   interruptionId: string;
   payload: unknown;
   resolution: unknown;
 }
 
 /** A named collection of host functions. */
-export type BindingGroup = Record<string, BindingFunction<never[], unknown>>;
+export type HostFunctionGroup = Record<string, HostFunction<never[], unknown>>;
 
 /**
  * Host function groups installed as guest globals.
@@ -43,10 +43,10 @@ export type BindingGroup = Record<string, BindingFunction<never[], unknown>>;
  * A group named `tools` containing `search` is called as `tools.search()` in
  * sandboxed code.
  */
-export type Bindings = Record<string, BindingGroup>;
+export type HostFunctions = Record<string, HostFunctionGroup>;
 
 /** @internal */
-export type BindingManifest = ReadonlyMap<string, ReadonlySet<string>>;
+export type HostFunctionManifest = ReadonlyMap<string, ReadonlySet<string>>;
 
 /** Resource limits applied to one sandbox invocation. */
 export interface RunLimits {
@@ -63,9 +63,9 @@ export interface RunLimits {
   /** @default `256 * 1024` */
   maxSourceBytes?: number;
   /** @default `1024 * 1024` */
-  maxBindingArgumentsBytes?: number;
+  maxHostFunctionArgumentsBytes?: number;
   /** @default `4 * 1024 * 1024` */
-  maxBindingOutputBytes?: number;
+  maxHostFunctionOutputBytes?: number;
   /** @default `256` */
   maxBridgeRequests?: number;
   /** @default `32` */
@@ -91,7 +91,7 @@ export interface RunInput<TOKEN = unknown> {
    * Top-level `await` and `return` are supported.
    */
   source: string;
-  bindings?: Bindings;
+  hostFunctions?: HostFunctions;
   abortSignal?: AbortSignal;
   limits?: RunLimits;
   continuation?: TOKEN;
@@ -111,8 +111,8 @@ export interface RunCompletedResult<OUTPUT = unknown> {
 
 export interface RunInterruption<PAYLOAD = unknown> {
   id: string;
-  bindingName: string;
-  /** Complete guest argument list for the interrupted binding call. */
+  hostFunctionName: string;
+  /** Complete guest argument list for the interrupted host function call. */
   arguments: unknown[];
   payload: PAYLOAD;
 }
@@ -186,6 +186,12 @@ export interface RunDeterminismState {
   randomSeed: string;
 }
 
+/**
+ * One recorded host function outcome in a continuation ledger.
+ *
+ * The `bindingName` property name is part of the persisted continuation wire
+ * format and must remain stable across package releases.
+ */
 export type RunLedgerEntry =
   | {
       bindingName: string;
@@ -220,8 +226,8 @@ export interface Runner<TOKEN = unknown> {
 
 /** @internal */
 export interface InternalRunInput extends RunInput<unknown> {
-  bindings: Bindings;
-  bindingManifest: BindingManifest;
+  hostFunctions: HostFunctions;
+  hostFunctionManifest: HostFunctionManifest;
   limits: RunLimits;
   continuationCodec: ContinuationCodec;
   continuationAudience: string;
@@ -235,8 +241,8 @@ export interface NormalizedRunOptions {
   maxResultBytes: number;
   maxConsoleOutputBytes: number;
   maxSourceBytes: number;
-  maxBindingInputBytes: number;
-  maxBindingOutputBytes: number;
+  maxHostFunctionInputBytes: number;
+  maxHostFunctionOutputBytes: number;
   maxBridgeRequests: number;
   maxInFlightBridgeRequests: number;
   maxContinuationBytes: number;

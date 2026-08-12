@@ -54,11 +54,11 @@ const validProtocolMessages = [
   {
     direction: 'worker',
     value: {
-      bindingName: 'tools.echo',
+      hostFunctionName: 'tools.echo',
       inputJson: 'null',
       invocationId: 'run-a',
       requestId: 'request-a',
-      type: 'binding-request',
+      type: 'host-function-request',
     },
   },
 ];

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getBindingContext, run, setMaxWorkers } from '../index.js';
+import { getHostFunctionContext, run, setMaxWorkers } from '../index.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import * as sourceCache from '../utils/source-cache.js';
 
@@ -25,14 +25,14 @@ describe('run admission and source transformation', () => {
 
   it('rejects an invocation at capacity before transforming its source', async () => {
     setMaxWorkers(1);
-    const bindingStarted = createPromiseWithResolvers<null>();
-    const releaseBinding = createPromiseWithResolvers<null>();
+    const hostFunctionStarted = createPromiseWithResolvers<null>();
+    const releaseHostFunction = createPromiseWithResolvers<null>();
     const activeRun = run({
-      bindings: {
+      hostFunctions: {
         tools: {
           wait: async () => {
-            bindingStarted.resolve(null);
-            await releaseBinding.promise;
+            hostFunctionStarted.resolve(null);
+            await releaseHostFunction.promise;
           },
         },
       },
@@ -40,7 +40,7 @@ describe('run admission and source transformation', () => {
     });
 
     try {
-      await bindingStarted.promise;
+      await hostFunctionStarted.promise;
       transformSourceSpy.mockClear();
 
       await expect(
@@ -48,7 +48,7 @@ describe('run admission and source transformation', () => {
       ).rejects.toMatchObject({ code: 'RUN_CONCURRENCY_LIMIT' });
       expect(transformSourceSpy).not.toHaveBeenCalled();
     } finally {
-      releaseBinding.resolve(null);
+      releaseHostFunction.resolve(null);
       await activeRun;
     }
   });
@@ -58,14 +58,14 @@ describe('run admission and source transformation', () => {
     const availableMemorySpy = vi
       .spyOn(process, 'availableMemory')
       .mockReturnValue(estimatedWorkerBytes);
-    const bindingStarted = createPromiseWithResolvers<null>();
-    const releaseBinding = createPromiseWithResolvers<null>();
+    const hostFunctionStarted = createPromiseWithResolvers<null>();
+    const releaseHostFunction = createPromiseWithResolvers<null>();
     const activeRun = run({
-      bindings: {
+      hostFunctions: {
         tools: {
           wait: async () => {
-            bindingStarted.resolve(null);
-            await releaseBinding.promise;
+            hostFunctionStarted.resolve(null);
+            await releaseHostFunction.promise;
           },
         },
       },
@@ -73,12 +73,12 @@ describe('run admission and source transformation', () => {
     });
 
     try {
-      await bindingStarted.promise;
+      await hostFunctionStarted.promise;
 
       await expect(run({ source: 'return 2;' })).rejects.toMatchObject({
         code: 'RUN_CONCURRENCY_LIMIT',
       });
-      releaseBinding.resolve(null);
+      releaseHostFunction.resolve(null);
       await activeRun;
 
       await expect(run({ source: 'return 3;' })).resolves.toEqual({
@@ -86,7 +86,7 @@ describe('run admission and source transformation', () => {
         value: 3,
       });
     } finally {
-      releaseBinding.resolve(null);
+      releaseHostFunction.resolve(null);
       await activeRun.catch(() => {});
       availableMemorySpy.mockRestore();
     }
@@ -110,10 +110,10 @@ describe('run admission and source transformation', () => {
   it('resumes when TypeScript transform output changes between hosts', async () => {
     const source =
       'const approved: boolean = await tools.approve(); return approved;';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         approve: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (context.resume === undefined) {
             context.interrupt({ kind: 'approval' });
           }
@@ -121,7 +121,7 @@ describe('run admission and source transformation', () => {
         },
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
@@ -132,8 +132,8 @@ describe('run admission and source transformation', () => {
 
     await expect(
       run({
-        bindings,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           {
             interruptionId: interrupted.interruptions[0]?.id ?? '',

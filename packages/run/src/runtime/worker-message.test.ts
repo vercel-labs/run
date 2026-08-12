@@ -9,16 +9,16 @@ const createRunMessage = (
   invocationId: string,
   source: string,
 ): MainToWorkerMessage => ({
-  bindingNamespaces: ['tools'],
   determinism: {
     dateNowMs: 1_700_000_000_000,
     randomSeed: '00000000000000000000000000000001',
   },
+  hostFunctionNamespaces: ['tools'],
   invocationId,
   options: {
     executionTimeoutMs: 950,
-    maxBindingInputBytes: 1024 * 1024,
     maxConsoleOutputBytes: 64 * 1024,
+    maxHostFunctionInputBytes: 1024 * 1024,
     maxResultBytes: 1024 * 1024,
     maxStackSizeBytes: 2 * 1024 * 1024,
     memoryLimitBytes: 64 * 1024 * 1024,
@@ -55,7 +55,7 @@ it('reports message failures and ignores late messages without crashing', async 
         type?: string;
       };
       if (
-        message.type === 'binding-request' &&
+        message.type === 'host-function-request' &&
         message.invocationId !== undefined &&
         message.requestId !== undefined
       ) {

@@ -12,7 +12,7 @@ created fresh for every invocation.
 The sandbox provides the JavaScript features needed to perform useful
 computation while removing ambient access to the host application. Any access
 to application data or external services must be provided explicitly through a
-`binding`.
+host function.
 
 ## Source
 
@@ -41,7 +41,7 @@ const result = await run({
   TypeScript syntax convenient to use, but it does not provide type checking or
   the complete behavior of a TypeScript compiler.
 - The source cannot use static imports or dynamic `import()`. Dependencies must
-  either be included directly in the source or represented by a binding.
+  either be included directly in the source or represented by a host function.
 - The sandbox does not provide Node.js globals such as `process`, `require`,
   `module`, or `Buffer`. It also does not provide browser networking APIs such
   as `fetch`, `WebSocket`, or `XMLHttpRequest`.
@@ -53,12 +53,12 @@ const result = await run({
 
 ## Globals
 
-Each binding namespace becomes a global object in the sandbox. If the host
-provides a `users` namespace with a binding named `find`, guest code can call
-`users.find()`.
+Each host function namespace becomes a global object in the sandbox. If the
+host provides a `users` namespace with a host function named `find`, guest code
+can call `users.find()`.
 
 ```ts
-const bindings = {
+const hostFunctions = {
   users: {
     find: async (id: string) => {
       return { id, name: 'Ada' };
@@ -67,9 +67,9 @@ const bindings = {
 };
 ```
 
-A binding namespace must be a valid JavaScript identifier and must not conflict
-with a reserved global. Names beginning with `__run` are reserved for the
-runtime.
+A host function namespace must be a valid JavaScript identifier and must not
+conflict with a reserved global. Names beginning with `__run` are reserved for
+the runtime.
 
 The sandbox also contains internal runtime helpers. These helpers are
 implementation details and are not part of the supported guest API.
@@ -84,20 +84,20 @@ Worker threads may be pooled and reused. Reusing a worker does not reuse the
 guest context that previously ran inside it.
 
 The sandbox combines a separate JavaScript engine, a worker thread, hardened
-globals, explicit bindings, serialization, and resource limits. It is not a
-container, virtual machine, or separate operating-system process.
+globals, explicit host functions, serialization, and resource limits. It is not
+a container, virtual machine, or separate operating-system process.
 
 ## Trust
 
-The sandbox controls what guest code can access directly, but host bindings
-remain trusted application code. A broad binding can expose a broad
+The sandbox controls what guest code can access directly, but host functions
+remain trusted application code. A broad host function can expose a broad
 capability, even when the sandbox itself is correctly configured.
 
-For example, a binding that accepts an arbitrary URL and forwards any request
-would effectively provide general network access. A safer binding would accept
-a specific business-level operation, validate its arguments, enforce
-authorization in the host, and return only the required data.
+For example, a host function that accepts an arbitrary URL and forwards any
+request would effectively provide general network access. A safer host function
+would accept a specific business-level operation, validate its arguments,
+enforce authorization in the host, and return only the required data.
 
 The sandbox should therefore be treated as one part of the security model.
-Binding design and resource limits determine the practical authority available
-to guest code.
+Host function design and resource limits determine the practical authority
+available to guest code.

@@ -1,6 +1,6 @@
 ---
 title: Cancellation
-description: Stop an active run and propagate cancellation to host bindings.
+description: Stop an active run and propagate cancellation to host functions.
 ---
 
 # Cancellation
@@ -15,10 +15,10 @@ ends before the sandbox has returned a result.
 `AbortController` and passes its signal to `run()` or `runner.run()`. Calling
 `abort()` rejects the invocation with `RunAbortedError`.
 
-The same cancellation state is exposed to every active binding through
-`getBindingContext().abortSignal`. A binding must pass that signal to its own
-cancellable operations. The runtime cannot automatically stop a database
-query, HTTP request, or application task that ignores the signal.
+The same cancellation state is exposed to every active host function through
+`getHostFunctionContext().abortSignal`. A host function must pass that signal
+to its own cancellable operations. The runtime cannot automatically stop a
+database query, HTTP request, or application task that ignores the signal.
 
 Cancellation stops the current invocation. It does not reverse a host side
 effect that already completed.
@@ -38,7 +38,7 @@ const resultPromise = run({
     const result = await search.query("cancellation");
     return result;
   `,
-  bindings,
+  hostFunctions,
   abortSignal: controller.signal,
 });
 
@@ -46,15 +46,16 @@ const resultPromise = run({
 controller.abort();
 ```
 
-Bindings should propagate the signal returned by `getBindingContext()`:
+Host functions should propagate the signal returned by
+`getHostFunctionContext()`:
 
 ```ts
-import { getBindingContext } from 'run';
+import { getHostFunctionContext } from 'run';
 
-const bindings = {
+const hostFunctions = {
   search: {
     query: async (query: string) => {
-      const { abortSignal } = getBindingContext();
+      const { abortSignal } = getHostFunctionContext();
       const response = await fetch(
         `https://api.example.com/search?q=${encodeURIComponent(query)}`,
         { signal: abortSignal },
@@ -67,7 +68,7 @@ const bindings = {
 ```
 
 The `fetch()` call runs in the host, not in the sandbox. When the run is
-cancelled, the binding receives the abort event and the request can stop
+cancelled, the host function receives the abort event and the request can stop
 without waiting for the remote server.
 
 Handle cancellation by checking the stable package error code:
@@ -97,7 +98,7 @@ use interruptions:
 export async function POST(request: Request) {
   const result = await run({
     source,
-    bindings,
+    hostFunctions,
     abortSignal: request.signal,
   });
 
@@ -113,7 +114,7 @@ const signal = AbortSignal.any([request.signal, applicationShutdown.signal]);
 
 const result = await run({
   source,
-  bindings,
+  hostFunctions,
   abortSignal: signal,
 });
 ```
@@ -124,8 +125,8 @@ Cancellation and timeouts both stop an invocation, but they report different
 errors. An explicit abort produces `RUN_ABORTED`, while exceeding `timeoutMs`
 produces `RUN_TIMEOUT`.
 
-The timeout covers guest execution, binding work, and continuation operations.
-Both outcomes abort the signal exposed to active bindings.
+The timeout covers guest execution, host function work, and continuation
+operations. Both outcomes abort the signal exposed to active host functions.
 
 Use `timeoutMs` as the runtime budget and an abort signal for lifecycle events
 such as client disconnects and application shutdown:
@@ -133,7 +134,7 @@ such as client disconnects and application shutdown:
 ```ts
 const result = await run({
   source,
-  bindings,
+  hostFunctions,
   abortSignal: request.signal,
   limits: {
     timeoutMs: 10_000,
@@ -143,10 +144,10 @@ const result = await run({
 
 ## Side effects
 
-An aborted binding may have completed external work before it observed
+An aborted host function may have completed external work before it observed
 cancellation. For example, a payment may be accepted immediately before the
 signal is aborted.
 
-Bindings that perform writes should use idempotency keys or application-level
-transactions. Cancellation is a way to stop unnecessary work, not a rollback
-mechanism.
+Host functions that perform writes should use idempotency keys or
+application-level transactions. Cancellation is a way to stop unnecessary work,
+not a rollback mechanism.

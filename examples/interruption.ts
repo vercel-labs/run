@@ -1,5 +1,5 @@
 import { createInterface } from 'node:readline/promises';
-import { createRunner, getBindingContext } from 'run';
+import { createRunner, getHostFunctionContext } from 'run';
 
 const continuationSecret = process.env.RUN_CONTINUATION_SECRET;
 if (!continuationSecret) {
@@ -20,14 +20,14 @@ const input = {
     const message = await newsletter.render("August update");
     return await newsletter.send(message);
   `,
-  bindings: {
+  hostFunctions: {
     newsletter: {
       render: (title: string) => {
         renderCalls += 1;
         return `Newsletter: ${title}`;
       },
       send: (message: string) => {
-        const context = getBindingContext();
+        const context = getHostFunctionContext();
         const { resume } = context;
 
         if (resume === undefined) {

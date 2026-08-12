@@ -118,7 +118,7 @@ const assertFulfilledEntry: AssertFulfilledEntry = (value, index, options) => {
   }
   assertSerializedPayload(
     value.valueJson,
-    options.maxBindingOutputBytes,
+    options.maxHostFunctionOutputBytes,
     index,
   );
 };
@@ -152,11 +152,11 @@ const assertRejectedEntry: AssertRejectedEntry = (value, index, options) => {
   }
   assertJsonValue(value.error);
   const errorBytes = Buffer.byteLength(JSON.stringify(value.error));
-  if (errorBytes > options.maxBindingOutputBytes) {
+  if (errorBytes > options.maxHostFunctionOutputBytes) {
     throw new RunProtocolError('Continuation error payload is too large.', {
       bytes: errorBytes,
       index,
-      maxBytes: options.maxBindingOutputBytes,
+      maxBytes: options.maxHostFunctionOutputBytes,
     });
   }
 };
@@ -189,7 +189,7 @@ const assertInterruptedEntry: AssertInterruptedEntry = (
   }
   assertSerializedPayload(
     value.payloadJson,
-    options.maxBindingOutputBytes,
+    options.maxHostFunctionOutputBytes,
     index,
   );
 };
@@ -213,7 +213,11 @@ const assertLedgerEntry: AssertLedgerEntry = (value, index, options) => {
       index,
     });
   }
-  assertSerializedPayload(value.inputJson, options.maxBindingInputBytes, index);
+  assertSerializedPayload(
+    value.inputJson,
+    options.maxHostFunctionInputBytes,
+    index,
+  );
   if (
     !Array.isArray(
       parseJsonPayload(value.inputJson, 'Continuation ledger arguments'),

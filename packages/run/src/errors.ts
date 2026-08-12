@@ -2,7 +2,7 @@ import { Buffer } from 'node:buffer';
 import type { SerializableError } from './types.js';
 import { parseJson } from './utils/parse-json.js';
 import { RunAbortedError } from './errors/run-aborted-error.js';
-import { RunBindingError } from './errors/run-binding-error.js';
+import { RunHostFunctionError } from './errors/run-host-function-error.js';
 import { RunBridgeLimitError } from './errors/run-bridge-limit-error.js';
 import { RunConcurrencyError } from './errors/run-concurrency-error.js';
 import { RunDetachedBridgeRequestError } from './errors/run-detached-bridge-request-error.js';
@@ -13,7 +13,7 @@ import { RunTimeoutError } from './errors/run-timeout-error.js';
 
 export {
   RunAbortedError,
-  RunBindingError,
+  RunHostFunctionError,
   RunBridgeLimitError,
   RunConcurrencyError,
   RunDetachedBridgeRequestError,
@@ -200,7 +200,7 @@ export const serializeError = (error: unknown): SerializableError => {
  */
 export const serializeBridgeErrorForGuest = (
   error: unknown,
-  context: 'binding' | 'bridge',
+  context: 'hostFunction' | 'bridge',
 ): SerializableError => {
   if (RunError.isInstance(error)) {
     return compactError({
@@ -208,17 +208,17 @@ export const serializeBridgeErrorForGuest = (
       message: boundedString(
         error.message,
         MAX_ERROR_MESSAGE_BYTES,
-        'Host binding failed.',
+        'Host function failed.',
       ),
       name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'RunError'),
     });
   }
 
   const fallback =
-    context === 'binding'
+    context === 'hostFunction'
       ? {
-          code: 'RUN_HOST_BINDING_ERROR',
-          message: 'Host binding failed.',
+          code: 'RUN_HOST_FUNCTION_ERROR',
+          message: 'Host function failed.',
         }
       : {
           code: 'RUN_HOST_BRIDGE_ERROR',

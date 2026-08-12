@@ -4,7 +4,7 @@ import {
   RunDetachedBridgeRequestError,
   RunTimeoutError,
 } from './errors.js';
-import { getBindingContext } from './binding-context.js';
+import { getHostFunctionContext } from './host-function-context.js';
 import { run } from './run.js';
 import { getRuntimeDiagnostics } from './runtime/manager.js';
 import type { RunLimits } from './types.js';
@@ -21,8 +21,8 @@ const LIMIT_NAMES = [
   'maxResultBytes',
   'maxConsoleOutputBytes',
   'maxSourceBytes',
-  'maxBindingArgumentsBytes',
-  'maxBindingOutputBytes',
+  'maxHostFunctionArgumentsBytes',
+  'maxHostFunctionOutputBytes',
   'maxBridgeRequests',
   'maxInFlightBridgeRequests',
   'maxContinuationBytes',
@@ -95,25 +95,25 @@ describe('resource and lifecycle hardening', () => {
     }
   });
 
-  it('aborts a pending binding on timeout and releases runtime capacity', async () => {
+  it('aborts a pending host function on timeout and releases runtime capacity', async () => {
     const started = deferred<null>();
     const aborted = deferred<null>();
     const execution = run({
-      bindings: {
+      hostFunctions: {
         tools: {
           wait: async () => {
-            const context = getBindingContext();
-            const binding = deferred<never>();
+            const context = getHostFunctionContext();
+            const pending = deferred<never>();
             started.resolve(null);
             context.abortSignal.addEventListener(
               'abort',
               () => {
                 aborted.resolve(null);
-                binding.reject(new Error('binding observed abort'));
+                pending.reject(new Error('host function observed abort'));
               },
               { once: true },
             );
-            await binding.promise;
+            await pending.promise;
           },
         },
       },
@@ -131,9 +131,9 @@ describe('resource and lifecycle hardening', () => {
 
   it('does not settle retired-worker paths until thread termination completes', async () => {
     const interrupted = await run({
-      bindings: {
+      hostFunctions: {
         tools: {
-          pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+          pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
         },
       },
       source: 'return await tools.pause();',
@@ -153,23 +153,23 @@ describe('resource and lifecycle hardening', () => {
     });
   });
 
-  it('makes caller abort win once and aborts active bindings', async () => {
+  it('makes caller abort win once and aborts active host functions', async () => {
     const started = deferred<null>();
     const observedReasons: unknown[] = [];
     const controller = new AbortController();
     const execution = run({
       abortSignal: controller.signal,
-      bindings: {
+      hostFunctions: {
         tools: {
           wait: async () => {
-            const context = getBindingContext();
-            const binding = deferred<never>();
+            const context = getHostFunctionContext();
+            const pending = deferred<never>();
             started.resolve(null);
             context.abortSignal.addEventListener('abort', () => {
               observedReasons.push(context.abortSignal.reason);
-              binding.reject(context.abortSignal.reason);
+              pending.reject(context.abortSignal.reason);
             });
-            await binding.promise;
+            await pending.promise;
           },
         },
       },
@@ -183,11 +183,11 @@ describe('resource and lifecycle hardening', () => {
     expect(observedReasons).toHaveLength(1);
   });
 
-  it('rejects unobserved and observed-detached bindings and cleans up', async () => {
+  it('rejects unobserved and observed-detached host functions and cleans up', async () => {
     const never = vi.fn(() => deferred<never>().promise);
     await expect(
       run({
-        bindings: { tools: { never } },
+        hostFunctions: { tools: { never } },
         source: "tools.never(); return 'done';",
       }),
     ).rejects.toBeInstanceOf(RunDetachedBridgeRequestError);
@@ -197,17 +197,17 @@ describe('resource and lifecycle hardening', () => {
     const aborted = deferred<null>();
     await expect(
       run({
-        bindings: {
+        hostFunctions: {
           tools: {
             wait: async () => {
-              const context = getBindingContext();
-              const binding = deferred<never>();
+              const context = getHostFunctionContext();
+              const pending = deferred<never>();
               started.resolve(null);
               context.abortSignal.addEventListener('abort', () => {
                 aborted.resolve(null);
-                binding.reject(new Error('detached binding aborted'));
+                pending.reject(new Error('detached host function aborted'));
               });
-              await binding.promise;
+              await pending.promise;
             },
           },
         },
@@ -226,7 +226,7 @@ describe('resource and lifecycle hardening', () => {
     const sequential = vi.fn((input: unknown) => input);
     await expect(
       run({
-        bindings: { tools: { echo: sequential } },
+        hostFunctions: { tools: { echo: sequential } },
         limits: { maxBridgeRequests: 1 },
         source: 'await tools.echo(1); return await tools.echo(2);',
       }),
@@ -236,17 +236,17 @@ describe('resource and lifecycle hardening', () => {
     const started = deferred<null>();
     const aborted = deferred<null>();
     const parallel = vi.fn(async () => {
-      const context = getBindingContext();
-      const binding = deferred<never>();
+      const context = getHostFunctionContext();
+      const pending = deferred<never>();
       started.resolve(null);
       context.abortSignal.addEventListener('abort', () => {
         aborted.resolve(null);
-        binding.reject(new Error('aborted'));
+        pending.reject(new Error('aborted'));
       });
-      await binding.promise;
+      await pending.promise;
     });
     const execution = run({
-      bindings: { tools: { wait: parallel } },
+      hostFunctions: { tools: { wait: parallel } },
       limits: { maxInFlightBridgeRequests: 1 },
       source: 'return await Promise.all([tools.wait(1), tools.wait(2)]);',
     });
@@ -265,14 +265,14 @@ describe('resource and lifecycle hardening', () => {
     `;
     await expect(
       run({
-        bindings: {
+        hostFunctions: {
           tools: {
             large: () => 'x'.repeat(180),
-            pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+            pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
           },
         },
         limits: {
-          maxBindingOutputBytes: 1024,
+          maxHostFunctionOutputBytes: 1024,
           maxContinuationBytes: 700,
         },
         source,
