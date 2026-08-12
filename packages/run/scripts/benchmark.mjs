@@ -1,12 +1,12 @@
 import { performance } from 'node:perf_hooks';
-import { createRunner, getBindingContext, run } from '../dist/index.js';
+import { createRunner, getHostFunctionContext, run } from '../dist/index.js';
 
 const iterations = positiveInteger(process.env.RUN_BENCHMARK_ITERATIONS, 100);
 const budgets = {
-  bindingRoundTripP99Ms: 75,
   coldRunMs: 500,
+  hostFunctionRoundTripP99Ms: 75,
   interruptAndReplayP99Ms: 300,
-  tenBindingRoundTripsP99Ms: 100,
+  tenHostFunctionRoundTripsP99Ms: 100,
   warmRunP99Ms: 75,
 };
 const results = {};
@@ -18,15 +18,15 @@ results.coldRunMs = await measureOnce(() => run({ source: 'return 1;' }));
 results.warmRunMs = await measureMany(iterations, () =>
   run({ source: 'return 1;' }),
 );
-results.bindingRoundTripMs = await measureMany(iterations, () =>
+results.hostFunctionRoundTripMs = await measureMany(iterations, () =>
   run({
-    bindings: { tools: { echo: input => input } },
+    hostFunctions: { tools: { echo: input => input } },
     source: 'return await tools.echo({ value: 1 });',
   }),
 );
-results.tenBindingRoundTripsMs = await measureMany(iterations, () =>
+results.tenHostFunctionRoundTripsMs = await measureMany(iterations, () =>
   run({
-    bindings: { tools: { echo: input => input } },
+    hostFunctions: { tools: { echo: input => input } },
     source: `
       const values = [];
       for (let index = 0; index < 10; index++) values.push(await tools.echo(index));
@@ -38,10 +38,10 @@ results.interruptAndReplayMs = await measureMany(
   Math.max(10, Math.floor(iterations / 5)),
   async () => {
     const source = 'return await tools.pause();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -49,13 +49,13 @@ results.interruptAndReplayMs = await measureMany(
         },
       },
     };
-    const interrupted = await continuationRunner.run({ bindings, source });
+    const interrupted = await continuationRunner.run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected pause.');
     }
     await continuationRunner.run({
-      bindings,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: interrupted.interruptions[0].id, value: true },
       ],
@@ -67,14 +67,14 @@ results.interruptAndReplayMs = await measureMany(
 assertBudget('cold run', results.coldRunMs, budgets.coldRunMs);
 assertBudget('warm run p99', results.warmRunMs.p99, budgets.warmRunP99Ms);
 assertBudget(
-  'binding round trip p99',
-  results.bindingRoundTripMs.p99,
-  budgets.bindingRoundTripP99Ms,
+  'host function round trip p99',
+  results.hostFunctionRoundTripMs.p99,
+  budgets.hostFunctionRoundTripP99Ms,
 );
 assertBudget(
-  'ten binding round trips p99',
-  results.tenBindingRoundTripsMs.p99,
-  budgets.tenBindingRoundTripsP99Ms,
+  'ten host function round trips p99',
+  results.tenHostFunctionRoundTripsMs.p99,
+  budgets.tenHostFunctionRoundTripsP99Ms,
 );
 assertBudget(
   'interrupt and replay p99',

@@ -1,8 +1,8 @@
 import { normalizeJsonPayload } from './utils/serialization.js';
 
-const interruptMarker = Symbol('run.binding-interrupt');
+const interruptMarker = Symbol('run.host-function-interrupt');
 
-export interface BindingInterruptSignal extends Error {
+export interface HostFunctionInterruptSignal extends Error {
   readonly payload: unknown;
   readonly [interruptMarker]: true;
 }
@@ -13,8 +13,8 @@ export const interrupt = (payload: unknown): never => {
     Number.MAX_SAFE_INTEGER,
     'Interruption payload',
   );
-  const error = new Error('Host binding interruption requested.');
-  error.name = 'BindingInterruptSignal';
+  const error = new Error('Host function interruption requested.');
+  error.name = 'HostFunctionInterruptSignal';
   Object.defineProperties(error, {
     [interruptMarker]: { value: true },
     payload: { value: normalizedPayload },
@@ -22,9 +22,9 @@ export const interrupt = (payload: unknown): never => {
   throw error;
 };
 
-export const isBindingInterruptSignal = (
+export const isHostFunctionInterruptSignal = (
   value: unknown,
-): value is BindingInterruptSignal =>
+): value is HostFunctionInterruptSignal =>
   typeof value === 'object' &&
   value !== null &&
-  (value as Partial<BindingInterruptSignal>)[interruptMarker] === true;
+  (value as Partial<HostFunctionInterruptSignal>)[interruptMarker] === true;

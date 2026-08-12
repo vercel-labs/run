@@ -1,21 +1,21 @@
 ---
-title: getBindingContext
-description: API Reference for getBindingContext.
+title: getHostFunctionContext
+description: API Reference for getHostFunctionContext.
 ---
 
-# `getBindingContext()`
+# `getHostFunctionContext()`
 
-Get the context for the currently executing host binding.
+Get the context for the currently executing host function.
 
 ```ts
-import { getBindingContext, run } from 'run';
+import { getHostFunctionContext, run } from 'run';
 
 await run({
   source: 'return await users.find("user_1");',
-  bindings: {
+  hostFunctions: {
     users: {
       find: async (id: string) => {
-        const { abortSignal } = getBindingContext();
+        const { abortSignal } = getHostFunctionContext();
         return database.users.find(id, { signal: abortSignal });
       },
     },
@@ -26,7 +26,7 @@ await run({
 ## Import
 
 ```ts
-import { getBindingContext } from 'run';
+import { getHostFunctionContext } from 'run';
 ```
 
 ## API Signature
@@ -43,11 +43,11 @@ import { getBindingContext } from 'run';
 [
   {
     "name": "context",
-    "type": "BindingContext",
-    "description": "The context for the active binding call.",
+    "type": "HostFunctionContext",
+    "description": "The context for the active host function call.",
     "properties": [
       {
-        "type": "BindingContext",
+        "type": "HostFunctionContext",
         "parameters": [
           {
             "name": "abortSignal",
@@ -67,31 +67,31 @@ import { getBindingContext } from 'run';
           {
             "name": "requestId",
             "type": "string",
-            "description": "The stable identifier for this binding request in the current attempt."
+            "description": "The stable identifier for this host function request in the current attempt."
           },
           {
             "name": "requestIndex",
             "type": "number",
-            "description": "The one-based binding request order in the current attempt."
+            "description": "The one-based host function request order in the current attempt."
           },
           {
-            "name": "bindingName",
+            "name": "hostFunctionName",
             "type": "string",
-            "description": "The fully qualified binding path, for example tools.search."
+            "description": "The fully qualified host function path, for example tools.search."
           },
           {
             "name": "interrupt",
             "type": "(payload: unknown) => never",
-            "description": "Interrupts the binding and suspends the run."
+            "description": "Interrupts the host function and suspends the run."
           },
           {
             "name": "resume",
-            "type": "BindingResumeContext",
+            "type": "HostFunctionResumeContext",
             "isOptional": true,
-            "description": "Resume data available when an interrupted binding is invoked again.",
+            "description": "Resume data available when an interrupted host function is invoked again.",
             "properties": [
               {
-                "type": "BindingResumeContext",
+                "type": "HostFunctionResumeContext",
                 "parameters": [
                   {
                     "name": "interruptionId",

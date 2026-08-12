@@ -6,9 +6,9 @@ description: Learn the concepts that underpin secure code execution with run.
 # Foundations
 
 This section explains the concepts that underpin `run`. It describes the
-boundary between the host application and guest source, the way bindings expose
-application capabilities, and the serialization format used to move values
-between them.
+boundary between the host application and guest source, the way host functions
+expose application capabilities, and the serialization format used to move
+values between them.
 
 It also explains how an invocation can pause and later continue through replay.
 
@@ -16,7 +16,8 @@ Start with the [overview](./overview), then continue through the remaining
 pages in order:
 
 1. [Sandbox](./sandbox) explains the environment in which guest source runs.
-2. [Bindings](./bindings) explains how guest code calls the host application.
+2. [Host functions](./host-functions) explains how guest code calls the host
+   application.
 3. [Serialization](./serialization) explains how values cross the boundary.
 4. [Interruptions](./interruptions) explains how a run can pause and continue
    through replay.

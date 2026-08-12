@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { interrupt, isBindingInterruptSignal } from './interrupt.js';
+import { interrupt, isHostFunctionInterruptSignal } from './interrupt.js';
 
 describe('interrupt', () => {
   it.each([Symbol('value'), () => {}])(
@@ -18,8 +18,8 @@ describe('interrupt', () => {
     try {
       interrupt(payload);
     } catch (error) {
-      expect(isBindingInterruptSignal(error)).toBe(true);
-      if (isBindingInterruptSignal(error)) {
+      expect(isHostFunctionInterruptSignal(error)).toBe(true);
+      if (isHostFunctionInterruptSignal(error)) {
         const revived = error.payload as Record<string, unknown>;
         expect(revived.exact).toBe(1n);
         expect(Object.hasOwn(revived, 'omitted')).toBe(true);

@@ -52,8 +52,8 @@ const isRunOptions = (value: unknown): boolean => {
   try {
     assertExactKeys(value, [
       'executionTimeoutMs',
-      'maxBindingInputBytes',
       'maxConsoleOutputBytes',
+      'maxHostFunctionInputBytes',
       'maxResultBytes',
       'maxStackSizeBytes',
       'memoryLimitBytes',
@@ -123,9 +123,9 @@ const assertBridgeIdle = (value: Record<string, unknown>): void => {
   }
 };
 
-const assertBindingRequest = (value: Record<string, unknown>): void => {
+const assertHostFunctionRequest = (value: Record<string, unknown>): void => {
   assertExactKeys(value, [
-    'bindingName',
+    'hostFunctionName',
     'inputJson',
     'invocationId',
     'requestId',
@@ -134,13 +134,13 @@ const assertBindingRequest = (value: Record<string, unknown>): void => {
   if (
     !isIdentifier(value.invocationId) ||
     !isIdentifier(value.requestId) ||
-    typeof value.bindingName !== 'string' ||
-    value.bindingName.length === 0 ||
-    Buffer.byteLength(value.bindingName) > 1024 ||
+    typeof value.hostFunctionName !== 'string' ||
+    value.hostFunctionName.length === 0 ||
+    Buffer.byteLength(value.hostFunctionName) > 1024 ||
     typeof value.inputJson !== 'string' ||
     value.inputJson.length === 0
   ) {
-    throw invalidMessage('binding-request');
+    throw invalidMessage('host-function-request');
   }
 };
 
@@ -191,8 +191,8 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
   }
   if (value.type === 'run') {
     assertExactKeys(value, [
-      'bindingNamespaces',
       'determinism',
+      'hostFunctionNamespaces',
       'invocationId',
       'options',
       'source',
@@ -201,10 +201,10 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
     if (
       !isIdentifier(value.invocationId) ||
       typeof value.source !== 'string' ||
-      !Array.isArray(value.bindingNamespaces) ||
-      value.bindingNamespaces.some(item => !isIdentifier(item)) ||
-      new Set(value.bindingNamespaces).size !==
-        value.bindingNamespaces.length ||
+      !Array.isArray(value.hostFunctionNamespaces) ||
+      value.hostFunctionNamespaces.some(item => !isIdentifier(item)) ||
+      new Set(value.hostFunctionNamespaces).size !==
+        value.hostFunctionNamespaces.length ||
       !isDeterminism(value.determinism) ||
       !isRunOptions(value.options)
     ) {
@@ -234,8 +234,8 @@ export const assertWorkerToMainMessage: AssertWorkerToMainMessage = value => {
   if (!isRecord(value) || typeof value.type !== 'string') {
     throw invalidMessage('worker-to-main');
   }
-  if (value.type === 'binding-request') {
-    assertBindingRequest(value);
+  if (value.type === 'host-function-request') {
+    assertHostFunctionRequest(value);
     return;
   }
   if (value.type === 'bridge-idle') {

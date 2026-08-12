@@ -8,7 +8,7 @@ export interface WorkerRunMessage {
   type: 'run';
   invocationId: string;
   source: string;
-  bindingNamespaces: string[];
+  hostFunctionNamespaces: string[];
   determinism: RunDeterminismState;
   options: Pick<
     NormalizedRunOptions,
@@ -17,7 +17,7 @@ export interface WorkerRunMessage {
     | 'maxStackSizeBytes'
     | 'maxResultBytes'
     | 'maxConsoleOutputBytes'
-    | 'maxBindingInputBytes'
+    | 'maxHostFunctionInputBytes'
   > & {
     executionTimeoutMs: number;
   };
@@ -28,11 +28,11 @@ export interface WorkerCancelMessage {
   invocationId: string;
 }
 
-export interface WorkerBindingRequest {
-  type: 'binding-request';
+export interface WorkerHostFunctionRequest {
+  type: 'host-function-request';
   invocationId: string;
   requestId: string;
-  bindingName: string;
+  hostFunctionName: string;
   inputJson: string;
 }
 
@@ -66,7 +66,7 @@ export interface WorkerBridgeIdleMessage {
 }
 
 export type WorkerToMainMessage =
-  | WorkerBindingRequest
+  | WorkerHostFunctionRequest
   | WorkerBridgeIdleMessage
   | WorkerResultMessage
   | WorkerReadyMessage;

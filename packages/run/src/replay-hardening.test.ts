@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRunner, getBindingContext, run } from './index.js';
+import { createRunner, getHostFunctionContext, run } from './index.js';
 import type { RunContinuationState, RunInterruptedResult } from './index.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 
@@ -33,10 +33,10 @@ describe('continuation replay hardening', () => {
       const second = await tools.pause({ round: 2 });
       return { trace, first, second };
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -46,13 +46,13 @@ describe('continuation replay hardening', () => {
       },
     };
 
-    const first = await run({ bindings, source });
+    const first = await run({ hostFunctions, source });
     if (first.status !== 'interrupted') {
       throw new Error('Expected round one.');
     }
     const second = await run({
-      bindings,
       continuation: first.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruptionId(first), value: 'one' },
       ],
@@ -62,8 +62,8 @@ describe('continuation replay hardening', () => {
       throw new Error('Expected round two.');
     }
     const completed = await run({
-      bindings,
       continuation: second.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruptionId(second), value: 'two' },
       ],
@@ -112,10 +112,10 @@ describe('continuation replay hardening', () => {
     const source = `
       return await Promise.all([tools.pause(1), tools.pause(2)]);
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -124,7 +124,7 @@ describe('continuation replay hardening', () => {
         },
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected pause.');
     }
@@ -152,8 +152,8 @@ describe('continuation replay hardening', () => {
     ]) {
       await expect(
         run({
-          bindings,
           continuation: interrupted.continuation,
+          hostFunctions,
           resolutions,
           source,
         }),
@@ -200,11 +200,11 @@ describe('continuation replay hardening', () => {
         await tools.effect('middle');
         return await tools.pause('last');
       `;
-      const bindings = {
+      const hostFunctions = {
         tools: {
           effect: (input: unknown) => input,
           pause: () => {
-            const context = getBindingContext();
+            const context = getHostFunctionContext();
             if (!context.resume) {
               context.interrupt({ kind: 'pause' });
             }
@@ -212,15 +212,15 @@ describe('continuation replay hardening', () => {
           },
         },
       };
-      const interrupted = await runner.run({ bindings, source });
+      const interrupted = await runner.run({ hostFunctions, source });
       if (interrupted.status !== 'interrupted') {
         throw new Error('Expected pause.');
       }
       mutate = true;
       await expect(
         runner.run({
-          bindings,
           continuation: interrupted.continuation,
+          hostFunctions,
           resolutions: [
             { interruptionId: firstInterruptionId(interrupted), value: true },
           ],
@@ -246,11 +246,11 @@ describe('continuation replay hardening', () => {
       const resolution = await tools.pause();
       return { race, all, resolution };
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         effect: effects,
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -258,14 +258,14 @@ describe('continuation replay hardening', () => {
         },
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected pause.');
     }
     await expect(
       run({
-        bindings,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           { interruptionId: firstInterruptionId(interrupted), value: true },
         ],
@@ -274,8 +274,8 @@ describe('continuation replay hardening', () => {
     ).resolves.toEqual({
       status: 'completed',
       value: {
-        all: ['Host binding failed.', 'success'],
-        race: 'Host binding failed.',
+        all: ['Host function failed.', 'success'],
+        race: 'Host function failed.',
         resolution: true,
       },
     });
@@ -293,11 +293,11 @@ describe('continuation replay hardening', () => {
       const resolution = await tools.pause();
       return { values, resolution };
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         effect,
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -306,7 +306,7 @@ describe('continuation replay hardening', () => {
       },
     };
     const interrupted = await run({
-      bindings,
+      hostFunctions,
       limits: { maxBridgeRequests: count + 1 },
       source,
     });
@@ -315,8 +315,8 @@ describe('continuation replay hardening', () => {
     }
     await expect(
       run({
-        bindings,
         continuation: interrupted.continuation,
+        hostFunctions,
         limits: { maxBridgeRequests: count + 1 },
         resolutions: [
           {
@@ -336,10 +336,10 @@ describe('continuation replay hardening', () => {
   it('keeps a stable idempotency key when a signed continuation is retried', async () => {
     const interruptionIds: string[] = [];
     const source = 'return await tools.write();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         write: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           const { resume } = context;
           if (resume === undefined) {
             return context.interrupt({ kind: 'approval' });
@@ -349,13 +349,13 @@ describe('continuation replay hardening', () => {
         },
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected pause.');
     }
     const input = {
-      bindings,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruptionId(interrupted), value: true },
       ],
@@ -378,9 +378,9 @@ describe('continuation replay hardening', () => {
     });
     await expect(
       hanging.run({
-        bindings: {
+        hostFunctions: {
           tools: {
-            pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+            pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
           },
         },
         source: 'return await tools.pause();',
@@ -403,9 +403,9 @@ describe('continuation replay hardening', () => {
     });
     await expect(
       failing.run({
-        bindings: {
+        hostFunctions: {
           tools: {
-            pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+            pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
           },
         },
         source: 'return await tools.pause();',
@@ -478,10 +478,10 @@ describe('continuation replay hardening', () => {
         }
         return output;
       `;
-      const bindings = {
+      const hostFunctions = {
         tools: {
           effect: (action: (typeof actions)[number]) => {
-            const context = getBindingContext();
+            const context = getHostFunctionContext();
             const callCount = calls[action.index];
             if (callCount === undefined) {
               throw new Error('Expected a call counter.');
@@ -498,11 +498,11 @@ describe('continuation replay hardening', () => {
         },
       };
 
-      let result = await run({ bindings, source });
+      let result = await run({ hostFunctions, source });
       while (result.status === 'interrupted') {
         result = await run({
-          bindings,
           continuation: result.continuation,
+          hostFunctions,
           resolutions: result.interruptions.map(interruption => ({
             interruptionId: interruption.id,
             value: true,

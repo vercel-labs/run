@@ -8,11 +8,11 @@ execution of untrusted JS or TS.
 
 `run` executes JavaScript in a hardened QuickJS sandbox. Guest code starts with
 no access to Node.js, the filesystem, environment variables, modules, or the
-network; it can call only the host functions you explicitly bind.
+network; it can call only the host functions you explicitly provide.
 
-Bindings can be any normal JavaScript or TypeScript functions. They can also interrupt
-execution for approval or authentication and resume later without repeating already
-invoked bindings.
+Host functions can be any normal JavaScript or TypeScript functions. They can
+also interrupt execution for approval or authentication and resume later without
+repeating already invoked host functions.
 
 ## Install
 
@@ -32,7 +32,7 @@ const result = await run({
     const total = await tools.sum(1, 2, 3, 4);
     return { total };
   `,
-  bindings: {
+  hostFunctions: {
     tools: {
       sum: (...values: number[]) =>
         values.reduce((total, value) => total + value, 0),
@@ -48,10 +48,10 @@ if (result.status === 'completed') {
 Each run uses a fresh QuickJS context inside a worker thread. Top-level `await`
 and `return` are supported in `source`.
 
-## Bindings
+## Host functions
 
-A binding group becomes a global with the same name inside the sandbox. Guest
-arguments map one-for-one to the host function:
+A host function group becomes a global with the same name inside the sandbox.
+Guest arguments map one-for-one to the host function:
 
 ```text
 guest                                 host
@@ -60,10 +60,10 @@ users.find({ id: 'user-1' }) ─────▶   find({ id: 'user-1' })
 clock.now()                  ─────▶   now()
 ```
 
-Bindings may be synchronous or asynchronous:
+Host functions may be synchronous or asynchronous:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   users: {
     find: async (input: { id: string }) => database.users.find(input.id),
   },
@@ -88,56 +88,58 @@ positions are preserved, including explicit `undefined` arguments.
 - `Error` values, including `name`, `message`, `cause`, and
   `AggregateError.errors`.
 
-References are preserved within one transferred value graph. Separate binding
-calls are separate transfers and do not share object identity. Plain objects
-are reconstructed as plain objects rather than retaining custom prototypes.
-Error stacks are regenerated in the receiving realm and are not transferred.
+References are preserved within one transferred value graph. Separate host
+function calls are separate transfers and do not share object identity. Plain
+objects are reconstructed as plain objects rather than retaining custom
+prototypes. Error stacks are regenerated in the receiving realm and are not
+transferred.
 
 Functions, symbols, promises, weak collections, and arbitrary class instances
 cannot cross the boundary. Returning one fails with a serialization error that
-includes its path when available. Keep capabilities in host bindings and send
+includes its path when available. Keep capabilities in host functions and send
 data through their arguments and results.
 
-### Binding context
+### Host function context
 
-Call `getBindingContext()` when a binding needs runtime metadata, cancellation,
-or interruption. Context is not a guest argument, so the binding signature
-continues to match the call made in sandboxed JavaScript.
+Call `getHostFunctionContext()` when a host function needs runtime metadata,
+cancellation, or interruption. Context is not a guest argument, so the host
+function signature continues to match the call made in sandboxed JavaScript.
 
 ```ts
-import { getBindingContext } from 'run';
+import { getHostFunctionContext } from 'run';
 
-const bindings = {
+const hostFunctions = {
   documents: {
     save: async (document: Document) => {
-      const { abortSignal, logicalRunId } = getBindingContext();
+      const { abortSignal, logicalRunId } = getHostFunctionContext();
       return database.save(document, { abortSignal, logicalRunId });
     },
   },
 };
 ```
 
-The context is isolated for each concurrent binding call and follows awaited
-asynchronous work. `getBindingContext()` throws outside an active binding and
-from detached work after the binding settles or is aborted.
+The context is isolated for each concurrent host function call and follows
+awaited asynchronous work. `getHostFunctionContext()` throws outside an active
+host function and from detached work after the host function settles or is
+aborted.
 
-`BindingContext` contains:
+`HostFunctionContext` contains:
 
-| Property             | Meaning                                                     |
-| -------------------- | ----------------------------------------------------------- |
-| `abortSignal`        | Aborted when the run is cancelled, times out, or fails      |
-| `bindingName`        | Fully qualified name such as `tools.sum`                    |
-| `logicalRunId`       | Stable across every continuation replay                     |
-| `invocationId`       | Identifies the current execution attempt                    |
-| `requestId`          | Identifies this binding request in the current attempt      |
-| `requestIndex`       | One-based binding request order                             |
-| `interrupt(payload)` | Suspends the run; its return type is `never`                |
-| `resume`             | Resolution metadata when an interrupted binding is replayed |
+| Property             | Meaning                                                           |
+| -------------------- | ----------------------------------------------------------------- |
+| `abortSignal`        | Aborted when the run is cancelled, times out, or fails            |
+| `hostFunctionName`   | Fully qualified name such as `tools.sum`                          |
+| `logicalRunId`       | Stable across every continuation replay                           |
+| `invocationId`       | Identifies the current execution attempt                          |
+| `requestId`          | Identifies this host function request in the current attempt      |
+| `requestIndex`       | One-based host function request order                             |
+| `interrupt(payload)` | Suspends the run; its return type is `never`                      |
+| `resume`             | Resolution metadata when an interrupted host function is replayed |
 
 ## Interrupt and resume
 
-Bindings can pause a run before a protected operation. Configure one shared
-secret for every process that can create or resume continuations:
+Host functions can pause a run before a protected operation. Configure one
+shared secret for every process that can create or resume continuations:
 
 ```sh
 export RUN_CONTINUATION_SECRET="$(openssl rand -base64 32)"
@@ -146,13 +148,13 @@ export RUN_CONTINUATION_SECRET="$(openssl rand -base64 32)"
 `run()` reads `RUN_CONTINUATION_SECRET` automatically.
 
 ```ts
-import { getBindingContext, run } from 'run';
+import { getHostFunctionContext, run } from 'run';
 
 const source = `return await documents.publish('draft-1');`;
-const bindings = {
+const hostFunctions = {
   documents: {
     publish: async (draftId: string) => {
-      const { interrupt, resume } = getBindingContext();
+      const { interrupt, resume } = getHostFunctionContext();
 
       if (resume === undefined) {
         interrupt({
@@ -170,12 +172,12 @@ const bindings = {
   },
 };
 
-const first = await run({ source, bindings });
+const first = await run({ source, hostFunctions });
 
 if (first.status === 'interrupted') {
   const completed = await run({
     source,
-    bindings,
+    hostFunctions,
     continuation: first.continuation,
     resolutions: first.interruptions.map(interruption => ({
       interruptionId: interruption.id,
@@ -185,7 +187,7 @@ if (first.status === 'interrupted') {
 }
 ```
 
-Ordinary runs need no continuation configuration. If a binding interrupts
+Ordinary runs need no continuation configuration. If a host function interrupts
 without `RUN_CONTINUATION_SECRET`, `continuationSecret`, or a
 `continuationCodec`, the run fails with a configuration error.
 
@@ -210,7 +212,7 @@ const runner = createRunner({
 
 const result = await runner.run({
   source: 'return await api.lookup("item-1");',
-  bindings: {
+  hostFunctions: {
     api: {
       lookup: (id: string) => database.get(id),
     },
@@ -223,21 +225,21 @@ the environment variable. Supplying both `continuationSecret` and
 `continuationCodec` is an error.
 
 Per-run limits override runner defaults. An `abortSignal` cancels an active
-invocation and is available through `getBindingContext()`.
+invocation and is available through `getHostFunctionContext()`.
 
-| Limit                                  |    Default |
-| -------------------------------------- | ---------: |
-| Timeout                                | 30 seconds |
-| QuickJS memory                         |     64 MiB |
-| QuickJS stack                          |      2 MiB |
-| Source                                 |    256 KiB |
-| Result                                 |      1 MiB |
-| Console output                         |     64 KiB |
-| Binding arguments                      |      1 MiB |
-| Binding output or interruption payload |      4 MiB |
-| Bridge requests                        |        256 |
-| Concurrent bridge requests             |         32 |
-| Continuation                           |     32 MiB |
+| Limit                                        |    Default |
+| -------------------------------------------- | ---------: |
+| Timeout                                      | 30 seconds |
+| QuickJS memory                               |     64 MiB |
+| QuickJS stack                                |      2 MiB |
+| Source                                       |    256 KiB |
+| Result                                       |      1 MiB |
+| Console output                               |     64 KiB |
+| Host function arguments                      |      1 MiB |
+| Host function output or interruption payload |      4 MiB |
+| Bridge requests                              |        256 |
+| Concurrent bridge requests                   |         32 |
+| Continuation                                 |     32 MiB |
 
 All limits must be positive integers no greater than `2_147_483_647`. Values
 above this ceiling are rejected instead of being passed to platform APIs that
@@ -277,26 +279,26 @@ verifying old tokens.
 ### Replay behavior
 
 A continuation contains a replay ledger. On resume, completed and rejected
-bindings are read from that ledger instead of being invoked again. The runtime
-replays the program and reinvokes only interrupted bindings that now have a
-resolution.
+host functions are read from that ledger instead of being invoked again. The
+runtime replays the program and reinvokes only interrupted host functions that
+now have a resolution.
 
-Replay verifies the source, binding-name manifest, and complete serialized
-argument list for every binding call. Guest `Date`, `Date.now()`, and
-`Math.random()` remain deterministic across replay. Divergence is rejected
-before a mismatched binding executes.
+Replay verifies the source, host-function-name manifest, and complete
+serialized argument list for every host function call. Guest `Date`,
+`Date.now()`, and `Math.random()` remain deterministic across replay.
+Divergence is rejected before a mismatched host function executes.
 
-An interrupted binding itself is reinvoked. Call `interrupt()` before doing
-non-idempotent work. For writes that may be retried, use
-`getBindingContext().resume.interruptionId` as a stable idempotency key.
+An interrupted host function itself is reinvoked. Call `interrupt()` before
+doing non-idempotent work. For writes that may be retried, use
+`getHostFunctionContext().resume.interruptionId` as a stable idempotency key.
 
-`interrupt()` uses an internal throw. Do not catch it inside the binding. The
-runtime catches it at the host boundary and returns an interrupted result.
+`interrupt()` uses an internal throw. Do not catch it inside the host function.
+The runtime catches it at the host boundary and returns an interrupted result.
 
 ### Multiple interruptions
 
-Concurrent binding calls may interrupt together. The result contains the full
-batch and one continuation:
+Concurrent host function calls may interrupt together. The result contains the
+full batch and one continuation:
 
 ```ts
 const result = await run({
@@ -306,14 +308,14 @@ const result = await run({
       actions.sendPayment('payment-1'),
     ]);
   `,
-  bindings,
+  hostFunctions,
 });
 
 if (result.status === 'interrupted') {
   // Present the complete batch to the user, then resolve every item together.
   await run({
     source,
-    bindings,
+    hostFunctions,
     continuation: result.continuation,
     resolutions: result.interruptions.map(interruption => ({
       interruptionId: interruption.id,
@@ -323,30 +325,30 @@ if (result.status === 'interrupted') {
 }
 ```
 
-Every interruption in a returned batch must be resolved together. Bindings
-reached later may create another interruption round after replay.
+Every interruption in a returned batch must be resolved together. Host
+functions reached later may create another interruption round after replay.
 Each interruption also exposes the complete guest call as its `arguments`
 array.
 
 ### Scope and authorization
 
 Signed continuations are bound to the runner audience, transformed source,
-binding-name manifest, and `continuationContext`. For tenant-, user-, or
+host-function-name manifest, and `continuationContext`. For tenant-, user-, or
 policy-scoped execution, provide authenticated context on both the initial run
 and every resume:
 
 ```ts
 await runner.run({
   source,
-  bindings,
+  hostFunctions,
   continuationContext: { tenantId, userId, policyVersion },
 });
 ```
 
 A mismatch is rejected before replayed results are returned or an interrupted
-binding is reinvoked. The resume endpoint must still authorize the actor who
-submits each resolution. A valid continuation proves integrity and scope; it
-does not grant approval by itself.
+host function is reinvoked. The resume endpoint must still authorize the actor
+who submits each resolution. A valid continuation proves integrity and scope;
+it does not grant approval by itself.
 
 ### Token security and storage
 
@@ -370,24 +372,25 @@ Custom codecs receive versioned replay state plus an operation context with an
 `abortSignal` and `deadlineMs`. Treat continuation tokens as opaque; the replay
 state is an advanced API that may evolve between releases.
 
-Replay state identifies its value codec as `run-js-v1`. Serialized binding
-arguments, results, interruption payloads, and resolutions remain opaque
-strings inside the JSON continuation envelope, so rich and cyclic values do
-not weaken canonical signing.
+Replay state identifies its value codec as `run-js-v1`. Serialized host
+function arguments, results, interruption payloads, and resolutions remain
+opaque strings inside the JSON continuation envelope, so rich and cyclic values
+do not weaken canonical signing. Ledger entries use the wire property name
+`bindingName` as the persisted host function path key.
 
 ## Security model
 
 Sandboxed code has no ambient access to Node.js, the filesystem, environment
 variables, modules, network APIs, timers, `crypto`, or high-resolution clocks.
 Dynamic evaluation is disabled and built-in prototypes are frozen. Host access
-is limited to declared bindings and serialized values crossing the worker
+is limited to declared host functions and serialized values crossing the worker
 boundary.
 
-Binding groups and functions must be own properties. Inherited prototype
+Host function groups and functions must be own properties. Inherited prototype
 members are never capabilities. Guest namespaces cannot replace JavaScript
 builtins or runtime internals.
 
-Resource limits reduce denial-of-service risk, but bindings remain
+Resource limits reduce denial-of-service risk, but host functions remain
 security-sensitive capabilities. Validate authentication, authorization, and
 application input in the host environment.
 
@@ -399,7 +402,8 @@ Runtime failures extend `RunError` and expose a stable `code`:
   host effects are safe to retry.
 - `RUN_PROTOCOL_ERROR` indicates malformed, tampered, expired, or divergent
   continuation state. Do not retry unchanged input.
-- `RUN_BINDING_ERROR` comes from capability lookup or binding execution.
+- `RUN_HOST_FUNCTION_ERROR` comes from capability lookup or host function
+  execution.
 - `RUN_BRIDGE_LIMIT`, `RUN_SOURCE_TOO_LARGE`, and serialization failures require
   changing the source, values, or limits.
 - `RUN_DETACHED_BRIDGE_REQUEST` means guest code returned without correctly
@@ -408,7 +412,7 @@ Runtime failures extend `RunError` and expose a stable `code`:
 Syntax and runtime error stacks use `run.js` and line numbers from the exact
 `source` string passed to `run`. Generated wrapper and sandbox-runtime frames
 are omitted. The same coordinates are retained after supported TypeScript
-syntax is stripped and when an awaited binding rejects:
+syntax is stripped and when an awaited host function rejects:
 
 ```text
 Error: calculation failed

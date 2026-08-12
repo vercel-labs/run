@@ -177,7 +177,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   const { runtime } = context;
   const deadline = Date.now() + message.options.executionTimeoutMs;
   let interruptChecks = 0;
-  let bridgeFunctions: { invokeBinding: QuickJSHandle } | undefined;
+  let bridgeFunctions: { invokeHostFunction: QuickJSHandle } | undefined;
   let consoleFormatter: QuickJSHandle | undefined;
   let determinismHandle: QuickJSHandle | undefined;
   let resetDateNowHandle: QuickJSHandle | undefined;
@@ -237,7 +237,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     resetDateNowHandle = await initializeGuestRuntime(
       context,
       message,
-      bridgeFunctions.invokeBinding,
+      bridgeFunctions.invokeHostFunction,
       determinismHandle,
     );
     const valueJson = await evaluateUserSource(context, message);
@@ -275,8 +275,8 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     for (const [requestId] of pendingForInvocation) {
       pendingBridgeRequests.delete(requestId);
     }
-    if (bridgeFunctions?.invokeBinding.alive) {
-      bridgeFunctions.invokeBinding.dispose();
+    if (bridgeFunctions?.invokeHostFunction.alive) {
+      bridgeFunctions.invokeHostFunction.dispose();
     }
     if (consoleFormatter?.alive) {
       consoleFormatter.dispose();
@@ -294,10 +294,12 @@ async function execute(message: WorkerRunMessage): Promise<string> {
 async function initializeGuestRuntime(
   context: QuickJSAsyncContext,
   message: WorkerRunMessage,
-  invokeBinding: QuickJSHandle,
+  invokeHostFunction: QuickJSHandle,
   determinismHandle: QuickJSHandle,
 ): Promise<QuickJSHandle | undefined> {
-  const setupSource = buildGuestRuntimeSetupSource(message.bindingNamespaces);
+  const setupSource = buildGuestRuntimeSetupSource(
+    message.hostFunctionNamespaces,
+  );
   const setupEvalResult = await context.evalCodeAsync(
     setupSource,
     'run-setup.js',
@@ -313,7 +315,7 @@ async function initializeGuestRuntime(
     const setupCallResult = context.callFunction(
       setupEvalResult.value,
       context.undefined,
-      invokeBinding,
+      invokeHostFunction,
       determinismHandle,
     );
     if (setupCallResult.error) {
@@ -589,19 +591,23 @@ function createBridgeFunctions(
   context: QuickJSAsyncContext,
   message: WorkerRunMessage,
   getResetDateNow: () => QuickJSHandle | undefined,
-): { invokeBinding: QuickJSHandle } {
-  const invokeBinding = context.newFunction(
-    '__runInvokeBinding',
-    (bindingNameHandle: QuickJSHandle, inputJsonHandle: QuickJSHandle) => {
-      const bindingName = context.getString(bindingNameHandle);
+): { invokeHostFunction: QuickJSHandle } {
+  const invokeHostFunction = context.newFunction(
+    '__runInvokeHostFunction',
+    (hostFunctionNameHandle: QuickJSHandle, inputJsonHandle: QuickJSHandle) => {
+      const hostFunctionName = context.getString(hostFunctionNameHandle);
       const inputJson = context.getString(inputJsonHandle);
-      if (Buffer.byteLength(bindingName) > 1024) {
-        return { error: context.newError('Binding name exceeds 1024 bytes.') };
+      if (Buffer.byteLength(hostFunctionName) > 1024) {
+        return {
+          error: context.newError('Host function name exceeds 1024 bytes.'),
+        };
       }
-      if (Buffer.byteLength(inputJson) > message.options.maxBindingInputBytes) {
+      if (
+        Buffer.byteLength(inputJson) > message.options.maxHostFunctionInputBytes
+      ) {
         return {
           error: context.newError(
-            `Binding arguments exceed the ${message.options.maxBindingInputBytes} byte size limit.`,
+            `Host function arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
           ),
         };
       }
@@ -609,7 +615,7 @@ function createBridgeFunctions(
         context,
         message.invocationId,
         {
-          bindingName,
+          hostFunctionName,
           inputJson,
         },
         getResetDateNow(),
@@ -617,7 +623,7 @@ function createBridgeFunctions(
     },
   );
 
-  return { invokeBinding };
+  return { invokeHostFunction };
 }
 
 function requestHost(
@@ -639,7 +645,7 @@ function requestHost(
   parentPort?.postMessage({
     invocationId,
     requestId,
-    type: 'binding-request',
+    type: 'host-function-request',
     ...payload,
   });
   bridgeIdleGeneration += 1;

@@ -361,8 +361,8 @@ const BRIDGE_TRACKING_SOURCE = `
 })();
 `;
 
-const BINDINGS_PROXY_SOURCE = `
-(function(invokeBinding, bindingNamespaces) {
+const HOST_FUNCTIONS_PROXY_SOURCE = `
+(function(invokeHostFunction, hostFunctionNamespaces) {
   function serializationError(label, error) {
     var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
     var result = new __runOriginalTypeError(label + ': ' + message);
@@ -377,19 +377,19 @@ const BINDINGS_PROXY_SOURCE = `
         return makeProxy(path.concat([__runOriginalString(prop)]));
       },
       apply: function(_target, _thisArg, args) {
-        var bindingPath = path.join('.');
-        if (!bindingPath) throw new Error('Binding path missing in invocation');
+        var hostFunctionPath = path.join('.');
+        if (!hostFunctionPath) throw new Error('Host function path missing in invocation');
         var callSiteStack = new Error().stack;
         var inputJson;
         try {
           inputJson = __runSerdeBundle.serializeRunValue(args);
         } catch (error) {
-          throw serializationError('Binding arguments are not serializable', error);
+          throw serializationError('Host function arguments are not serializable', error);
         }
-        return globalThis.__runCreateBridgePromise('binding', bindingPath, async function() {
+        return globalThis.__runCreateBridgePromise('hostFunction', hostFunctionPath, async function() {
           var resultJson;
           try {
-            resultJson = await invokeBinding(bindingPath, inputJson);
+            resultJson = await invokeHostFunction(hostFunctionPath, inputJson);
           } catch (error) {
             try { error.stack = callSiteStack; } catch {}
             throw error;
@@ -397,22 +397,22 @@ const BINDINGS_PROXY_SOURCE = `
           try {
             return __runSerdeBundle.deserializeRunValue(resultJson);
           } catch (error) {
-            throw serializationError('Binding result is invalid run-js-v1 data', error);
+            throw serializationError('Host function result is invalid run-js-v1 data', error);
           }
         });
       }
     });
   }
 
-  for (var i = 0; i < bindingNamespaces.length; i++) {
-    var namespace = bindingNamespaces[i];
+  for (var i = 0; i < hostFunctionNamespaces.length; i++) {
+    var namespace = hostFunctionNamespaces[i];
     Object.defineProperty(globalThis, namespace, {
       value: makeProxy([namespace]),
       writable: false,
       configurable: false
     });
   }
-})(__runInvokeBinding, __runBindingNamespaces);
+})(__runInvokeHostFunction, __runHostFunctionNamespaces);
 `;
 
 const SERIALIZATION_GUARD_SOURCE = `
@@ -450,12 +450,12 @@ const SERIALIZATION_GUARD_SOURCE = `
 `;
 
 export const buildGuestRuntimeSetupSource = (
-  bindingNamespaces: string[],
+  hostFunctionNamespaces: string[],
 ): string => {
-  const namespacesJson = JSON.stringify(bindingNamespaces);
+  const namespacesJson = JSON.stringify(hostFunctionNamespaces);
   return `
-(function(__runInvokeBinding, __runDeterminism) {
-const __runBindingNamespaces = ${namespacesJson};
+(function(__runInvokeHostFunction, __runDeterminism) {
+const __runHostFunctionNamespaces = ${namespacesJson};
 const __runOriginalError = Error;
 const __runOriginalMath = Math;
 const __runOriginalNumber = Number;
@@ -471,7 +471,7 @@ ${BASE64_SOURCE}
 ${GUEST_SERDE_SOURCE}
 ${HARDENING_SOURCE}
 ${BRIDGE_TRACKING_SOURCE}
-${BINDINGS_PROXY_SOURCE}
+${HOST_FUNCTIONS_PROXY_SOURCE}
 ${SERIALIZATION_GUARD_SOURCE}
 return Object.freeze({ resetDateNow: __runResetDateNow });
 })

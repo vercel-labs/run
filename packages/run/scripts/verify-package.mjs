@@ -93,25 +93,25 @@ try {
     { env: commandEnvironment, maxBuffer: 10 * 1024 * 1024 },
   );
   const verificationSource = `
-    import { getBindingContext, run } from 'run';
+    import { getHostFunctionContext, run } from 'run';
     const completed = await run({ source: 'return 42;' });
     if (completed.status !== 'completed' || completed.value !== 42) throw new Error('completion failed');
-    const binding = await run({
+    const hostCall = await run({
       source: 'return await tools.echo({ ok: true });',
-      bindings: { tools: { echo: input => input } },
+      hostFunctions: { tools: { echo: input => input } },
     });
-    if (binding.status !== 'completed' || binding.value.ok !== true) throw new Error('binding failed');
+    if (hostCall.status !== 'completed' || hostCall.value.ok !== true) throw new Error('host function failed');
     const source = 'return await tools.pause();';
-    const bindings = { tools: { pause: () => {
-      const context = getBindingContext();
+    const hostFunctions = { tools: { pause: () => {
+      const context = getHostFunctionContext();
       if (!context.resume) context.interrupt({ kind: 'pause' });
       return context.resume.resolution;
     } } };
-    const interrupted = await run({ source, bindings });
+    const interrupted = await run({ source, hostFunctions });
     if (interrupted.status !== 'interrupted') throw new Error('interruption failed');
     const resumed = await run({
       source,
-      bindings,
+      hostFunctions,
       continuation: interrupted.continuation,
       resolutions: [{ interruptionId: interrupted.interruptions[0].id, value: 'ok' }],
     });

@@ -10,7 +10,7 @@ Check whether a value has the shape of an interrupted run result.
 ```ts
 import { isRunInterruptedResult, run } from 'run';
 
-const result = await run({ source, bindings });
+const result = await run({ source, hostFunctions });
 
 if (isRunInterruptedResult(result)) {
   await saveContinuation(result.continuation);
@@ -68,9 +68,9 @@ import { isRunInterruptedResult } from 'run';
                     "description": "The unique interruption ID."
                   },
                   {
-                    "name": "bindingName",
+                    "name": "hostFunctionName",
                     "type": "string",
-                    "description": "The fully qualified binding path."
+                    "description": "The fully qualified host function path."
                   },
                   {
                     "name": "arguments",

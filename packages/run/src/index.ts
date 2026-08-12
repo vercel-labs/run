@@ -1,6 +1,6 @@
 export {
   RunAbortedError,
-  RunBindingError,
+  RunHostFunctionError,
   RunBridgeLimitError,
   RunConcurrencyError,
   RunDetachedBridgeRequestError,
@@ -17,15 +17,15 @@ export {
   type StoredContinuation,
 } from './continuation-codec.js';
 export { createRunner, run } from './run.js';
-export { getBindingContext } from './binding-context.js';
+export { getHostFunctionContext } from './host-function-context.js';
 export { isRunInterruptedResult } from './is-interrupted.js';
 export { setMaxWorkers } from './runtime/max-workers.js';
 export type {
-  BindingContext,
-  BindingFunction,
-  BindingGroup,
-  BindingResumeContext,
-  Bindings,
+  HostFunctionContext,
+  HostFunction,
+  HostFunctionGroup,
+  HostFunctionResumeContext,
+  HostFunctions,
   ContinuationCodec,
   ContinuationDecodeTransaction,
   ContinuationOperationContext,

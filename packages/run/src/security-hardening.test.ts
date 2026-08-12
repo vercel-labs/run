@@ -1,12 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { RunDetachedBridgeRequestError } from './errors.js';
-import { getBindingContext, run } from './index.js';
-import type { Bindings } from './index.js';
+import { getHostFunctionContext, run } from './index.js';
+import type { HostFunctions } from './index.js';
 
-async function value(source: string, bindings?: Bindings): Promise<unknown> {
+async function value(
+  source: string,
+  hostFunctions?: HostFunctions,
+): Promise<unknown> {
   const result = await run({
     source,
-    ...(bindings === undefined ? {} : { bindings }),
+    ...(hostFunctions === undefined ? {} : { hostFunctions }),
   });
   if (result.status !== 'completed') {
     throw new Error('Unexpected interruption.');
@@ -14,8 +17,8 @@ async function value(source: string, bindings?: Bindings): Promise<unknown> {
   return result.value;
 }
 
-function expectValue(source: string, bindings?: Bindings) {
-  return expect(value(source, bindings));
+function expectValue(source: string, hostFunctions?: HostFunctions) {
+  return expect(value(source, hostFunctions));
 }
 
 const LOCKED_GUEST_GLOBALS = [
@@ -268,7 +271,7 @@ describe('guest sandbox hardening', () => {
   it('does not invoke guest Error prototype setters for runtime errors', async () => {
     await expect(
       run({
-        bindings: { tools: { echo: () => 'ok' } },
+        hostFunctions: { tools: { echo: () => 'ok' } },
         source: `
           for (const name of ['name', 'code', 'details']) {
             Object.defineProperty(Error.prototype, name, {
@@ -295,9 +298,9 @@ describe('guest sandbox hardening', () => {
     ).rejects.toThrow('terminal');
 
     const interrupted = await run({
-      bindings: {
+      hostFunctions: {
         tools: {
-          pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+          pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
         },
       },
       source: 'return await tools.pause();',
@@ -339,29 +342,32 @@ describe('guest sandbox hardening', () => {
     'InternalError',
     'console',
     'globalThis',
-  ])('rejects a binding namespace that collides with %s', async namespace => {
-    await expect(
-      run({
-        bindings: { [namespace]: { call: () => true } },
-        source: 'return 1;',
-      }),
-    ).rejects.toThrow('Reserved binding namespace');
-  });
-
-  it.each(['__proto__', 'constructor', 'prototype', 'then'])(
-    'rejects the reserved binding namespace %s',
+  ])(
+    'rejects a host function namespace that collides with %s',
     async namespace => {
       await expect(
         run({
-          bindings: { [namespace]: { call: () => true } },
+          hostFunctions: { [namespace]: { call: () => true } },
           source: 'return 1;',
         }),
-      ).rejects.toThrow(`Reserved binding namespace: ${namespace}`);
+      ).rejects.toThrow('Reserved host function namespace');
+    },
+  );
+
+  it.each(['__proto__', 'constructor', 'prototype', 'then'])(
+    'rejects the reserved host function namespace %s',
+    async namespace => {
+      await expect(
+        run({
+          hostFunctions: { [namespace]: { call: () => true } },
+          source: 'return 1;',
+        }),
+      ).rejects.toThrow(`Reserved host function namespace: ${namespace}`);
     },
   );
 
   it.each(['__proto__', 'constructor', 'prototype', 'then', '__runBridge'])(
-    'rejects the dangerous declared binding name %s',
+    'rejects the dangerous declared host function name %s',
     async name => {
       const group = Object.create(null) as Record<string, () => boolean>;
       Object.defineProperty(group, name, {
@@ -369,13 +375,13 @@ describe('guest sandbox hardening', () => {
         value: () => true,
       });
       await expect(
-        run({ bindings: { tools: group }, source: 'return 1;' }),
-      ).rejects.toThrow('Invalid binding name');
+        run({ hostFunctions: { tools: group }, source: 'return 1;' }),
+      ).rejects.toThrow('Invalid host function name');
     },
   );
 
   it.each(['hidden', 'admin.reset'])(
-    'rejects the non-enumerable binding %s',
+    'rejects the non-enumerable host function %s',
     async name => {
       let called = false;
       const group = { visible: () => true };
@@ -387,26 +393,26 @@ describe('guest sandbox hardening', () => {
 
       await expect(
         run({
-          bindings: { tools: group },
+          hostFunctions: { tools: group },
           source: `return await tools[${JSON.stringify(name)}]();`,
         }),
-      ).rejects.toThrow(`Binding "tools.${name}" must be enumerable.`);
+      ).rejects.toThrow(`Host function "tools.${name}" must be enumerable.`);
       expect(called).toBe(false);
     },
   );
 
-  it('rejects a non-enumerable binding namespace', async () => {
-    const bindings = {};
-    Object.defineProperty(bindings, 'tools', {
+  it('rejects a non-enumerable host function namespace', async () => {
+    const hostFunctions = {};
+    Object.defineProperty(hostFunctions, 'tools', {
       value: { visible: () => true },
     });
 
     await expect(
-      run({ bindings, source: 'return await tools.visible();' }),
-    ).rejects.toThrow('Binding namespace "tools" must be enumerable.');
+      run({ hostFunctions, source: 'return await tools.visible();' }),
+    ).rejects.toThrow('Host function namespace "tools" must be enumerable.');
   });
 
-  it('does not expose bindings added after validation', async () => {
+  it('does not expose host functions added after validation', async () => {
     let called = false;
     const group: Record<string, () => unknown> = {};
     group.install = () => {
@@ -417,10 +423,10 @@ describe('guest sandbox hardening', () => {
 
     await expect(
       run({
-        bindings: { tools: group },
+        hostFunctions: { tools: group },
         source: 'await tools.install(); return await tools.hidden();',
       }),
-    ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+    ).rejects.toMatchObject({ code: 'RUN_HOST_FUNCTION_ERROR' });
     expect(called).toBe(false);
   });
 
@@ -434,17 +440,17 @@ describe('guest sandbox hardening', () => {
     '\0call',
     'café',
     '🔧',
-  ])('rejects the invalid binding name %j', async name => {
+  ])('rejects the invalid host function name %j', async name => {
     await expect(
       run({
-        bindings: { tools: { [name]: () => true } },
+        hostFunctions: { tools: { [name]: () => true } },
         source: 'return 1;',
       }),
-    ).rejects.toThrow('Invalid binding name');
+    ).rejects.toThrow('Invalid host function name');
   });
 
   it.each(['call', '_call', '$call', 'call2'])(
-    'accepts the valid binding name %s',
+    'accepts the valid host function name %s',
     async name => {
       await expectValue(`return await tools[${JSON.stringify(name)}]();`, {
         tools: { [name]: () => true },

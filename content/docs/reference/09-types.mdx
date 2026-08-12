@@ -23,11 +23,11 @@ const options: RunnerOptions = {
 
 ```ts
 import type {
-  BindingContext,
-  BindingFunction,
-  BindingGroup,
-  BindingResumeContext,
-  Bindings,
+  HostFunctionContext,
+  HostFunction,
+  HostFunctionGroup,
+  HostFunctionResumeContext,
+  HostFunctions,
   ContinuationCodec,
   ContinuationOperationContext,
   ContinuationStorage,
@@ -67,8 +67,8 @@ import type {
             "description": "JavaScript or type-stripped TypeScript function-body source."
           },
           {
-            "name": "bindings",
-            "type": "Bindings",
+            "name": "hostFunctions",
+            "type": "HostFunctions",
             "isOptional": true,
             "description": "Host function groups installed as guest globals."
           },
@@ -163,7 +163,7 @@ import type {
   {
     "name": "RunInterruption<PAYLOAD = unknown>",
     "type": "interface",
-    "description": "A pending binding interruption.",
+    "description": "A pending host function interruption.",
     "properties": [
       {
         "type": "RunInterruption<PAYLOAD>",
@@ -174,9 +174,9 @@ import type {
             "description": "The unique interruption ID."
           },
           {
-            "name": "bindingName",
+            "name": "hostFunctionName",
             "type": "string",
-            "description": "The fully qualified binding path."
+            "description": "The fully qualified host function path."
           },
           {
             "name": "arguments",
@@ -259,13 +259,13 @@ import type {
             "description": "Default: 262144."
           },
           {
-            "name": "maxBindingArgumentsBytes",
+            "name": "maxHostFunctionArgumentsBytes",
             "type": "number",
             "isOptional": true,
             "description": "Default: 1048576."
           },
           {
-            "name": "maxBindingOutputBytes",
+            "name": "maxHostFunctionOutputBytes",
             "type": "number",
             "isOptional": true,
             "description": "Default: 4194304."
@@ -355,32 +355,32 @@ import type {
 ]
 ```
 
-### Binding Types
+### Host Function Types
 
 ```json
 [
   {
-    "name": "BindingFunction<ARGUMENTS extends unknown[] = unknown[], OUTPUT = unknown>",
+    "name": "HostFunction<ARGUMENTS extends unknown[] = unknown[], OUTPUT = unknown>",
     "type": "(...args: ARGUMENTS) => OUTPUT | Promise<OUTPUT>",
     "description": "A host function made available to sandboxed JavaScript."
   },
   {
-    "name": "BindingGroup",
-    "type": "Record<string, BindingFunction<never[], unknown>>",
+    "name": "HostFunctionGroup",
+    "type": "Record<string, HostFunction<never[], unknown>>",
     "description": "A named collection of host functions."
   },
   {
-    "name": "Bindings",
-    "type": "Record<string, BindingGroup>",
+    "name": "HostFunctions",
+    "type": "Record<string, HostFunctionGroup>",
     "description": "Host function groups installed as guest globals."
   },
   {
-    "name": "BindingContext",
+    "name": "HostFunctionContext",
     "type": "interface",
-    "description": "Context supplied to each host binding invocation.",
+    "description": "Context supplied to each host function invocation.",
     "properties": [
       {
-        "type": "BindingContext",
+        "type": "HostFunctionContext",
         "parameters": [
           {
             "name": "abortSignal",
@@ -400,40 +400,40 @@ import type {
           {
             "name": "requestId",
             "type": "string",
-            "description": "The binding request identifier."
+            "description": "The host function request identifier."
           },
           {
             "name": "requestIndex",
             "type": "number",
-            "description": "The one-based binding request order."
+            "description": "The one-based host function request order."
           },
           {
-            "name": "bindingName",
+            "name": "hostFunctionName",
             "type": "string",
-            "description": "The fully qualified binding path."
+            "description": "The fully qualified host function path."
           },
           {
             "name": "interrupt",
             "type": "(payload: unknown) => never",
-            "description": "Interrupts the binding and suspends the run."
+            "description": "Interrupts the host function and suspends the run."
           },
           {
             "name": "resume",
-            "type": "BindingResumeContext",
+            "type": "HostFunctionResumeContext",
             "isOptional": true,
-            "description": "Resume data for a replayed interrupted binding."
+            "description": "Resume data for a replayed interrupted host function."
           }
         ]
       }
     ]
   },
   {
-    "name": "BindingResumeContext",
+    "name": "HostFunctionResumeContext",
     "type": "interface",
-    "description": "Resume data for a replayed interrupted binding.",
+    "description": "Resume data for a replayed interrupted host function.",
     "properties": [
       {
-        "type": "BindingResumeContext",
+        "type": "HostFunctionResumeContext",
         "parameters": [
           {
             "name": "interruptionId",
@@ -646,7 +646,7 @@ import type {
           {
             "name": "ledger",
             "type": "RunLedgerEntry[]",
-            "description": "The recorded binding outcomes."
+            "description": "The recorded host function outcomes."
           }
         ]
       }
@@ -655,7 +655,7 @@ import type {
   {
     "name": "RunLedgerEntry",
     "type": "fulfilled | rejected | interrupted",
-    "description": "A recorded binding outcome.",
+    "description": "A recorded host function outcome. The wire property name bindingName is the persisted host function path key.",
     "properties": [
       {
         "type": "FulfilledRunLedgerEntry",
@@ -663,12 +663,12 @@ import type {
           {
             "name": "bindingName",
             "type": "string",
-            "description": "The binding path."
+            "description": "The persisted host function path key (wire property name remains bindingName)."
           },
           {
             "name": "inputJson",
             "type": "string",
-            "description": "The serialized binding input."
+            "description": "The serialized host function input."
           },
           {
             "name": "status",
@@ -698,12 +698,12 @@ import type {
           {
             "name": "bindingName",
             "type": "string",
-            "description": "The binding path."
+            "description": "The persisted host function path key (wire property name remains bindingName)."
           },
           {
             "name": "inputJson",
             "type": "string",
-            "description": "The serialized binding input."
+            "description": "The serialized host function input."
           },
           {
             "name": "status",
@@ -733,12 +733,12 @@ import type {
           {
             "name": "bindingName",
             "type": "string",
-            "description": "The binding path."
+            "description": "The persisted host function path key (wire property name remains bindingName)."
           },
           {
             "name": "inputJson",
             "type": "string",
-            "description": "The serialized binding input."
+            "description": "The serialized host function input."
           },
           {
             "name": "status",

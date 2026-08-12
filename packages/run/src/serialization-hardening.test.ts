@@ -1,19 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
-  RunBindingError,
+  RunHostFunctionError,
   createRunner,
-  getBindingContext,
+  getHostFunctionContext,
   run,
 } from './index.js';
-import type { BindingContext, RunContinuationState } from './index.js';
-import { invokeHostBinding } from './binding-invocation.js';
+import type { HostFunctionContext, RunContinuationState } from './index.js';
+import { invokeHostFunction } from './host-function-invocation.js';
 import { serializeError } from './errors.js';
 import { serializeRunValue } from './utils/serde.js';
 
-function bindingContext(): BindingContext {
+function hostFunctionContext(): HostFunctionContext {
   return {
     abortSignal: new AbortController().signal,
-    bindingName: 'tools.echo',
+    hostFunctionName: 'tools.echo',
     interrupt: () => {
       throw new Error('not used');
     },
@@ -60,35 +60,35 @@ const NON_SERIALIZABLE_OUTPUTS: [string, () => unknown][] = [
 
 describe('serialization boundaries', () => {
   it.each(['ascii', 'é', '🧪', '\uD800'])(
-    'measures binding arguments as UTF-8 bytes: %s',
+    'measures host function arguments as UTF-8 bytes: %s',
     async text => {
       const inputJson = serializeRunValue([text]);
       const exactBytes = Buffer.byteLength(inputJson);
-      const binding = vi.fn((input: unknown) => input);
+      const hostFunction = vi.fn((input: unknown) => input);
 
       await expect(
-        invokeHostBinding({
-          bindingManifest: new Map([['tools', new Set(['echo'])]]),
-          bindingName: 'tools.echo',
-          bindings: { tools: { echo: binding } },
-          context: bindingContext(),
+        invokeHostFunction({
+          context: hostFunctionContext(),
+          hostFunctionManifest: new Map([['tools', new Set(['echo'])]]),
+          hostFunctionName: 'tools.echo',
+          hostFunctions: { tools: { echo: hostFunction } },
           inputJson,
-          maxBindingInputBytes: exactBytes,
-          maxBindingOutputBytes: 1024,
+          maxHostFunctionInputBytes: exactBytes,
+          maxHostFunctionOutputBytes: 1024,
         }),
       ).resolves.toMatchObject({ status: 'fulfilled' });
 
       await expect(
-        invokeHostBinding({
-          bindingManifest: new Map([['tools', new Set(['echo'])]]),
-          bindingName: 'tools.echo',
-          bindings: { tools: { echo: binding } },
-          context: bindingContext(),
+        invokeHostFunction({
+          context: hostFunctionContext(),
+          hostFunctionManifest: new Map([['tools', new Set(['echo'])]]),
+          hostFunctionName: 'tools.echo',
+          hostFunctions: { tools: { echo: hostFunction } },
           inputJson,
-          maxBindingInputBytes: exactBytes - 1,
-          maxBindingOutputBytes: 1024,
+          maxHostFunctionInputBytes: exactBytes - 1,
+          maxHostFunctionOutputBytes: 1024,
         }),
-      ).rejects.toBeInstanceOf(RunBindingError);
+      ).rejects.toBeInstanceOf(RunHostFunctionError);
     },
   );
 
@@ -118,7 +118,7 @@ describe('serialization boundaries', () => {
       polluted: ({} as { polluted?: unknown }).polluted,
     }));
     const result = await run({
-      bindings: { tools: { observe } },
+      hostFunctions: { tools: { observe } },
       source: `
         return await tools.observe(
           JSON.parse('{"__proto__":{"polluted":true},"constructor":"value","prototype":"value"}')
@@ -139,9 +139,9 @@ describe('serialization boundaries', () => {
     expect(({} as { polluted?: unknown }).polluted).toBeUndefined();
   });
 
-  it('preserves edge values across binding and result boundaries', async () => {
+  it('preserves edge values across host function and result boundaries', async () => {
     const result = await run({
-      bindings: { tools: { values: input => input } },
+      hostFunctions: { tools: { values: input => input } },
       source: `
         return await tools.values({
           array: [undefined, NaN, Infinity, -Infinity],
@@ -167,11 +167,11 @@ describe('serialization boundaries', () => {
   });
 
   it.each(NON_SERIALIZABLE_OUTPUTS)(
-    'rejects a non-serializable binding %s',
+    'rejects a non-serializable host function %s',
     async (_name, output) => {
       await expect(
         run({
-          bindings: { tools: { output } },
+          hostFunctions: { tools: { output } },
           source: 'return await tools.output();',
         }),
       ).rejects.toMatchObject({ code: 'RUN_SERIALIZATION_ERROR' });
@@ -181,10 +181,10 @@ describe('serialization boundaries', () => {
   it('preserves rich values in resolutions', async () => {
     const observed: unknown[] = [];
     const source = 'return await tools.pause();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'pause' });
           }
@@ -193,7 +193,7 @@ describe('serialization boundaries', () => {
         },
       },
     };
-    const first = await run({ bindings, source });
+    const first = await run({ hostFunctions, source });
     if (first.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
@@ -204,8 +204,8 @@ describe('serialization boundaries', () => {
     const date = new Date('2025-01-02T03:04:05.000Z');
     await expect(
       run({
-        bindings,
         continuation: first.continuation,
+        hostFunctions,
         resolutions: [{ interruptionId: interruption.id, value: date }],
         source,
       }),

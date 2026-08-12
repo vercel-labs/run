@@ -3,7 +3,7 @@ import {
   createRunner,
   createSignedContinuationCodec,
   createStoredContinuationCodec,
-  getBindingContext,
+  getHostFunctionContext,
   run,
   setMaxWorkers,
 } from './index.js';
@@ -67,14 +67,14 @@ const createMemoryContinuationStorage = (): {
 };
 
 describe('run', () => {
-  it('keeps concurrent worker realms and binding closures isolated', async () => {
+  it('keeps concurrent worker realms and host function closures isolated', async () => {
     setMaxWorkers(4);
     const releases: (() => void)[] = [];
     const started = createPromiseWithResolvers<null>();
     try {
       const executions = Array.from({ length: 4 }, (_, index) =>
         run<number>({
-          bindings: {
+          hostFunctions: {
             tools: {
               wait: async () => {
                 const release = createPromiseWithResolvers<null>();
@@ -115,41 +115,41 @@ describe('run', () => {
     });
   });
 
-  it('exposes named binding groups as guest globals', async () => {
+  it('exposes named host function groups as guest globals', async () => {
     const add = vi.fn(({ a, b }: { a: number; b: number }) => a + b);
 
     await expect(
       run({
-        bindings: { tools: { add } },
+        hostFunctions: { tools: { add } },
         source: 'return await tools.add({ a: 2, b: 3 });',
       }),
     ).resolves.toEqual({ status: 'completed', value: 5 });
     expect(add).toHaveBeenCalledWith({ a: 2, b: 3 });
   });
 
-  it('maps every guest argument to the host binding signature', async () => {
+  it('maps every guest argument to the host function signature', async () => {
     const sum = vi.fn((...values: number[]) =>
       values.reduce((total, value) => total + value, 0),
     );
 
     await expect(
       run({
-        bindings: { tools: { sum } },
+        hostFunctions: { tools: { sum } },
         source: 'return await tools.sum(1, 2, 3, 4);',
       }),
     ).resolves.toEqual({ status: 'completed', value: 10 });
     expect(sum).toHaveBeenCalledWith(1, 2, 3, 4);
   });
 
-  it('scopes binding context through async work and invalidates it after settlement', async () => {
+  it('scopes host function context through async work and invalidates it after settlement', async () => {
     const requestIds = new Map<string, string>();
     const result = await run<string[]>({
-      bindings: {
+      hostFunctions: {
         tools: {
           inspect: async (label: string) => {
-            const before = getBindingContext();
+            const before = getHostFunctionContext();
             await Promise.resolve();
-            const after = getBindingContext();
+            const after = getHostFunctionContext();
             expect(after).toBe(before);
             requestIds.set(label, before.requestId);
             return `${label}:${before.requestId}`;
@@ -168,24 +168,24 @@ describe('run', () => {
       expect(new Set(result.value).size).toBe(2);
     }
     expect(requestIds.get('first')).not.toBe(requestIds.get('second'));
-    expect(() => getBindingContext()).toThrow(
-      'getBindingContext() can only be called while executing a run binding.',
+    expect(() => getHostFunctionContext()).toThrow(
+      'getHostFunctionContext() can only be called while executing a host function.',
     );
   });
 
-  it('invalidates context in detached async work after binding settlement', async () => {
+  it('invalidates context in detached async work after host function settlement', async () => {
     const detachedGate = createPromiseWithResolvers<null>();
     const detachedContext = createPromiseWithResolvers<unknown>();
 
     await expect(
       run({
-        bindings: {
+        hostFunctions: {
           tools: {
             detach: () => {
               const inspectDetachedContext = async () => {
                 await detachedGate.promise;
                 try {
-                  detachedContext.resolve(getBindingContext());
+                  detachedContext.resolve(getHostFunctionContext());
                 } catch (error) {
                   detachedContext.resolve(error);
                 }
@@ -201,49 +201,49 @@ describe('run', () => {
     detachedGate.resolve(null);
     await expect(detachedContext.promise).resolves.toMatchObject({
       message:
-        'getBindingContext() can only be called while executing a run binding.',
+        'getHostFunctionContext() can only be called while executing a host function.',
     });
   });
 
-  it('keeps binding context active after abort while the binding is pending', async () => {
+  it('keeps host function context active after abort while the host function is pending', async () => {
     const abortController = new AbortController();
-    const bindingStarted = createPromiseWithResolvers<null>();
+    const hostFunctionStarted = createPromiseWithResolvers<null>();
     const detachedGate = createPromiseWithResolvers<null>();
     const detachedContext = createPromiseWithResolvers<unknown>();
     const execution = run({
       abortSignal: abortController.signal,
-      bindings: {
+      hostFunctions: {
         tools: {
           wait: () => {
             const inspectDetachedContext = async () => {
               await detachedGate.promise;
               try {
-                detachedContext.resolve(getBindingContext());
+                detachedContext.resolve(getHostFunctionContext());
               } catch (error) {
                 detachedContext.resolve(error);
               }
             };
             inspectDetachedContext().catch(detachedContext.resolve);
-            bindingStarted.resolve(null);
+            hostFunctionStarted.resolve(null);
             return createPromiseWithResolvers<never>().promise;
           },
         },
       },
       source: 'return await tools.wait();',
     });
-    await bindingStarted.promise;
+    await hostFunctionStarted.promise;
     abortController.abort();
     await expect(execution).rejects.toMatchObject({ code: 'RUN_ABORTED' });
     detachedGate.resolve(null);
     await expect(detachedContext.promise).resolves.toMatchObject({
       abortSignal: { aborted: true },
-      bindingName: 'tools.wait',
+      hostFunctionName: 'tools.wait',
     });
   });
 
-  it('supports concurrent binding calls', async () => {
+  it('supports concurrent host function calls', async () => {
     const result = await run<number[]>({
-      bindings: {
+      hostFunctions: {
         functions: { double: (value: number) => value * 2 },
       },
       source: `
@@ -270,16 +270,16 @@ describe('run', () => {
     expect(result.value).toBe(42);
   });
 
-  it('rejects unknown bindings', async () => {
+  it('rejects unknown host functions', async () => {
     await expect(
       run({
-        bindings: { tools: {} },
+        hostFunctions: { tools: {} },
         source: 'return await tools.missing();',
       }),
-    ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+    ).rejects.toMatchObject({ code: 'RUN_HOST_FUNCTION_ERROR' });
   });
 
-  it('does not invoke inherited binding group properties', async () => {
+  it('does not invoke inherited host function group properties', async () => {
     const inherited = vi.fn(() => 'should not run');
     const group = Object.assign(Object.create({ inherited }), {
       safe: () => 'safe',
@@ -287,26 +287,26 @@ describe('run', () => {
 
     await expect(
       run({
-        bindings: { tools: group },
+        hostFunctions: { tools: group },
         source: 'return await tools.inherited({ attacker: true });',
       }),
-    ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+    ).rejects.toMatchObject({ code: 'RUN_HOST_FUNCTION_ERROR' });
     expect(inherited).not.toHaveBeenCalled();
   });
 
   it.each(['constructor', 'hasOwnProperty', 'valueOf'])(
-    'does not expose Object.prototype.%s as a binding',
+    'does not expose Object.prototype.%s as a host function',
     async name => {
       await expect(
         run({
-          bindings: { tools: { safe: () => 'safe' } },
+          hostFunctions: { tools: { safe: () => 'safe' } },
           source: `return await tools.${name}({ attacker: true });`,
         }),
-      ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+      ).rejects.toMatchObject({ code: 'RUN_HOST_FUNCTION_ERROR' });
     },
   );
 
-  it('rechecks that a binding is a function at invocation time', async () => {
+  it('rechecks that a host function is a function at invocation time', async () => {
     const group = {
       mutate: () => {
         (group as Record<string, unknown>).target = 'not a function';
@@ -316,32 +316,32 @@ describe('run', () => {
 
     await expect(
       run({
-        bindings: { tools: group },
+        hostFunctions: { tools: group },
         source: 'await tools.mutate(); return await tools.target();',
       }),
-    ).rejects.toMatchObject({ code: 'RUN_BINDING_ERROR' });
+    ).rejects.toMatchObject({ code: 'RUN_HOST_FUNCTION_ERROR' });
   });
 
   it('rejects reserved guest namespaces', async () => {
     await expect(
       run({
-        bindings: { console: { log: () => {} } },
+        hostFunctions: { console: { log: () => {} } },
         source: 'return 1;',
       }),
-    ).rejects.toThrow('Reserved binding namespace: console');
+    ).rejects.toThrow('Reserved host function namespace: console');
   });
 
-  it('resumes an interrupted binding without repeating completed effects', async () => {
+  it('resumes an interrupted host function without repeating completed effects', async () => {
     const effect = vi.fn(() => 'created');
     const approve = vi.fn(() => {
-      const context = getBindingContext();
+      const context = getHostFunctionContext();
       if (context.resume === undefined) {
         context.interrupt({ kind: 'approval', message: 'Allow it?' });
       }
       return context.resume?.resolution;
     });
     const input = {
-      bindings: { tools: { approve, effect } },
+      hostFunctions: { tools: { approve, effect } },
       source: `
         const created = await tools.effect();
         const approved = await tools.approve();
@@ -354,7 +354,7 @@ describe('run', () => {
       interruptions: [
         {
           arguments: [],
-          bindingName: 'tools.approve',
+          hostFunctionName: 'tools.approve',
           id: 'interrupt-2',
           payload: { kind: 'approval', message: 'Allow it?' },
         },
@@ -383,14 +383,14 @@ describe('run', () => {
 
   it('batches concurrent interruptions into one continuation', async () => {
     const approval = vi.fn((input: { name: string }) => {
-      const context = getBindingContext();
+      const context = getHostFunctionContext();
       if (context.resume === undefined) {
         context.interrupt({ kind: 'approval', name: input.name });
       }
       return context.resume?.resolution;
     });
     const input = {
-      bindings: { tools: { approval } },
+      hostFunctions: { tools: { approval } },
       source: `
         return await Promise.all([
           tools.approval({ name: 'first' }),
@@ -436,9 +436,9 @@ describe('run', () => {
 
   it('rejects tampered signed continuations', async () => {
     const interrupted = await run({
-      bindings: {
+      hostFunctions: {
         tools: {
-          pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+          pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
         },
       },
       source: 'return await tools.pause();',
@@ -449,14 +449,14 @@ describe('run', () => {
     const token = interrupted.continuation as string;
     await expect(
       run({
-        bindings: { tools: { pause: () => {} } },
         continuation: `${token[0] === 'A' ? 'B' : 'A'}${token.slice(1)}`,
+        hostFunctions: { tools: { pause: () => {} } },
         source: 'return await tools.pause();',
       }),
     ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
   });
 
-  it('replays Date and Math.random deterministically across bindings', async () => {
+  it('replays Date and Math.random deterministically across host functions', async () => {
     const effectInputs: unknown[] = [];
     const source = `
       const before = { now: Date.now(), random: Math.random() };
@@ -470,10 +470,10 @@ describe('run', () => {
         approved,
       };
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         approve: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'approval' });
           }
@@ -485,13 +485,13 @@ describe('run', () => {
       },
     };
 
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     const completed = await run({
-      bindings,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(interrupted).id, value: true },
       ],
@@ -513,10 +513,10 @@ describe('run', () => {
       const second = await tools.pause({ step: 2 });
       return [first, second];
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'approval' });
           }
@@ -524,13 +524,13 @@ describe('run', () => {
         },
       },
     };
-    const first = await run({ bindings, source });
+    const first = await run({ hostFunctions, source });
     if (first.status !== 'interrupted') {
       throw new Error('Expected first round.');
     }
     const second = await run({
-      bindings,
       continuation: first.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(first).id, value: 'a' },
       ],
@@ -541,8 +541,8 @@ describe('run', () => {
     }
     await expect(
       run({
-        bindings,
         continuation: second.continuation,
+        hostFunctions,
         resolutions: [
           { interruptionId: firstInterruption(second).id, value: 'b' },
         ],
@@ -551,7 +551,7 @@ describe('run', () => {
     ).resolves.toEqual({ status: 'completed', value: ['a', 'b'] });
   });
 
-  it('replays rejected bindings without reinvoking them', async () => {
+  it('replays rejected host functions without reinvoking them', async () => {
     const fail = vi.fn(() => {
       throw new Error('secret failure');
     });
@@ -561,10 +561,10 @@ describe('run', () => {
       const approved = await tools.approve();
       return { failure, approved };
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         approve: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'approval' });
           }
@@ -573,13 +573,13 @@ describe('run', () => {
         fail,
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     await run({
-      bindings,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(interrupted).id, value: true },
       ],
@@ -676,10 +676,10 @@ describe('run', () => {
       continuationCodec: createStoredContinuationCodec({ storage }),
     });
     const source = 'return await tools.pause();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (context.resume === undefined) {
             context.interrupt({ kind: 'approval' });
           }
@@ -687,13 +687,13 @@ describe('run', () => {
         },
       },
     };
-    const interrupted = await runner.run({ bindings, source });
+    const interrupted = await runner.run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     const resume = {
-      bindings,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(interrupted).id, value: true },
       ],
@@ -711,10 +711,10 @@ describe('run', () => {
   it('enforces aggregate continuation limits', async () => {
     await expect(
       run({
-        bindings: {
+        hostFunctions: {
           tools: {
             pause: () =>
-              getBindingContext().interrupt({
+              getHostFunctionContext().interrupt({
                 detail: 'x'.repeat(200),
                 kind: 'approval',
               }),
@@ -732,10 +732,10 @@ describe('run', () => {
         Array.from({ length: 16 }, (_value, index) => tools.pause(index))
       );
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'approval' });
           }
@@ -743,15 +743,15 @@ describe('run', () => {
         },
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     expect(interrupted.interruptions).toHaveLength(16);
     await expect(
       run({
-        bindings,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: interrupted.interruptions.map((item, index) => ({
           interruptionId: item.id,
           value: index,
@@ -764,7 +764,7 @@ describe('run', () => {
     });
   });
 
-  it('preserves concurrent binding settlement order during replay', async () => {
+  it('preserves concurrent host function settlement order during replay', async () => {
     const delayed = vi.fn(
       async ({ id, delay }: { id: string; delay: number }) => {
         await sleep(delay);
@@ -779,11 +779,11 @@ describe('run', () => {
       const approved = await tools.pause();
       return { winner, all, approved };
     `;
-    const bindings = {
+    const hostFunctions = {
       tools: {
         delayed,
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           if (!context.resume) {
             context.interrupt({ kind: 'approval' });
           }
@@ -791,14 +791,14 @@ describe('run', () => {
         },
       },
     };
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     await expect(
       run({
-        bindings,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           { interruptionId: firstInterruption(interrupted).id, value: true },
         ],
@@ -825,9 +825,9 @@ describe('run', () => {
 
     await expect(
       runner.run({
-        bindings: {
+        hostFunctions: {
           tools: {
-            pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+            pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
           },
         },
         source: `
@@ -840,13 +840,13 @@ describe('run', () => {
     ).resolves.toMatchObject({ status: 'interrupted' });
   });
 
-  it('binds continuations to audience, caller context, and binding manifest', async () => {
+  it('binds continuations to audience, caller context, and host function manifest', async () => {
     const codec = createSignedContinuationCodec({ secret: 'x'.repeat(32) });
     const source = 'return await tools.pause();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           const { resume } = context;
           if (resume === undefined) {
             return context.interrupt({ kind: 'pause' });
@@ -860,16 +860,16 @@ describe('run', () => {
       continuationCodec: codec,
     });
     const first = await runner.run({
-      bindings,
       continuationContext: { tenantId: 'tenant-a' },
+      hostFunctions,
       source,
     });
     if (first.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     const resume = {
-      bindings,
       continuation: first.continuation,
+      hostFunctions,
       resolutions: [
         { interruptionId: firstInterruption(first).id, value: true },
       ],
@@ -894,27 +894,27 @@ describe('run', () => {
     await expect(
       runner.run({
         ...resume,
-        bindings: { tools: { ...bindings.tools, extra: () => true } },
         continuationContext: { tenantId: 'tenant-a' },
+        hostFunctions: { tools: { ...hostFunctions.tools, extra: () => true } },
       }),
     ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
   });
 
   it('rejects non-exact resolution envelopes', async () => {
     const source = 'return await tools.pause();';
-    const bindings = {
+    const hostFunctions = {
       tools: {
-        pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+        pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
       },
     };
-    const first = await run({ bindings, source });
+    const first = await run({ hostFunctions, source });
     if (first.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     await expect(
       run({
-        bindings,
         continuation: first.continuation,
+        hostFunctions,
         resolutions: [
           {
             extra: true,
@@ -941,9 +941,9 @@ describe('run', () => {
     });
     await expect(
       runner.run({
-        bindings: {
+        hostFunctions: {
           tools: {
-            pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+            pause: () => getHostFunctionContext().interrupt({ kind: 'pause' }),
           },
         },
         source: 'return await tools.pause();',
@@ -955,10 +955,10 @@ describe('run', () => {
     const firstRunner = createRunner({ continuationSecret: 'a'.repeat(32) });
     const secondRunner = createRunner({ continuationSecret: 'a'.repeat(32) });
     const input = {
-      bindings: {
+      hostFunctions: {
         tools: {
           pause: () => {
-            const context = getBindingContext();
+            const context = getHostFunctionContext();
             const { resume } = context;
             if (resume === undefined) {
               return context.interrupt({ kind: 'pause' });
@@ -991,10 +991,10 @@ describe('run', () => {
     const firstRunner = createRunner();
     const secondRunner = createRunner();
     const source = 'return await tools.pause("environment");';
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: (label: string) => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           const { resume } = context;
           if (resume === undefined) {
             return context.interrupt({ label });
@@ -1003,15 +1003,15 @@ describe('run', () => {
         },
       },
     };
-    const interrupted = await firstRunner.run({ bindings, source });
+    const interrupted = await firstRunner.run({ hostFunctions, source });
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected interruption.');
     }
     expect(firstInterruption(interrupted).arguments).toEqual(['environment']);
     await expect(
       secondRunner.run({
-        bindings,
         continuation: interrupted.continuation,
+        hostFunctions,
         resolutions: [
           {
             interruptionId: firstInterruption(interrupted).id,

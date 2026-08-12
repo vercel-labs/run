@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { getBindingContext, run } from './index.js';
+import { getHostFunctionContext, run } from './index.js';
 
 describe('run configuration', () => {
   it('observes a continuation secret configured after first use', async () => {
@@ -16,9 +16,10 @@ describe('run configuration', () => {
 
       await expect(
         run({
-          bindings: {
+          hostFunctions: {
             tools: {
-              pause: () => getBindingContext().interrupt({ kind: 'pause' }),
+              pause: () =>
+                getHostFunctionContext().interrupt({ kind: 'pause' }),
             },
           },
           source: 'return await tools.pause();',

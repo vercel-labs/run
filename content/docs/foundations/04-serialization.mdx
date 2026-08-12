@@ -9,9 +9,9 @@ The host and guest do not share JavaScript memory. Every value that crosses the
 sandbox boundary must be encoded, copied, and reconstructed on the receiving
 side.
 
-Serialization is used for binding arguments, binding outputs, final run
-results, interruption payloads, resolutions, and the binding history stored in
-a continuation.
+Serialization is used for host function arguments, host function outputs, final
+run results, interruption payloads, resolutions, and the host function history
+stored in a continuation.
 
 ## Values
 
@@ -25,10 +25,10 @@ views, typed arrays, errors, and aggregate errors. Cyclic objects, sparse
 arrays, and repeated references can be represented within a single transferred
 value.
 
-For example, a binding can return a map containing a date:
+For example, a host function can return a map containing a date:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   reports: {
     load: () =>
       new Map([
@@ -40,14 +40,14 @@ const bindings = {
 ```
 
 Functions, symbols, promises, weak collections, weak references, and arbitrary
-class instances cannot be transferred as values. A binding may return a
+class instances cannot be transferred as values. A host function may return a
 promise because the runtime awaits it, but the promise itself is not sent to
 the guest.
 
 Do not return objects that contain functions or depend on class behavior:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   tasks: {
     get: () => ({
       id: 'task_123',
@@ -61,10 +61,10 @@ const bindings = {
 ```
 
 This value cannot be serialized because `complete` is a function. Expose the
-operation as a separate binding and return only data:
+operation as a separate host function and return only data:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   tasks: {
     get: () => ({
       id: 'task_123',
@@ -78,11 +78,11 @@ const bindings = {
 };
 ```
 
-Similarly, a binding cannot return an application-specific class instance
+Similarly, a host function cannot return an application-specific class instance
 directly:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   accounts: {
     get: async (id: string) => {
       // This fails if loadAccount returns an Account instance.
@@ -93,11 +93,11 @@ const bindings = {
 ```
 
 The serializer cannot transfer the instance's custom prototype, methods, or
-private state. The binding must select the required properties and return an
-explicit data object instead:
+private state. The host function must select the required properties and return
+an explicit data object instead:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   accounts: {
     get: async (id: string) => {
       const account = await loadAccount(id);
@@ -112,7 +112,7 @@ const bindings = {
 ```
 
 TypeScript types describe the expected shape to host developers, but they do
-not validate guest values at runtime. Bindings must validate untrusted
+not validate guest values at runtime. Host functions must validate untrusted
 arguments before using them.
 
 ## Identity
@@ -130,21 +130,21 @@ return {
 };
 ```
 
-Identity is not preserved across separate binding calls. Returning the same
-host object twice creates a separate guest copy each time. Mutating a guest
-copy also does not mutate the original host object.
+Identity is not preserved across separate host function calls. Returning the
+same host object twice creates a separate guest copy each time. Mutating a
+guest copy also does not mutate the original host object.
 
 Application-specific prototypes and class methods are not reconstructed.
-Bindings should exchange data rather than objects whose behavior depends on a
-custom prototype.
+Host functions should exchange data rather than objects whose behavior depends
+on a custom prototype.
 
 ## Errors
 
 An error transferred as ordinary data can retain its name, message, cause, and
 aggregate errors. Its original stack is not transferred as data.
 
-A thrown binding error follows a different path. The runtime converts it into a
-sanitized guest-side rejection so that host stack traces and private
+A thrown host function error follows a different path. The runtime converts it
+into a sanitized guest-side rejection so that host stack traces and private
 diagnostics are not exposed inside the sandbox.
 
 ```ts
@@ -163,28 +163,28 @@ If guest code does not catch the rejection, the entire invocation fails.
 ## Limits
 
 Serialization limits are measured using the UTF-8 byte length of the encoded
-value. The default limit is 1 MiB for the arguments of one binding call, 4 MiB
-for one binding output, and 1 MiB for the final run result.
+value. The default limit is 1 MiB for the arguments of one host function call,
+4 MiB for one host function output, and 1 MiB for the final run result.
 
 Console output has a shared 64 KiB limit for each invocation. Continuation state
 has a separate 32 MiB limit, and source code has a 256 KiB limit before
 execution begins.
 
 A value that appears small as a JavaScript object can have a larger serialized
-representation. Bindings should return references, summaries, or paginated
-data instead of transferring large record sets when possible.
+representation. Host functions should return references, summaries, or
+paginated data instead of transferring large record sets when possible.
 
 ## Contracts
 
-The serialization boundary should be treated like an API boundary. Each
-binding should have a deliberate input and output shape, and both sides should
+The serialization boundary should be treated like an API boundary. Each host
+function should have a deliberate input and output shape, and both sides should
 avoid relying on host-specific implementation details.
 
-The following binding accepts a small input object and returns a small,
+The following host function accepts a small input object and returns a small,
 explicit result:
 
 ```ts
-const bindings = {
+const hostFunctions = {
   search: {
     query: async (input: { query: string; limit: number }) => {
       if (
@@ -208,4 +208,4 @@ const bindings = {
 ```
 
 This approach keeps the boundary predictable, limits the authority of guest
-code, and makes the binding easier to test.
+code, and makes the host function easier to test.

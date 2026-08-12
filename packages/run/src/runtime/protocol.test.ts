@@ -6,8 +6,8 @@ import {
 
 const WORKER_OPTIONS = {
   executionTimeoutMs: 950,
-  maxBindingInputBytes: 1024 * 1024,
   maxConsoleOutputBytes: 64 * 1024,
+  maxHostFunctionInputBytes: 1024 * 1024,
   maxResultBytes: 1024 * 1024,
   maxStackSizeBytes: 2 * 1024 * 1024,
   memoryLimitBytes: 64 * 1024 * 1024,
@@ -20,8 +20,8 @@ const DETERMINISM = {
 };
 
 const createRunMessage = (invocationId: string) => ({
-  bindingNamespaces: ['tools'],
   determinism: DETERMINISM,
+  hostFunctionNamespaces: ['tools'],
   invocationId,
   options: WORKER_OPTIONS,
   source: 'return await tools.echo({ value: 1 });',
@@ -47,7 +47,7 @@ describe('worker protocol hardening', () => {
     { invocationId: '', type: 'cancel' },
     {
       ...createRunMessage('invocation-a'),
-      bindingNamespaces: ['tools', 'tools'],
+      hostFunctionNamespaces: ['tools', 'tools'],
     },
     {
       ...createRunMessage('invocation-a'),
@@ -73,11 +73,11 @@ describe('worker protocol hardening', () => {
     { extra: true, invocationId: 'run-1', type: 'ready' },
     { invocationId: 'run-1', requestCount: -1, type: 'bridge-idle' },
     {
-      bindingName: '',
+      hostFunctionName: '',
       inputJson: '[]',
       invocationId: 'run-1',
       requestId: 'request-1',
-      type: 'binding-request',
+      type: 'host-function-request',
     },
     { invocationId: 'run-1', success: true, type: 'result' },
     {
@@ -167,11 +167,11 @@ describe('worker protocol hardening', () => {
       {
         direction: 'worker',
         value: {
-          bindingName: 'tools.echo',
+          hostFunctionName: 'tools.echo',
           inputJson: 'null',
           invocationId: 'run-a',
           requestId: 'request-a',
-          type: 'binding-request',
+          type: 'host-function-request',
         },
       },
       {

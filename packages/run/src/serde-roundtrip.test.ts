@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { getBindingContext, run } from './index.js';
+import { getHostFunctionContext, run } from './index.js';
 
 interface RichResult {
   alias: unknown;
@@ -120,7 +120,7 @@ describe('run-js-v1 serialization', () => {
     },
   );
 
-  it('passes an Error named constructor to host bindings as an Error', async () => {
+  it('passes an Error named constructor to host functions as an Error', async () => {
     const inspect = vi.fn((input: unknown) => {
       expect(input).toBeInstanceOf(Error);
       expect(input).toMatchObject({
@@ -131,7 +131,7 @@ describe('run-js-v1 serialization', () => {
     });
 
     const result = await run({
-      bindings: { tools: { inspect } },
+      hostFunctions: { tools: { inspect } },
       source: `
         const error = new Error('guest message');
         error.name = 'constructor';
@@ -146,7 +146,7 @@ describe('run-js-v1 serialization', () => {
     });
   });
 
-  it('uses the same rich codec in both binding directions', async () => {
+  it('uses the same rich codec in both host function directions', async () => {
     const execute = vi.fn((input: ExchangeInput) => {
       expect(input.self).toBe(input);
       expect(input.set).toBeInstanceOf(Set);
@@ -167,7 +167,7 @@ describe('run-js-v1 serialization', () => {
     });
 
     const result = await run({
-      bindings: { tools: { exchange: execute } },
+      hostFunctions: { tools: { exchange: execute } },
       source: `
         const input = { set: new Set([1, 2]), exact: 42n };
         input.self = input;
@@ -198,10 +198,10 @@ describe('run-js-v1 serialization', () => {
   it('preserves rich interruption payloads and resolutions through replay', async () => {
     const source = 'return await tools.pause();';
     const observed: unknown[] = [];
-    const bindings = {
+    const hostFunctions = {
       tools: {
         pause: () => {
-          const context = getBindingContext();
+          const context = getHostFunctionContext();
           const { resume } = context;
           if (resume === undefined) {
             const shared = { kind: 'approval' };
@@ -219,7 +219,7 @@ describe('run-js-v1 serialization', () => {
       },
     };
 
-    const interrupted = await run({ bindings, source });
+    const interrupted = await run({ hostFunctions, source });
     expect(interrupted.status).toBe('interrupted');
     if (interrupted.status !== 'interrupted') {
       return;
@@ -238,8 +238,8 @@ describe('run-js-v1 serialization', () => {
     };
     resolution.self = resolution;
     const completed = await run({
-      bindings,
       continuation: interrupted.continuation,
+      hostFunctions,
       resolutions: [
         {
           interruptionId: interruption.id,
