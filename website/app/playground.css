@@ -1,4 +1,7 @@
 .vbg-custom-type-scale {
+  width: min(1200px, calc(100% - 48px));
+  margin-inline: auto;
+  padding-block: var(--vbg-space-12) var(--vbg-space-16);
   font-size: 106.25%;
 }
 
@@ -47,22 +50,32 @@
 }
 
 .vbg-custom-editor {
-  width: 100%;
-  min-height: 22rem;
-  resize: vertical;
-  border: 0;
-  border-radius: 0;
-  outline: 0;
+  background: var(--vbg-surface-primary);
+}
+
+.vbg-custom-editor .cm-editor {
   background: var(--vbg-surface-primary);
   color: var(--vbg-text-primary);
-  padding: var(--vbg-space-5);
   font-family: Geist Mono, ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: var(--vbg-type-compact);
   line-height: var(--vbg-leading-body);
-  tab-size: 2;
 }
 
-.vbg-custom-editor:focus-visible {
+.vbg-custom-editor .cm-scroller {
+  font-family: inherit;
+}
+
+.vbg-custom-editor .cm-content {
+  padding: var(--vbg-space-5);
+  caret-color: var(--vbg-text-primary);
+}
+
+.vbg-custom-editor .cm-line {
+  padding: 0;
+}
+
+.vbg-custom-editor .cm-focused {
+  outline: 0;
   box-shadow: inset 0 0 0 2px var(--vbg-focus);
 }
 
@@ -103,6 +116,10 @@
   line-height: var(--vbg-leading-body);
 }
 
+.vbg-custom-highlighted-code .shiki {
+  background: transparent !important;
+}
+
 .vbg-custom-binding {
   margin-top: var(--vbg-space-16);
 }
@@ -115,6 +132,23 @@
 
 .vbg-custom-binding-copy > * {
   margin: 0;
+}
+
+.vbg-custom-limits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vbg-space-2);
+  padding: 0;
+  list-style: none;
+}
+
+.vbg-custom-limits li {
+  border: 1px solid var(--vbg-border-default);
+  border-radius: 999px;
+  padding: var(--vbg-space-2) var(--vbg-space-3);
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  line-height: 1;
 }
 
 .vbg-custom-binding-copy code,
@@ -137,6 +171,11 @@
 }
 
 @media (max-width: 720px) {
+  .vbg-custom-type-scale {
+    width: min(100% - 40px, 1200px);
+    padding-block: var(--vbg-space-8) var(--vbg-space-12);
+  }
+
   .vbg-custom-editors {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -146,8 +185,8 @@
     border-left: 0;
   }
 
-  .vbg-custom-editor {
-    min-height: 16rem;
+  .vbg-custom-editor .cm-editor {
+    height: 16rem !important;
   }
 
   .vbg-custom-binding {

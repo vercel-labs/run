@@ -1,6 +1,10 @@
 'use client';
 
 import { type FormEvent, useState } from 'react';
+import {
+  HighlightedCode,
+  HighlightedEditor,
+} from '@/components/highlighted-code';
 
 const DEFAULT_INPUT = `{
   "name": "Vercel",
@@ -15,23 +19,19 @@ return {
   generatedAt: new Date().toISOString(),
 };`;
 
-const HOST_BINDING_SOURCE = `const result = await run({
+const SANDBOX_LIMITS = [
+  '1 second',
+  '32 MB memory',
+  '8 input.get() calls',
+  'No network or Node.js APIs',
+];
+
+const HOST_BINDING_EXAMPLE = `const result = await run({
   source,
   hostFunctions: {
     input: {
       get: () => inputPayload,
     },
-  },
-  limits: {
-    maxBridgeRequests: 8,
-    maxConsoleOutputBytes: 8 * 1024,
-    maxHostFunctionArgumentsBytes: 8 * 1024,
-    maxHostFunctionOutputBytes: 32 * 1024,
-    maxInFlightBridgeRequests: 2,
-    maxResultBytes: 64 * 1024,
-    maxSourceBytes: 16 * 1024,
-    memoryLimitBytes: 32 * 1024 * 1024,
-    timeoutMs: 1_000,
   },
 });`;
 
@@ -117,12 +117,12 @@ export default function PlaygroundPage() {
       <main id="playground">
         <section className="vbg-opening vbg-custom-opening">
           <div className="vbg-opening-claim">
-            <h1 className="vbg-title">Run guest code against a host function.</h1>
+            <h1 className="vbg-title">Try the sandbox.</h1>
           </div>
           <div className="vbg-opening-context">
             <p className="vbg-lede">
-              Enter JSON and JavaScript. <code>run</code> executes your code in a secure QuickJS
-              sandbox on a Vercel Function.
+              Change the input or code, then run it. This demo exposes one host
+              function: <code>input.get()</code>.
             </p>
           </div>
         </section>
@@ -132,15 +132,14 @@ export default function PlaygroundPage() {
             <div className="vbg-custom-field">
               <div className="vbg-custom-field-heading">
                 <label className="vbg-label" htmlFor="input">
-                  Host input
+                  Input
                 </label>
-                <span className="vbg-meta">JSON</span>
+                <span className="vbg-meta">JSON · available through input.get()</span>
               </div>
-              <textarea
-                className="vbg-custom-editor"
+              <HighlightedEditor
                 id="input"
-                onChange={event => setInput(event.target.value)}
-                spellCheck={false}
+                language="json"
+                onChange={setInput}
                 value={input}
               />
             </div>
@@ -148,15 +147,14 @@ export default function PlaygroundPage() {
             <div className="vbg-custom-field">
               <div className="vbg-custom-field-heading">
                 <label className="vbg-label" htmlFor="source">
-                  Guest source
+                  Sandboxed code
                 </label>
                 <span className="vbg-meta">JavaScript</span>
               </div>
-              <textarea
-                className="vbg-custom-editor vbg-custom-editor-source"
+              <HighlightedEditor
                 id="source"
-                onChange={event => setSource(event.target.value)}
-                spellCheck={false}
+                language="javascript"
+                onChange={setSource}
                 value={source}
               />
             </div>
@@ -182,12 +180,12 @@ export default function PlaygroundPage() {
               data-state={execution.kind}
             >
               {execution.kind === 'success' ? (
-                <pre>{execution.output}</pre>
+                <HighlightedCode code={execution.output} language="json" />
               ) : execution.kind === 'error' ? (
                 <p>{execution.message}</p>
               ) : (
                 <p>
-                  The serialized result from <code>run</code> will appear here.
+                  Run the code to see its return value.
                 </p>
               )}
             </div>
@@ -197,25 +195,26 @@ export default function PlaygroundPage() {
         <section className="vbg-section vbg-custom-binding">
           <div className="vbg-split">
             <div className="vbg-span-4 vbg-custom-binding-copy">
-              <h2 className="vbg-heading-24">The host function stays explicit.</h2>
+              <h2 className="vbg-heading-24">What can the code access?</h2>
               <p>
-                Guest code can call <code>input.get()</code>. The binding
-                crosses the sandbox boundary and returns only the JSON supplied
-                above. Node.js APIs and application state are not exposed.
+                Only the functions listed in <code>hostFunctions</code>. In this
+                demo, that is <code>input.get()</code>
               </p>
-              <p className="vbg-caption">
-                The API route also applies strict time, memory, source, result,
-                and bridge-request limits.
-              </p>
+              <ul className="vbg-custom-limits">
+                {SANDBOX_LIMITS.map(limit => (
+                  <li key={limit}>{limit}</li>
+                ))}
+              </ul>
             </div>
             <div className="vbg-span-8 vbg-custom-code-frame">
               <div className="vbg-custom-code-heading">
-                <span className="vbg-label">Vercel Function</span>
-                <span className="vbg-meta">app/api/run/route.ts</span>
+                <span className="vbg-label">Host setup</span>
+                <span className="vbg-meta">The trusted side</span>
               </div>
-              <pre>
-                <code>{HOST_BINDING_SOURCE}</code>
-              </pre>
+              <HighlightedCode
+                code={HOST_BINDING_EXAMPLE}
+                language="javascript"
+              />
             </div>
           </div>
         </section>

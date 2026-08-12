@@ -11,6 +11,9 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-json": "^6.0.2",
+    "@uiw/react-codemirror": "^4.25.11",
     "@vercel/analytics": "^2.0.1",
     "@vercel/geistdocs": "^1.20.0",
     "fumadocs-mdx": "^14.0.4",
