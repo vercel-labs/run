@@ -1,5 +1,8 @@
 import { Button } from '@vercel/geistdocs/components/button';
+import { geistShikiTheme } from '@vercel/geistdocs/shiki-theme';
 import Link from 'next/link';
+import { codeToHtml } from 'shiki';
+import { CodeExample } from '@/components/code-example';
 import { RunCommand } from '@/components/run-command';
 
 const example = `import { run } from 'run';
@@ -38,24 +41,20 @@ const features = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const highlightedExample = await codeToHtml(example, {
+    lang: 'typescript',
+    theme: geistShikiTheme,
+  });
+
   return (
     <main className="run-home">
       <section className="run-hero">
-        <div className="run-hero-glow" aria-hidden />
         <div className="run-hero-content">
-          <p className="run-eyebrow">Secure code execution for AI applications</p>
-          <h1>Run untrusted code. Keep control.</h1>
+          <h1>Run untrusted TypeScript.</h1>
           <p className="run-lede">
-            A TypeScript package for executing JavaScript in a hardened sandbox
-            with explicit host functions, resource limits, and resumable
-            interruptions.
+            Execute agent-generated code in a hardened sandbox.
           </p>
-          <div className="run-audience" aria-label="Designed for">
-            <span>For applications</span>
-            <span aria-hidden>/</span>
-            <span>For agents</span>
-          </div>
           <RunCommand command="pnpm add run" />
           <div className="run-actions">
             <Button asChild size="lg">
@@ -70,26 +69,13 @@ export default function Home() {
 
       <section className="run-quickstart">
         <div className="run-section-copy">
-          <p className="run-kicker">One boundary. Your capabilities.</p>
-          <h2>Give generated code exactly what it needs.</h2>
-          <p>
-            Guest source can use top-level <code>await</code> and{' '}
-            <code>return</code>. It can only reach your application through
-            host functions you explicitly provide.
-          </p>
+          <h2>Give code only what it needs.</h2>
+          <p>Guest code accesses only the host functions you provide.</p>
           <Link className="run-text-link" href="/docs/foundations/overview">
             Learn how the sandbox works <span aria-hidden>→</span>
           </Link>
         </div>
-        <div className="run-code-frame">
-          <div className="run-code-heading">
-            <span>TypeScript</span>
-            <span>run.ts</span>
-          </div>
-          <pre>
-            <code>{example}</code>
-          </pre>
-        </div>
+        <CodeExample code={example} highlightedCode={highlightedExample} />
       </section>
 
       <section className="run-features" aria-label="Features">
@@ -103,7 +89,7 @@ export default function Home() {
       </section>
 
       <section className="run-cta">
-        <h2>Build the capability, not the escape hatch.</h2>
+        <h2>Learn more about run</h2>
         <Button asChild size="lg" variant="outline">
           <Link href="/docs">Explore the documentation</Link>
         </Button>

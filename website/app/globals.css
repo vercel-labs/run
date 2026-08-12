@@ -20,6 +20,10 @@ body {
   font-family: var(--font-sans);
 }
 
+header.bg-background-200 {
+  background: var(--ds-background-100);
+}
+
 a {
   text-underline-offset: 4px;
 }
@@ -45,45 +49,15 @@ a {
   text-align: center;
 }
 
-.run-hero::before {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(to right, var(--ds-gray-alpha-200) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--ds-gray-alpha-200) 1px, transparent 1px);
-  background-position: center;
-  background-size: 64px 64px;
-  content: '';
-  mask-image: linear-gradient(to bottom, transparent, black 20%, black 72%, transparent);
-  opacity: 0.65;
-}
-
-.run-hero-glow {
-  position: absolute;
-  top: 32%;
-  left: 50%;
-  width: min(760px, 90vw);
-  height: 360px;
-  border-radius: 50%;
-  background: radial-gradient(
-    circle,
-    color-mix(in srgb, var(--ds-blue-700) 16%, transparent),
-    transparent 68%
-  );
-  filter: blur(30px);
-  transform: translate(-50%, -50%);
-}
-
 .run-hero-content {
   position: relative;
   z-index: 1;
   display: flex;
-  width: min(720px, 100%);
+  width: min(1000px, 100%);
   flex-direction: column;
   align-items: center;
 }
 
-.run-eyebrow,
 .run-kicker {
   margin: 0;
   color: var(--ds-gray-900);
@@ -94,9 +68,9 @@ a {
 }
 
 .run-hero h1 {
-  max-width: 700px;
-  margin: 24px 0 0;
-  font-size: clamp(48px, 8vw, 78px);
+  max-width: 1000px;
+  margin: 0;
+  font-size: clamp(48px, 7vw, 78px);
   font-weight: 600;
   letter-spacing: -0.065em;
   line-height: 0.98;
@@ -108,14 +82,6 @@ a {
   color: var(--ds-gray-900);
   font-size: clamp(18px, 2.4vw, 21px);
   line-height: 1.6;
-}
-
-.run-audience {
-  display: flex;
-  gap: 10px;
-  margin-top: 26px;
-  color: var(--ds-gray-700);
-  font-size: 12px;
 }
 
 .run-command {
@@ -174,7 +140,7 @@ a {
   gap: clamp(48px, 8vw, 112px);
   align-items: center;
   margin: 0 auto;
-  padding: 128px 0;
+  padding: 72px 0;
 }
 
 .run-section-copy h2 {
@@ -215,8 +181,8 @@ a {
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--ds-gray-alpha-400);
-  border-radius: 12px;
-  background: var(--ds-background-200);
+  border-radius: 8px;
+  background: var(--ds-background-100);
   box-shadow: 0 20px 60px var(--ds-gray-alpha-100);
 }
 
@@ -227,20 +193,54 @@ a {
   border-bottom: 1px solid var(--ds-gray-alpha-400);
   color: var(--ds-gray-700);
   font-size: 12px;
-  padding: 12px 16px;
+  padding: 8px 16px;
 }
 
-.run-code-frame pre {
+.run-code-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.run-code-meta button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ds-gray-900);
+  cursor: pointer;
+}
+
+.run-code-meta button:hover {
+  background: var(--ds-gray-alpha-200);
+  color: var(--ds-gray-1000);
+}
+
+.run-highlighted-code pre {
   overflow-x: auto;
   margin: 0;
-  padding: 26px;
+  padding: 12px 16px;
+  background: transparent !important;
 }
 
-.run-code-frame code {
-  color: var(--ds-gray-1000);
-  font-family: var(--font-mono);
+.run-highlighted-code code {
+  display: grid;
+  min-width: max-content;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
   font-size: 13px;
-  line-height: 1.7;
+  font-weight: 400;
+  letter-spacing: normal;
+  line-height: 20px;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
+  font-variant-ligatures: none;
 }
 
 .run-features {
@@ -287,10 +287,11 @@ a {
   display: flex;
   width: min(1200px, calc(100% - 48px));
   align-items: center;
-  justify-content: space-between;
-  gap: 32px;
+  justify-content: center;
+  gap: 24px;
   margin: 0 auto;
   padding: 88px 0 104px;
+  text-align: center;
 }
 
 .run-cta h2 {
@@ -310,7 +311,7 @@ a {
 
   .run-quickstart {
     grid-template-columns: 1fr;
-    padding: 88px 0;
+    padding: 64px 0;
   }
 
   .run-features {
@@ -323,7 +324,7 @@ a {
   }
 
   .run-cta {
-    align-items: flex-start;
+    align-items: center;
     flex-direction: column;
     padding: 72px 0 88px;
   }
