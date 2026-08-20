@@ -35,19 +35,17 @@ if (result.status === 'completed') {
 The generated program can call `store.listOrders()`, while the database client
 and its credentials stay in your application.
 
-## Why run?
+## Features
 
-- **Explicit capabilities** — host functions provide a small, auditable
-  interface to your application.
-- **Hardened execution** — every invocation uses a fresh QuickJS context in a
-  worker thread, with no ambient Node.js, filesystem, module, or network access.
-- **Human-in-the-loop** — interrupt for approval or authentication, then resume
+- **Hardened execution** - every invocation uses a fresh QuickJS context in a
+  worker thread, with no ambient Node.js, filesystem, module or network access.
+- **Human-in-the-loop** - interrupt for approval or authentication, then resume
   without repeating completed host calls.
-- **Resource controls** — set time, memory, result size, and concurrency limits.
+- **Resource controls** - set time, memory, result size and concurrency limits.
 
 `run` is designed for sandboxed JavaScript computation inside an application.
 Workloads that need an operating system, package installation, or process-level
-isolation require an OS-level sandbox.
+isolation should use Vercel Sandbox.
 
 ## Documentation
 
