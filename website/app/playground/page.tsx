@@ -13,6 +13,9 @@ const DEFAULT_INPUT = `{
 
 const DEFAULT_SOURCE = `const payload = await input.get();
 
+// Uncomment the line below to try execution limits
+// while (true) {}
+
 return {
   greeting: \`Hello, \${payload.name}!\`,
   tags: payload.tags.map((tag) => tag.toUpperCase()),
