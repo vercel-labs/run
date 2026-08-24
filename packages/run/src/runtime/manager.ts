@@ -1220,20 +1220,13 @@ function createWorker(): PooledWorker {
 }
 
 function createRuntimeWorker(): Worker {
+  if ((globalThis as { Bun?: unknown }).Bun !== undefined) {
+    return new Worker(INLINE_RUN_WORKER_SOURCE, { eval: true, execArgv: [] });
+  }
   return new Worker(getInlineWorkerUrl(), { execArgv: [] });
 }
 
 function getInlineWorkerUrl(): URL {
-  if (
-    inlineWorkerUrl === undefined &&
-    (globalThis as { Bun?: unknown }).Bun !== undefined
-  ) {
-    inlineWorkerUrl = new URL(
-      URL.createObjectURL(
-        new Blob([INLINE_RUN_WORKER_SOURCE], { type: 'text/javascript' }),
-      ),
-    );
-  }
   inlineWorkerUrl ??= new URL(
     `data:text/javascript;base64,${Buffer.from(INLINE_RUN_WORKER_SOURCE).toString('base64')}`,
   );

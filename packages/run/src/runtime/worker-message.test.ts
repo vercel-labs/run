@@ -29,17 +29,15 @@ const createRunMessage = (
 });
 
 it('reports message failures and ignores late messages without crashing', async () => {
-  const workerUrl =
+  const worker =
     (globalThis as { Bun?: unknown }).Bun === undefined
-      ? new URL(
-          `data:text/javascript;base64,${Buffer.from(INLINE_RUN_WORKER_SOURCE).toString('base64')}`,
-        )
-      : new URL(
-          URL.createObjectURL(
-            new Blob([INLINE_RUN_WORKER_SOURCE], { type: 'text/javascript' }),
+      ? new Worker(
+          new URL(
+            `data:text/javascript;base64,${Buffer.from(INLINE_RUN_WORKER_SOURCE).toString('base64')}`,
           ),
-        );
-  const worker = new Worker(workerUrl, { execArgv: [] });
+          { execArgv: [] },
+        )
+      : new Worker(INLINE_RUN_WORKER_SOURCE, { eval: true, execArgv: [] });
   const postToWorker = (message: MainToWorkerMessage): void => {
     // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
     worker.postMessage(message);
