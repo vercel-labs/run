@@ -11,6 +11,15 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: repoRoot,
   },
+  async redirects() {
+    return [
+      {
+        source: '/docs/foundations',
+        destination: '/docs/foundations/overview',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default withMDX(nextConfig);
