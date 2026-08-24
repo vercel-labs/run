@@ -48,9 +48,8 @@ hardened QuickJS context with a restricted set of JavaScript capabilities. The
 guest cannot access host resources unless the host exposes them through a
 host function.
 
-The environment containing the guest is referred to as the **sandbox**. The
-sandbox creates a boundary between untrusted code and the rest of your
-application.
+The environment containing the guest is called the **sandbox**. The sandbox
+creates a boundary between untrusted code and the rest of your application.
 
 ## Runs and invocations
 
@@ -101,7 +100,7 @@ The host and guest do not share JavaScript objects. Arguments, host function
 outputs, and final results are serialized and copied across the sandbox
 boundary.
 
-A call such as `users.find("user_123")` is known internally as a **bridge
-request**. The guest sends the serialized arguments to the host, the host calls
-the host function, and the serialized outcome is returned to the guest. The
-host function may be synchronous or asynchronous.
+A call such as `users.find("user_123")` is called a **bridge request**. The
+guest sends the serialized arguments to the host, the host calls the host
+function, and the serialized outcome is returned to the guest. The host
+function may be synchronous or asynchronous.
