@@ -24,3 +24,15 @@ assert.deepEqual(typescriptAndHostFunctionResult, {
   status: 'completed',
   value: 42,
 });
+
+await assert.rejects(
+  run({
+    limits: { timeoutMs: 250 },
+    source: 'while (true) {}',
+  }),
+  { code: 'RUN_TIMEOUT' },
+);
+assert.deepEqual(await run({ source: 'return 1;' }), {
+  status: 'completed',
+  value: 1,
+});
