@@ -44,7 +44,7 @@ type ExecutionState =
   | { kind: 'success'; output: string }
   | { kind: 'error'; message: string };
 
-const readErrorMessage = (value: unknown): string => {
+const readErrorMessage = (value: unknown, status: number): string => {
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -56,7 +56,7 @@ const readErrorMessage = (value: unknown): string => {
   ) {
     return value.error.message;
   }
-  return 'The function returned an unexpected response.';
+  return `Request failed with status ${status}.`;
 };
 
 export default function PlaygroundPage() {
@@ -77,29 +77,46 @@ export default function PlaygroundPage() {
 
     setExecution({ kind: 'running' });
 
+    let response: Response;
     try {
-      const response = await fetch('/api/run', {
+      response = await fetch('/api/run', {
         body: JSON.stringify({ input: inputPayload, source }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
-      });
-      const payload: unknown = await response.json();
-
-      if (!response.ok) {
-        setExecution({ kind: 'error', message: readErrorMessage(payload) });
-        return;
-      }
-
-      setExecution({
-        kind: 'success',
-        output: JSON.stringify(payload, null, 2),
       });
     } catch {
       setExecution({
         kind: 'error',
         message: 'Could not reach the Vercel Function.',
       });
+      return;
     }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      setExecution({
+        kind: 'error',
+        message: response.ok
+          ? 'The function returned an invalid response.'
+          : `Request failed with status ${response.status}.`,
+      });
+      return;
+    }
+
+    if (!response.ok) {
+      setExecution({
+        kind: 'error',
+        message: readErrorMessage(payload, response.status),
+      });
+      return;
+    }
+
+    setExecution({
+      kind: 'success',
+      output: JSON.stringify(payload, null, 2),
+    });
   };
 
   const status =
