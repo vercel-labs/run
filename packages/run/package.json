@@ -36,6 +36,7 @@
     "fix": "ultracite fix",
     "type-check": "tsc -p tsconfig.build.json --noEmit && tsc -p src/tsconfig.json",
     "test": "pnpm build && pnpm test:node",
+    "test:bun": "pnpm build && bun scripts/bun-smoke.mjs && bun --bun vitest --config vitest.node.config.js --run",
     "test:hardening": "pnpm build && vitest --config vitest.node.config.js --run",
     "test:watch": "vitest --config vitest.node.config.js",
     "test:node": "vitest --config vitest.node.config.js --run",

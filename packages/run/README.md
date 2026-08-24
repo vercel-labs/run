@@ -18,7 +18,7 @@ repeating already invoked host functions.
 pnpm add run
 ```
 
-`run` requires Node.js 22.13 or newer.
+`run` supports Node.js 22.13 or newer and Bun.
 
 ## Run JavaScript
 

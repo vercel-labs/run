@@ -9,7 +9,7 @@ QuickJS sandbox. Guest code can access only the host functions you provide.
 pnpm add run
 ```
 
-Requires Node.js 22.13 or newer.
+Supports Node.js 22.13 or newer and Bun.
 
 ```ts
 import { run } from 'run';

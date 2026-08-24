@@ -80,6 +80,8 @@ let terminatingWorkers = 0;
 let inlineWorkerUrl: URL | undefined;
 const idleWorkers: PooledWorker[] = [];
 let workerFactory: () => Worker = createRuntimeWorker;
+const isBunRuntime = (globalThis as { Bun?: unknown }).Bun !== undefined;
+const BUN_WORKER_TERMINATE_GRACE_MS = 100;
 
 const runInBackground = async (operation: Promise<unknown>): Promise<void> => {
   await operation;
@@ -1220,6 +1222,9 @@ function createWorker(): PooledWorker {
 }
 
 function createRuntimeWorker(): Worker {
+  if (isBunRuntime) {
+    return new Worker(INLINE_RUN_WORKER_SOURCE, { eval: true, execArgv: [] });
+  }
   return new Worker(getInlineWorkerUrl(), { execArgv: [] });
 }
 
@@ -1245,6 +1250,29 @@ function releaseWorker(pooledWorker: PooledWorker): void {
   idleWorkers.push(pooledWorker);
 }
 
+async function terminatePooledWorker(worker: Worker): Promise<void> {
+  const termination = Promise.resolve(worker.terminate());
+  if (!isBunRuntime) {
+    await termination;
+    return;
+  }
+
+  // Bun's worker_threads.terminate() can hang (oven-sh/bun#12616 and
+  // follow-ups), including when the thread is busy in QuickJS WASM. Bound the
+  // wait so caller settlement and pool accounting can proceed. The grace
+  // timer also keeps the event loop alive while we wait (oven-sh/bun#12614).
+  const grace = createPromiseWithResolvers<null>();
+  const graceHandle = setTimeout(
+    () => grace.resolve(null),
+    BUN_WORKER_TERMINATE_GRACE_MS,
+  );
+  try {
+    await Promise.race([termination, grace.promise]);
+  } finally {
+    clearTimeout(graceHandle);
+  }
+}
+
 async function destroyWorker(pooledWorker: PooledWorker): Promise<void> {
   if (pooledWorker.destroyed) {
     return;
@@ -1253,7 +1281,7 @@ async function destroyWorker(pooledWorker: PooledWorker): Promise<void> {
   pooledWorker.worker.removeAllListeners();
   terminatingWorkers += 1;
   try {
-    await pooledWorker.worker.terminate();
+    await terminatePooledWorker(pooledWorker.worker);
   } catch {
     // The worker may already have exited between the state check and terminate.
   } finally {

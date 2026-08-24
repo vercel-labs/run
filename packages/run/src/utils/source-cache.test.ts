@@ -31,6 +31,16 @@ describe('source limits and transform cache', () => {
     expect(transformed.split('\n')).toHaveLength(source.split('\n').length);
   });
 
+  it('does not extract Bun transforms that inject external helpers', () => {
+    if ((globalThis as { Bun?: unknown }).Bun === undefined) {
+      return;
+    }
+
+    const source =
+      'using resource: Disposable = getResource();\nreturn resource;';
+    expect(transformSource(source)).toBe(source);
+  });
+
   it('does not cache transformed sources above the per-entry byte limit', () => {
     const largeSource = `const value = ${JSON.stringify('x'.repeat(70_000))}; return value.length;`;
     transformSource(largeSource);
