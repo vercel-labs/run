@@ -50,7 +50,7 @@ isolation should use Vercel Sandbox.
 ## Documentation
 
 Read the [introduction](content/docs/introduction/index.mdx), explore the
-[foundations](content/docs/foundations/index.mdx), or browse the
+[foundations](content/docs/foundations/overview.mdx), or browse the
 [API reference](content/docs/reference/index.mdx).
 
 ## License
