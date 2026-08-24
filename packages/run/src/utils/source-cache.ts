@@ -71,12 +71,27 @@ const stripSnippetTypes = (source: string): string => {
     return source;
   }
   try {
+    const wrapperDeclaration = 'async function __runUser__()';
     const transformed = bunTypeScriptTranspiler.transformSync(
-      `async function __runUser__(){\n${source}\n}`,
+      `${wrapperDeclaration}{\n${source}\n}`,
     );
-    const bodyStart = transformed.indexOf('{');
+    const declarationStart = transformed.indexOf(wrapperDeclaration);
+    if (
+      declarationStart === -1 ||
+      transformed.slice(0, declarationStart).trim() !== ''
+    ) {
+      return source;
+    }
+    const bodyStart = transformed.indexOf(
+      '{',
+      declarationStart + wrapperDeclaration.length,
+    );
     const bodyEnd = transformed.lastIndexOf('}');
-    if (bodyStart === -1 || bodyEnd <= bodyStart) {
+    if (
+      bodyStart === -1 ||
+      bodyEnd <= bodyStart ||
+      transformed.slice(bodyEnd + 1).trim() !== ''
+    ) {
       return source;
     }
     return transformed
