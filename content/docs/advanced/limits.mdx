@@ -15,31 +15,24 @@ Every invocation has a `RunLimits` budget. The budget applies to the complete
 invocation, including guest execution, host function calls, result
 serialization, and continuation operations.
 
-The package provides defaults, but production applications should choose
-budgets that match their workloads. A short data transformation and a coding
-agent should not necessarily receive the same limits.
+The defaults are a starting point, not a policy. A short data transformation
+and a coding agent rarely want the same budget.
 
 ## Defaults
 
-The available limits are:
-
-- `timeoutMs` allows 30 seconds for the complete invocation by default.
-- `memoryLimitBytes` allows 64 MiB of QuickJS memory by default.
-- `maxStackSizeBytes` allows a 2 MiB QuickJS stack by default.
-- `maxSourceBytes` accepts up to 256 KiB of UTF-8 source by default.
-- `maxResultBytes` accepts up to 1 MiB of serialized result data by default.
-- `maxConsoleOutputBytes` accepts up to 64 KiB of guest console output by
-  default.
-- `maxHostFunctionArgumentsBytes` accepts up to 1 MiB of serialized arguments
-  for one host function call by default.
-- `maxHostFunctionOutputBytes` accepts up to 4 MiB of serialized host function
-  output or interruption payload by default.
-- `maxBridgeRequests` allows 256 total host function calls in one invocation by
-  default.
-- `maxInFlightBridgeRequests` allows 32 host function calls to be active at once
-  by default.
-- `maxContinuationBytes` accepts up to 32 MiB of serialized continuation state
-  by default.
+| Limit                           |    Default | Bounds                                    |
+| ------------------------------- | ---------: | ----------------------------------------- |
+| `timeoutMs`                     | 30 seconds | The complete invocation                   |
+| `memoryLimitBytes`              |     64 MiB | QuickJS memory                            |
+| `maxStackSizeBytes`             |      2 MiB | QuickJS stack                             |
+| `maxSourceBytes`                |    256 KiB | UTF-8 source                              |
+| `maxResultBytes`                |      1 MiB | Serialized result data                    |
+| `maxConsoleOutputBytes`         |     64 KiB | Guest console output                      |
+| `maxHostFunctionArgumentsBytes` |      1 MiB | Serialized arguments for one call         |
+| `maxHostFunctionOutputBytes`    |      4 MiB | Serialized output or interruption payload |
+| `maxBridgeRequests`             |        256 | Host function calls in one invocation     |
+| `maxInFlightBridgeRequests`     |         32 | Host function calls active at once        |
+| `maxContinuationBytes`          |     32 MiB | Serialized continuation state             |
 
 Every configured value must be a positive integer.
 

@@ -1,10 +1,8 @@
 # run
 
-`run` is a secure and efficient alternative to `eval` for coding agents with
-support for TypeScript.
-
-It is suitable for code-mode, code interpreter, or other patterns that require
-execution of untrusted JS or TS.
+`run` is an alternative to `eval` for coding agents, with support for
+TypeScript. Use it for code-mode, code interpreters, and other patterns that
+execute untrusted JS or TS.
 
 `run` executes JavaScript in a hardened QuickJS sandbox. Guest code starts with
 no access to Node.js, the filesystem, environment variables, modules, or the

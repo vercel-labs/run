@@ -3,18 +3,13 @@ title: Overview
 description: Learn the core concepts behind executing code with run.
 ---
 
-# Introduction
+# Overview
 
 `run` executes JavaScript and TypeScript without giving that code direct access
-to your application or system. It is designed for applications that need to
-execute generated or otherwise untrusted code, including coding agents and code
-interpreters.
+to your application or system. Your application decides which functions the
+code can call, how much work it may perform, and what happens to its result.
 
-The package separates the code being executed from the application executing
-it. Your application decides which functions are available, how much work the
-code may perform, and how its result should be handled.
-
-Here is a complete example:
+A complete example:
 
 ```ts
 import { run } from 'run';
@@ -62,11 +57,10 @@ application.
 A **run** is one logical execution of a source program. Most runs consist of a
 single invocation that either returns a value or throws an error.
 
-Some runs need to pause while the host waits for approval, authentication, or
-another external decision. Continuing one of these runs starts another
-**invocation** of the same logical run. The source executes again, while
-previous host function outcomes are replayed so that completed work does not
-need to be repeated.
+Some runs need to pause while the host waits for an approval or an
+authentication step. Continuing one of these runs starts another **invocation**
+of the same logical run. The source executes again, while previous host
+function outcomes are replayed so that completed work is not repeated.
 
 The term **logical run** refers to the complete workflow across the original
 invocation and any later replay attempts.
@@ -97,9 +91,9 @@ const result = await run({
 });
 ```
 
-Each invocation receives a new QuickJS context. Guest globals, values, and
-mutations therefore do not carry into another invocation. The worker thread
-that hosts QuickJS may be reused after the context has been disposed.
+Each invocation receives a new QuickJS context, so guest globals, values, and
+mutations do not carry into another invocation. The worker thread that hosts
+QuickJS may be reused after the context has been disposed.
 
 ## Communication
 

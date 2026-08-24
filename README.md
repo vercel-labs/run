@@ -37,20 +37,20 @@ and its credentials stay in your application.
 
 ## Features
 
-- **Hardened execution** - every invocation uses a fresh QuickJS context in a
-  worker thread, with no ambient Node.js, filesystem, module or network access.
-- **Human-in-the-loop** - interrupt for approval or authentication, then resume
-  without repeating completed host calls.
-- **Resource controls** - set time, memory, result size and concurrency limits.
+- Every invocation gets a fresh QuickJS context in a worker thread, with no
+  ambient Node.js, filesystem, module or network access.
+- A host function can interrupt a run for approval or authentication. The run
+  resumes without repeating host calls that already completed.
+- Time, memory, result size and concurrency are capped, per run or per runner.
 
-`run` is designed for sandboxed JavaScript computation inside an application.
-Workloads that need an operating system, package installation, or process-level
-isolation should use Vercel Sandbox.
+`run` is for sandboxed JavaScript computation inside an application. Workloads
+that need an operating system, package installation, or process-level isolation
+should use Vercel Sandbox.
 
 ## Documentation
 
-Read the [introduction](content/docs/introduction/index.mdx), explore the
-[foundations](content/docs/foundations/overview.mdx), or browse the
+Start with the [introduction](content/docs/introduction/index.mdx), then the
+[foundations](content/docs/foundations/overview.mdx) and the
 [API reference](content/docs/reference/index.mdx).
 
 ## License
