@@ -32,9 +32,9 @@ if (context.resume === undefined) {
 ```
 
 The invocation resolves with an interrupted result after pending host function
-work has settled. Each interruption contains an ID, the complete host function
-name (`hostFunctionName`), the guest arguments, and the payload created by the
-host function.
+work has settled. Each interruption contains an ID, the fully qualified host
+function name (`hostFunctionName`), the guest arguments, and the payload created
+by the host function.
 
 An interruption is an expected result rather than an error.
 

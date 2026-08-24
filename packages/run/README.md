@@ -310,7 +310,7 @@ const result = await run({
 });
 
 if (result.status === 'interrupted') {
-  // Present the complete batch to the user, then resolve every item together.
+  // Present the full batch to the user, then resolve every item together.
   await run({
     source,
     hostFunctions,

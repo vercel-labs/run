@@ -38,10 +38,10 @@ and its credentials stay in your application.
 ## Features
 
 - Every invocation gets a fresh QuickJS context in a worker thread, with no
-  ambient Node.js, filesystem, module or network access.
+  ambient Node.js, filesystem, module, or network access.
 - A host function can interrupt a run for approval or authentication. The run
   resumes without repeating host calls that already completed.
-- Time, memory, result size and concurrency are capped, per run or per runner.
+- Time, memory, result size, and concurrency are capped, per run or per runner.
 
 `run` is for sandboxed JavaScript computation inside an application. Workloads
 that need an operating system, package installation, or process-level isolation

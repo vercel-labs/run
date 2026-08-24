@@ -36,8 +36,8 @@ const result = await run({
 });
 ```
 
-The complete name of the host function in this example is `users.find`. The
-`users` namespace is available only for this invocation.
+The fully qualified name of the host function in this example is `users.find`.
+The `users` namespace is available only for this invocation.
 
 A namespace must be a valid JavaScript identifier, must not conflict with a
 reserved global, and must not begin with `__run`.
@@ -120,7 +120,7 @@ const hostFunctions = {
 - `requestId` identifies the current host function call within the
   invocation.
 - `requestIndex` contains the one-based order of the host function call.
-- `hostFunctionName` contains the complete host function name, such as
+- `hostFunctionName` contains the fully qualified host function name, such as
   `users.find`.
 - `interrupt(payload)` pauses the run and returns an application-defined
   payload to the host.
