@@ -32,9 +32,9 @@ if (context.resume === undefined) {
 ```
 
 The invocation resolves with an interrupted result after pending host function
-work has settled. Each interruption contains an ID, the complete host function
-name (`hostFunctionName`), the guest arguments, and the payload created by the
-host function.
+work has settled. Each interruption contains an ID, the fully qualified host
+function name (`hostFunctionName`), the guest arguments, and the payload created
+by the host function.
 
 An interruption is an expected result rather than an error.
 
@@ -44,9 +44,8 @@ A **continuation** is the token returned with an interrupted result. It
 represents the state required to replay the source and continue the logical
 run.
 
-The package does not choose where continuations are stored. The host can save
-the token as an opaque string in a database, durable key-value store, or job
-record:
+You choose where continuations are stored. The token is an opaque string, so it
+can live in a database, a durable key-value store, or a job record:
 
 ```ts
 if (result.status === 'interrupted') {
@@ -61,15 +60,13 @@ When the external decision is available, the host reads the same token and
 passes it back to the runner as `continuation`. The token must not be modified
 between these invocations.
 
-A continuation should be treated as a bearer capability because a party
-holding a valid token may be able to resume the workflow. Its storage should
-therefore be access-controlled, and the raw token should not be written to
-logs.
+Treat a continuation as a bearer capability: anyone holding a valid token can
+resume the workflow. Store it behind access controls and keep the raw token out
+of logs.
 
 The default signed continuation protects integrity but does not encrypt its
-contents. Sensitive information should not be placed in source, host function
-arguments, interruption payloads, or continuation context merely because the
-token is encoded.
+contents. Base64 is not encryption, so keep sensitive data out of source, host
+function arguments, interruption payloads, and continuation context.
 
 A **continuation codec** is responsible for encoding replay state into a token
 and decoding that token later. The package provides a signed codec, a stored
@@ -126,7 +123,7 @@ validation fails instead of applying recorded outcomes to different work.
 ## Determinism
 
 Guest time and pseudorandom behavior are deterministic across replay. The
-logical run records an initial clock value and random seed so that source
+logical run records an initial clock value and random seed, so the source
 observes the same sequence in later attempts.
 
 Determinism helps the source reach the same host function calls during replay.
@@ -143,5 +140,5 @@ The **logical run ID** remains stable across the original invocation and all
 replay attempts. Each host function call also receives a **request ID** and a
 one-based **request index**.
 
-These identifiers let the host correlate logs, audit a workflow, and
-deduplicate host function side effects across attempts.
+Together they let the host correlate logs across a workflow that spans several
+attempts.

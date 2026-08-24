@@ -1,6 +1,6 @@
 ---
 title: run
-description: Securely execute JavaScript and TypeScript with explicit host functions and resumable interruptions.
+description: Execute JavaScript and TypeScript with explicit host functions and resumable interruptions.
 ---
 
 # run
@@ -8,10 +8,10 @@ description: Securely execute JavaScript and TypeScript with explicit host funct
 `run` is a TypeScript package for executing untrusted JavaScript and TypeScript
 without giving it direct access to your application or system.
 
-It is designed for coding agents, code interpreters, and other applications
-that need to execute generated code. Each invocation runs in a hardened QuickJS
-sandbox with no ambient access to Node.js, the filesystem, environment
-variables, modules, or the network.
+Use it for coding agents, code interpreters, and anything else that executes
+generated code. Each invocation runs in a hardened QuickJS sandbox with no
+ambient access to Node.js, the filesystem, environment variables, modules, or
+the network.
 
 ## How it works
 
@@ -24,9 +24,9 @@ you provide. Arguments and return values are serialized across the sandbox
 boundary, and every invocation uses a fresh QuickJS context inside a worker
 thread.
 
-Host functions can also interrupt execution for workflows that require approval,
-authentication, or another external decision. The run can then resume from a
-signed continuation without repeating host functions that already completed.
+A host function can also interrupt execution when the workflow needs an
+approval or an authentication step. The run resumes from a signed continuation
+without repeating host functions that already completed.
 
 ## Install
 
@@ -59,8 +59,8 @@ if (result.status === 'completed') {
 ```
 
 The `tools` host function group becomes a global named `tools` inside the
-sandbox. Calling `tools.double(21)` invokes the host function with the same
-arguments and returns its result to the sandbox.
+sandbox, so `tools.double(21)` calls the host function with those arguments and
+returns its result to the guest.
 
 ## Core APIs
 

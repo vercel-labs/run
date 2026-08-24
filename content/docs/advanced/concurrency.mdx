@@ -5,9 +5,9 @@ description: Control parallel host function calls and simultaneous sandbox invoc
 
 # Concurrency
 
-Concurrency appears at two different levels in `run`. Guest source can call
-several host functions at once, and the host process can execute several
-sandbox invocations at once.
+Concurrency appears at two levels in `run`. Guest source can call several host
+functions at once, and the host process can execute several sandbox invocations
+at once.
 
 These levels use different limits and should be configured independently.
 
@@ -82,13 +82,13 @@ setMaxWorkers();
 ```
 
 Choose the cap with both QuickJS memory and worker overhead in mind. A worker
-can consume more memory than the configured guest `memoryLimitBytes`, so the
-guest memory limit should not be treated as the total cost of an invocation.
+can consume more memory than the configured guest `memoryLimitBytes`, so
+`memoryLimitBytes` is not the total cost of an invocation.
 
 ## Admission
 
-Applications should decide what happens when all workers are busy. An HTTP
-service can reject the request with backpressure:
+Decide what happens when all workers are busy. An HTTP service can reject the
+request with backpressure:
 
 ```ts
 import { RunError } from 'run';
@@ -126,11 +126,11 @@ active workers with an in-flight host function limit of eight can produce up to
 
 Set both values from the capacity of downstream services, then measure:
 
-- Track active invocations and concurrency-limit failures.
-- Track active host function calls and their latency.
-- Track process memory under representative source and result sizes.
-- Reduce concurrency before increasing memory limits when the process is under
-  memory pressure.
+- Active invocations and concurrency-limit failures.
+- Active host function calls and their latency.
+- Process memory under representative source and result sizes.
 
-Concurrency improves throughput only while the host and its dependencies have
-capacity. Higher values can otherwise increase latency and failure rates.
+Under memory pressure, reduce concurrency before raising memory limits.
+
+Concurrency only improves throughput while the host and its dependencies have
+capacity. Past that, it adds latency and failures.

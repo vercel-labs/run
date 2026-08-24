@@ -9,10 +9,9 @@ Host functions are functions that guest code is allowed to call. They are the
 only supported way for source running in the sandbox to interact with your
 application or the systems connected to it.
 
-A host function should represent a focused capability. Instead of exposing a
-database client, for example, the host can expose a function that loads one
-kind of record after applying the application's validation and authorization
-rules.
+A host function should expose one narrow capability. Rather than handing the
+guest a database client, expose a function that loads one kind of record, after
+the application's validation and authorization rules have run.
 
 ## Defining host functions
 
@@ -37,8 +36,8 @@ const result = await run({
 });
 ```
 
-The complete name of the host function in this example is `users.find`. The
-`users` namespace is available only for this invocation.
+The fully qualified name of the host function in this example is `users.find`.
+The `users` namespace is available only for this invocation.
 
 A namespace must be a valid JavaScript identifier, must not conflict with a
 reserved global, and must not begin with `__run`.
@@ -89,8 +88,8 @@ number that may be in flight at once.
 
 ## Context
 
-A host function has the option to call `getHostFunctionContext()` to access
-information about its active request:
+A host function can call `getHostFunctionContext()` to read information about
+its active request:
 
 ```ts
 import { getHostFunctionContext } from 'run';
@@ -121,16 +120,15 @@ const hostFunctions = {
 - `requestId` identifies the current host function call within the
   invocation.
 - `requestIndex` contains the one-based order of the host function call.
-- `hostFunctionName` contains the complete host function name, such as
+- `hostFunctionName` contains the fully qualified host function name, such as
   `users.find`.
 - `interrupt(payload)` pauses the run and returns an application-defined
   payload to the host.
 - `resume` is available when an interrupted host function is invoked again. It
   contains the interruption ID, original payload, and supplied resolution.
 
-These identifiers are useful for tracing, auditing, and deduplicating external
-side effects. They are not authentication credentials. We will dive deep into these
-later.
+Use these identifiers to trace, audit, and deduplicate external side effects.
+They are not authentication credentials.
 
 ## Cancellation
 

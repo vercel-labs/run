@@ -170,18 +170,18 @@ Console output has a shared 64 KiB limit for each invocation. Continuation state
 has a separate 32 MiB limit, and source code has a 256 KiB limit before
 execution begins.
 
-A value that appears small as a JavaScript object can have a larger serialized
-representation. Host functions should return references, summaries, or
-paginated data instead of transferring large record sets when possible.
+A value that appears small as a JavaScript object can have a much larger
+serialized representation. Return references, summaries, or paginated data
+rather than whole record sets.
 
 ## Contracts
 
-The serialization boundary should be treated like an API boundary. Each host
-function should have a deliberate input and output shape, and both sides should
-avoid relying on host-specific implementation details.
+Treat the serialization boundary like an API boundary. Give each host function
+an explicit input and output shape, and do not rely on host implementation
+details on either side.
 
-The following host function accepts a small input object and returns a small,
-explicit result:
+This host function validates a small input object and returns only the fields
+the guest needs:
 
 ```ts
 const hostFunctions = {
@@ -206,6 +206,3 @@ const hostFunctions = {
   },
 };
 ```
-
-This approach keeps the boundary predictable, limits the authority of guest
-code, and makes the host function easier to test.
