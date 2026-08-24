@@ -1,6 +1,6 @@
 {
   "name": "run",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Secure QuickJS-backed JavaScript runtime with host functions and continuations",
   "keywords": [
     "javascript",
