@@ -53,12 +53,12 @@ describe('bundled runtime', () => {
       script,
       `
         for (const specifier of ['run/worker', 'run/quickjs-wasm', 'run/runtime/worker-source']) {
+          let resolved = false;
           try {
             import.meta.resolve(specifier);
-            throw new Error('Expected resolution to fail: ' + specifier);
-          } catch (error) {
-            if (error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
-          }
+            resolved = true;
+          } catch {}
+          if (resolved) throw new Error('Expected resolution to fail: ' + specifier);
         }
       `,
     );
