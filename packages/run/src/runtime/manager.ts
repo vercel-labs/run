@@ -1259,18 +1259,17 @@ async function terminatePooledWorker(worker: Worker): Promise<void> {
 
   // Bun's worker_threads.terminate() can hang (oven-sh/bun#12616 and
   // follow-ups), including when the thread is busy in QuickJS WASM. Bound the
-  // wait so caller settlement and pool accounting can proceed. The interval
-  // keeps the event loop alive while we wait (oven-sh/bun#12614).
-  const keepalive = setInterval(() => undefined, 1_000);
+  // wait so caller settlement and pool accounting can proceed. The grace
+  // timer also keeps the event loop alive while we wait (oven-sh/bun#12614).
+  const grace = createPromiseWithResolvers<null>();
+  const graceHandle = setTimeout(
+    () => grace.resolve(null),
+    BUN_WORKER_TERMINATE_GRACE_MS,
+  );
   try {
-    await Promise.race([
-      termination,
-      new Promise<void>(resolve => {
-        setTimeout(resolve, BUN_WORKER_TERMINATE_GRACE_MS);
-      }),
-    ]);
+    await Promise.race([termination, grace.promise]);
   } finally {
-    clearInterval(keepalive);
+    clearTimeout(graceHandle);
   }
 }
 
