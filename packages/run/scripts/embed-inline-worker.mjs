@@ -1,16 +1,10 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const require = createRequire(import.meta.url);
-const quickjsPackageJsonPath =
-  require.resolve('quickjs-emscripten/package.json');
-const quickjsRequire = createRequire(quickjsPackageJsonPath);
-const quickjsWasmPath = quickjsRequire.resolve(
-  '@jitl/quickjs-wasmfile-release-asyncify/wasm',
-);
+const quickjsWasmPath = require.resolve('quickjs-wasi/quickjs.wasm');
 
 const outputPath = new URL('../dist/runtime/worker-source.js', import.meta.url);
 const guestSerdeOutputPath = new URL(
@@ -36,38 +30,6 @@ const workerPath = fileURLToPath(
   new URL('../dist/runtime/worker.js', import.meta.url),
 );
 
-const createInlineQuickJsRuntimePlugin = quickJsPackageRoot => ({
-  name: 'run-inline-quickjs-runtime',
-  setup(esbuild) {
-    esbuild.onResolve({ filter: /^quickjs-emscripten$/ }, () => ({
-      namespace: 'run-inline',
-      path: 'quickjs-emscripten-inline',
-    }));
-
-    esbuild.onLoad(
-      {
-        filter: /^quickjs-emscripten-inline$/,
-        namespace: 'run-inline',
-      },
-      () => ({
-        contents: [
-          'import { newQuickJSAsyncWASMModuleFromVariant, newVariant } from "quickjs-emscripten-core";',
-          'import { QuickJSAsyncFFI } from "@jitl/quickjs-wasmfile-release-asyncify/ffi";',
-          'import quickJSRawModule from "@jitl/quickjs-wasmfile-release-asyncify/emscripten-module";',
-          'const quickJSRaw = quickJSRawModule.default ?? quickJSRawModule;',
-          'export const RELEASE_ASYNC = { type: "async", importFFI: () => Promise.resolve(QuickJSAsyncFFI), importModuleLoader: () => Promise.resolve(quickJSRaw) };',
-          'export async function newQuickJSAsyncWASMModule(variantOrPromise = RELEASE_ASYNC) {',
-          '  return newQuickJSAsyncWASMModuleFromVariant(variantOrPromise);',
-          '}',
-          'export { newVariant };',
-        ].join('\n'),
-        loader: 'js',
-        resolveDir: quickJsPackageRoot,
-      }),
-    );
-  },
-});
-
 const buildInlineWorkerBundle = async () => {
   const result = await build({
     bundle: true,
@@ -78,9 +40,6 @@ const buildInlineWorkerBundle = async () => {
     legalComments: 'none',
     minify: true,
     platform: 'node',
-    plugins: [
-      createInlineQuickJsRuntimePlugin(dirname(quickjsPackageJsonPath)),
-    ],
     sourcemap: false,
     target: 'node22',
     write: false,
@@ -128,8 +87,10 @@ const assertBundledInlineWorkerSource = source => {
     [/\brequire\(/u, 'CommonJS require'],
     [/\bimport\(/u, 'dynamic import'],
     [/\bcreateRequire\b/u, 'createRequire'],
-    [/["']quickjs-emscripten["']/u, 'quickjs-emscripten package specifier'],
-    [/@jitl\//u, '@jitl package specifier'],
+    [
+      /["']quickjs-wasi\/quickjs\.wasm["']/u,
+      'quickjs-wasi WASM package specifier',
+    ],
     [/node_modules\/\.pnpm/u, 'absolute pnpm node_modules path'],
   ];
 

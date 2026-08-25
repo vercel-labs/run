@@ -1,16 +1,8 @@
 import { writeSync } from 'node:fs';
 import { formatWithOptions } from 'node:util';
 import { parentPort } from 'node:worker_threads';
-import {
-  newQuickJSAsyncWASMModule,
-  newVariant,
-  RELEASE_ASYNC,
-} from 'quickjs-emscripten';
-import type {
-  QuickJSAsyncContext,
-  QuickJSDeferredPromise,
-  QuickJSHandle,
-} from 'quickjs-emscripten';
+import { JSException, QuickJS } from 'quickjs-wasi';
+import type { Deferred, JSValueHandle } from 'quickjs-wasi';
 import {
   RunProtocolError,
   RunTimeoutError,
@@ -31,10 +23,10 @@ if (!parentPort) {
 const pendingBridgeRequests = new Map<
   string,
   {
-    context: QuickJSAsyncContext;
-    deferred: QuickJSDeferredPromise;
+    context: QuickJS;
+    deferred: Deferred;
     invocationId: string;
-    resetDateNow?: QuickJSHandle;
+    resetDateNow?: JSValueHandle;
   }
 >();
 let activeInvocationId: string | undefined;
@@ -173,28 +165,26 @@ async function run(message: WorkerRunMessage): Promise<void> {
 }
 
 async function execute(message: WorkerRunMessage): Promise<string> {
-  const context = await createQuickJSContext();
-  const { runtime } = context;
   const deadline = Date.now() + message.options.executionTimeoutMs;
   let interruptChecks = 0;
-  let bridgeFunctions: { invokeHostFunction: QuickJSHandle } | undefined;
-  let consoleFormatter: QuickJSHandle | undefined;
-  let determinismHandle: QuickJSHandle | undefined;
-  let resetDateNowHandle: QuickJSHandle | undefined;
   let cancelled = false;
   let executionTimedOut = false;
+  const context = await createQuickJSContext({
+    interruptHandler: () => {
+      interruptChecks += 1;
+      const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
+      executionTimedOut ||= timedOut;
+      return cancelled || timedOut;
+    },
+    memoryLimitBytes: message.options.memoryLimitBytes,
+  });
+  let bridgeFunctions: { invokeHostFunction: JSValueHandle } | undefined;
+  let consoleFormatter: JSValueHandle | undefined;
+  let determinismHandle: JSValueHandle | undefined;
+  let resetDateNowHandle: JSValueHandle | undefined;
   let executionFailure: { error: unknown } | undefined;
   const getExecutionFailure = (): { error: unknown } | undefined =>
     executionFailure;
-
-  runtime.setMemoryLimit(message.options.memoryLimitBytes);
-  runtime.setMaxStackSize(message.options.maxStackSizeBytes);
-  runtime.setInterruptHandler(() => {
-    interruptChecks += 1;
-    const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
-    executionTimedOut ||= timedOut;
-    return cancelled || timedOut;
-  });
   activeCancellation = {
     cancel: () => {
       cancelled = true;
@@ -234,7 +224,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       () => resetDateNowHandle,
     );
     determinismHandle = jsToHandle(context, message.determinism);
-    resetDateNowHandle = await initializeGuestRuntime(
+    resetDateNowHandle = initializeGuestRuntime(
       context,
       message,
       bridgeFunctions.invokeHostFunction,
@@ -275,104 +265,83 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     for (const [requestId] of pendingForInvocation) {
       pendingBridgeRequests.delete(requestId);
     }
-    if (bridgeFunctions?.invokeHostFunction.alive) {
-      bridgeFunctions.invokeHostFunction.dispose();
-    }
-    if (consoleFormatter?.alive) {
-      consoleFormatter.dispose();
-    }
-    if (resetDateNowHandle?.alive) {
-      resetDateNowHandle.dispose();
-    }
-    if (determinismHandle?.alive) {
-      determinismHandle.dispose();
-    }
+    disposeHandle(bridgeFunctions?.invokeHostFunction);
+    disposeHandle(consoleFormatter);
+    disposeHandle(resetDateNowHandle);
+    disposeHandle(determinismHandle);
     context.dispose();
   }
 }
 
-async function initializeGuestRuntime(
-  context: QuickJSAsyncContext,
+function initializeGuestRuntime(
+  context: QuickJS,
   message: WorkerRunMessage,
-  invokeHostFunction: QuickJSHandle,
-  determinismHandle: QuickJSHandle,
-): Promise<QuickJSHandle | undefined> {
+  invokeHostFunction: JSValueHandle,
+  determinismHandle: JSValueHandle,
+): JSValueHandle | undefined {
   const setupSource = buildGuestRuntimeSetupSource(
     message.hostFunctionNamespaces,
   );
-  const setupEvalResult = await context.evalCodeAsync(
-    setupSource,
-    'run-setup.js',
-  );
-  if (setupEvalResult.error) {
-    const error = context.dump(setupEvalResult.error);
-    if (setupEvalResult.error.alive) {
-      setupEvalResult.error.dispose();
-    }
-    throw toError(error);
+  let setupFunction: JSValueHandle;
+  try {
+    setupFunction = context.evalCode(setupSource, 'run-setup.js');
+  } catch (error) {
+    throw toError(dumpQuickJSError(context, error));
   }
   try {
-    const setupCallResult = context.callFunction(
-      setupEvalResult.value,
-      context.undefined,
-      invokeHostFunction,
-      determinismHandle,
-    );
-    if (setupCallResult.error) {
-      const error = context.dump(setupCallResult.error);
-      if (setupCallResult.error.alive) {
-        setupCallResult.error.dispose();
-      }
-      throw toError(error);
+    let setupResult: JSValueHandle;
+    try {
+      setupResult = context.callFunction(
+        setupFunction,
+        context.undefined,
+        invokeHostFunction,
+        determinismHandle,
+      );
+    } catch (error) {
+      throw toError(dumpQuickJSError(context, error));
     }
-    if (!setupCallResult.value.alive) {
-      return undefined;
+    try {
+      return setupResult.getProp('resetDateNow');
+    } finally {
+      setupResult.dispose();
     }
-    const resetDateNowHandle = context.getProp(
-      setupCallResult.value,
-      'resetDateNow',
-    );
-    setupCallResult.value.dispose();
-    return resetDateNowHandle;
   } finally {
-    if (setupEvalResult.value.alive) {
-      setupEvalResult.value.dispose();
-    }
+    setupFunction.dispose();
+  }
+}
+
+function disposeHandle(handle: JSValueHandle | undefined): void {
+  if (handle !== undefined && !handle.disposed) {
+    handle.dispose();
   }
 }
 
 async function evaluateUserSource(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
   message: WorkerRunMessage,
 ): Promise<string> {
   const wrapped = wrapUserCode(message.source);
-  const evalResult = await context.evalCodeAsync(wrapped, 'run.js');
-  if (evalResult.error) {
-    const error = context.dump(evalResult.error);
-    if (evalResult.error.alive) {
-      evalResult.error.dispose();
-    }
-    throw toUserSourceError(error, message.source);
-  }
-  if (evalResult.value.alive) {
-    evalResult.value.dispose();
+  try {
+    context.evalCode(wrapped, 'run.js').dispose();
+  } catch (error) {
+    throw toUserSourceError(dumpQuickJSError(context, error), message.source);
   }
 
-  const promiseHandle = context.getProp(context.global, '__runResult');
+  const promiseHandle = context.global.getProp('__runResult');
   const resolvedResult = await resolveQuickJSPromise(context, promiseHandle);
-  if (promiseHandle.alive) {
+  if (!promiseHandle.disposed) {
     promiseHandle.dispose();
   }
-  if (resolvedResult.error) {
-    const error = context.dump(resolvedResult.error);
-    if (resolvedResult.error.alive) {
+  if ('error' in resolvedResult) {
+    const error = dumpQuickJSErrorHandle(context, resolvedResult.error);
+    if (!resolvedResult.error.disposed) {
       resolvedResult.error.dispose();
     }
     throw toUserSourceError(error, message.source);
   }
 
   const valueJson = serializeQuickJSJsonPayload(context, resolvedResult.value);
-  if (resolvedResult.value.alive) {
+  if (!resolvedResult.value.disposed) {
     resolvedResult.value.dispose();
   }
   assertJsonPayloadSize(
@@ -384,10 +353,11 @@ async function evaluateUserSource(
 }
 
 function rejectPendingBridgeRequests(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
   invocationId: string,
   message: string,
 ): void {
+  let rejected = false;
   for (const pending of pendingBridgeRequests.values()) {
     if (pending.invocationId !== invocationId) {
       continue;
@@ -395,21 +365,26 @@ function rejectPendingBridgeRequests(
     const error = context.newError(message);
     pending.deferred.reject(error);
     error.dispose();
+    rejected = true;
+  }
+  if (rejected) {
+    context.executePendingJobs();
   }
 }
 
-async function createQuickJSContext(): Promise<QuickJSAsyncContext> {
+async function createQuickJSContext(options: {
+  interruptHandler: () => boolean;
+  memoryLimitBytes: number;
+}): Promise<QuickJS> {
   const embeddedWasmBase64 = getEmbeddedQuickJsWasmBase64();
-  if (embeddedWasmBase64 !== undefined) {
-    const variant = newVariant(RELEASE_ASYNC, {
-      wasmModule: () => getEmbeddedQuickJsWasmModule(embeddedWasmBase64),
-    });
-    const module = await newQuickJSAsyncWASMModule(variant);
-    return module.newContext();
+  if (embeddedWasmBase64 === undefined) {
+    throw new Error('Embedded QuickJS WASM bytes are unavailable.');
   }
-
-  const module = await newQuickJSAsyncWASMModule(RELEASE_ASYNC);
-  return module.newContext();
+  return QuickJS.create({
+    interruptHandler: options.interruptHandler,
+    memoryLimit: options.memoryLimitBytes,
+    wasm: await getEmbeddedQuickJsWasmModule(embeddedWasmBase64),
+  });
 }
 
 function getEmbeddedQuickJsWasmBase64(): string | undefined {
@@ -437,77 +412,95 @@ function decodeBase64ArrayBuffer(value: string): ArrayBuffer {
 }
 
 function serializeQuickJSJsonPayload(
-  context: QuickJSAsyncContext,
-  value: QuickJSHandle,
+  context: QuickJS,
+  value: JSValueHandle,
 ): string {
-  const serialize = context.getProp(
-    context.global,
-    '__runSerializeJsonPayload',
-  );
+  const serialize = context.global.getProp('__runSerializeJsonPayload');
   try {
-    const result = context.callFunction(serialize, context.undefined, value);
-    if (result.error) {
-      const error = context.dump(result.error);
-      if (result.error.alive) {
-        result.error.dispose();
-      }
-      throw toError(error);
+    let result: JSValueHandle;
+    try {
+      result = context.callFunction(serialize, context.undefined, value);
+    } catch (error) {
+      throw toError(dumpQuickJSError(context, error));
     }
-    const valueJson = context.getString(result.value);
-    if (result.value.alive) {
-      result.value.dispose();
+    try {
+      return result.toString();
+    } finally {
+      result.dispose();
     }
-    return valueJson;
   } finally {
-    if (serialize.alive) {
+    if (!serialize.disposed) {
       serialize.dispose();
     }
   }
 }
 
 function installConsole(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
   maxOutputBytes: number,
-): QuickJSHandle {
+): JSValueHandle {
   const outputBudget = { remainingBytes: maxOutputBytes };
-  const formatterResult = context.evalCode(`
-    (value, maxChars) => {
-      let rendered;
-      try {
-        rendered = typeof value === 'string' ? value : JSON.stringify(value);
-      } catch {}
-      return String(rendered === undefined ? value : rendered)
-      .slice(0, maxChars)
-      .replace(/[\\u0000-\\u001f\\u007f-\\u009f]/gu, character =>
-        character === '\\t'
-          ? '\\t'
-          : '\\\\u' + character.charCodeAt(0).toString(16).padStart(4, '0')
-      );
-    }
-  `);
-  if (formatterResult.error) {
-    const error = context.dump(formatterResult.error);
-    formatterResult.error.dispose();
-    throw toError(error);
+  let boundedFormatter: JSValueHandle;
+  try {
+    boundedFormatter = context.evalCode(`
+      (value, maxChars) => {
+        let rendered;
+        try {
+          rendered = typeof value === 'string' ? value : JSON.stringify(value);
+        } catch {}
+        return String(rendered === undefined ? value : rendered)
+        .slice(0, maxChars)
+        .replace(/[\\u0000-\\u001f\\u007f-\\u009f]/gu, character =>
+          character === '\\t'
+            ? '\\t'
+            : '\\\\u' + character.charCodeAt(0).toString(16).padStart(4, '0')
+        );
+      }
+    `);
+  } catch (error) {
+    throw toError(dumpQuickJSError(context, error));
   }
-  const boundedFormatter = formatterResult.value;
   const consoleHandle = context.newObject();
   const handles = [
     [
       'log',
-      createConsoleFunction(context, 'stdout', outputBudget, boundedFormatter),
+      createConsoleFunction(
+        context,
+        'console.log',
+        'stdout',
+        outputBudget,
+        boundedFormatter,
+      ),
     ],
     [
       'info',
-      createConsoleFunction(context, 'stdout', outputBudget, boundedFormatter),
+      createConsoleFunction(
+        context,
+        'console.info',
+        'stdout',
+        outputBudget,
+        boundedFormatter,
+      ),
     ],
     [
       'debug',
-      createConsoleFunction(context, 'stdout', outputBudget, boundedFormatter),
+      createConsoleFunction(
+        context,
+        'console.debug',
+        'stdout',
+        outputBudget,
+        boundedFormatter,
+      ),
     ],
     [
       'error',
-      createConsoleFunction(context, 'stderr', outputBudget, boundedFormatter),
+      createConsoleFunction(
+        context,
+        'console.error',
+        'stderr',
+        outputBudget,
+        boundedFormatter,
+      ),
     ],
   ] as const;
 
@@ -524,14 +517,15 @@ function installConsole(
 }
 
 function createConsoleFunction(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
+  name: string,
   stream: 'stdout' | 'stderr',
   outputBudget: { remainingBytes: number },
-  boundedFormatter: QuickJSHandle,
-): QuickJSHandle {
-  return context.newFunction('console', (...args: QuickJSHandle[]) => {
+  boundedFormatter: JSValueHandle,
+): JSValueHandle {
+  return context.newFunction(name, (...args: JSValueHandle[]) => {
     if (outputBudget.remainingBytes === 0) {
-      return;
+      return context.undefined;
     }
     const maxBytesPerArgument = Math.max(
       1,
@@ -545,17 +539,18 @@ function createConsoleFunction(
     const outputBytes = Buffer.byteLength(output);
     if (outputBytes > outputBudget.remainingBytes) {
       outputBudget.remainingBytes = 0;
-      return;
+      return context.undefined;
     }
     outputBudget.remainingBytes -= outputBytes;
     writeSync(stream === 'stderr' ? 2 : 1, output);
+    return context.undefined;
   });
 }
 
 function formatConsoleArg(
-  context: QuickJSAsyncContext,
-  boundedFormatter: QuickJSHandle,
-  arg: QuickJSHandle,
+  context: QuickJS,
+  boundedFormatter: JSValueHandle,
+  arg: JSValueHandle,
   remainingBytes: number,
 ): string {
   const maxCharsHandle = context.newNumber(remainingBytes);
@@ -566,12 +561,8 @@ function formatConsoleArg(
       arg,
       maxCharsHandle,
     );
-    if (result.error) {
-      result.error.dispose();
-      return '[Unprintable QuickJS value]';
-    }
-    const value = context.getString(result.value);
-    result.value.dispose();
+    const value = result.toString();
+    result.dispose();
     if (context.typeof(arg) === 'object') {
       try {
         return formatWithOptions({ colors: false, depth: 4 }, parseJson(value));
@@ -588,28 +579,24 @@ function formatConsoleArg(
 }
 
 function createBridgeFunctions(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
   message: WorkerRunMessage,
-  getResetDateNow: () => QuickJSHandle | undefined,
-): { invokeHostFunction: QuickJSHandle } {
+  getResetDateNow: () => JSValueHandle | undefined,
+): { invokeHostFunction: JSValueHandle } {
   const invokeHostFunction = context.newFunction(
     '__runInvokeHostFunction',
-    (hostFunctionNameHandle: QuickJSHandle, inputJsonHandle: QuickJSHandle) => {
-      const hostFunctionName = context.getString(hostFunctionNameHandle);
-      const inputJson = context.getString(inputJsonHandle);
+    (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
+      const hostFunctionName = hostFunctionNameHandle.toString();
+      const inputJson = inputJsonHandle.toString();
       if (Buffer.byteLength(hostFunctionName) > 1024) {
-        return {
-          error: context.newError('Host function name exceeds 1024 bytes.'),
-        };
+        throw new Error('Host function name exceeds 1024 bytes.');
       }
       if (
         Buffer.byteLength(inputJson) > message.options.maxHostFunctionInputBytes
       ) {
-        return {
-          error: context.newError(
-            `Host function arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
-          ),
-        };
+        throw new Error(
+          `Host function arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
+        );
       }
       return requestHost(
         context,
@@ -627,11 +614,11 @@ function createBridgeFunctions(
 }
 
 function requestHost(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
   invocationId: string,
   payload: Record<string, unknown>,
-  resetDateNow?: QuickJSHandle,
-): QuickJSHandle {
+  resetDateNow?: JSValueHandle,
+): JSValueHandle {
   bridgeRequestCounter += 1;
   const requestId = `${invocationId}:bridge-${bridgeRequestCounter}`;
   const deferred = context.newPromise();
@@ -663,35 +650,36 @@ function requestHost(
 }
 
 async function completeDeferredWhenSettled(
-  context: QuickJSAsyncContext,
-  deferred: QuickJSDeferredPromise,
+  context: QuickJS,
+  deferred: Deferred,
 ): Promise<void> {
   await deferred.settled;
-  context.runtime.executePendingJobs();
-  deferred.dispose();
+  context.executePendingJobs();
 }
 
 function resolveBridgeResponse(
-  context: QuickJSAsyncContext,
-  deferred: QuickJSDeferredPromise,
+  context: QuickJS,
+  deferred: Deferred,
   message: WorkerBridgeResponse,
-  resetDateNow?: QuickJSHandle,
+  resetDateNow?: JSValueHandle,
 ): void {
   resetGuestDateNow(context, resetDateNow, message.dateNowMs);
   if (message.success) {
     const value = context.newString(message.valueJson ?? '');
     deferred.resolve(value);
     value.dispose();
+    context.executePendingJobs();
     return;
   }
   const error = createBridgeErrorHandle(context, message.error);
   deferred.reject(error);
   error.dispose();
+  context.executePendingJobs();
 }
 
 function resetGuestDateNow(
-  context: QuickJSAsyncContext,
-  resetDateNow: QuickJSHandle | undefined,
+  context: QuickJS,
+  resetDateNow: JSValueHandle | undefined,
   dateNowMs: number,
 ): void {
   if (resetDateNow === undefined) {
@@ -699,26 +687,17 @@ function resetGuestDateNow(
   }
   const value = context.newNumber(dateNowMs);
   try {
-    const result = context.callFunction(resetDateNow, context.undefined, value);
-    if (result.error) {
-      const error = context.dump(result.error);
-      if (result.error.alive) {
-        result.error.dispose();
-      }
-      throw toError(error);
-    }
-    if (result.value.alive) {
-      result.value.dispose();
+    try {
+      context.callFunction(resetDateNow, context.undefined, value).dispose();
+    } catch (error) {
+      throw toError(dumpQuickJSError(context, error));
     }
   } finally {
     value.dispose();
   }
 }
 
-function jsToHandle(
-  context: QuickJSAsyncContext,
-  value: unknown,
-): QuickJSHandle {
+function jsToHandle(context: QuickJS, value: unknown): JSValueHandle {
   if (value === null) {
     return context.null;
   }
@@ -735,7 +714,7 @@ function jsToHandle(
     const result = context.newArray();
     for (const [index, item] of value.entries()) {
       const handle = jsToHandle(context, item);
-      context.setProp(result, index, handle);
+      context.setProp(result, String(index), handle);
       handle.dispose();
     }
     return result;
@@ -752,24 +731,13 @@ function jsToHandle(
   return context.undefined;
 }
 
-function drainPendingJobs(context: QuickJSAsyncContext): void {
-  while (context.runtime.hasPendingJob()) {
-    const pending = context.runtime.executePendingJobs();
-    if ('error' in pending && pending.error) {
-      const contextForError =
-        'context' in pending.error ? pending.error.context : context;
-      const error = contextForError.dump(pending.error);
-      if (pending.error.alive) {
-        pending.error.dispose();
-      }
-      throw toError(error);
-    }
-  }
+function drainPendingJobs(context: QuickJS): void {
+  context.executePendingJobs();
 }
 
 async function resolveQuickJSPromise(
-  context: QuickJSAsyncContext,
-  promiseHandle: QuickJSHandle,
+  context: QuickJS,
+  promiseHandle: JSValueHandle,
 ) {
   const resolved = context.resolvePromise(promiseHandle);
   const notSettled = Symbol('not-settled');
@@ -853,9 +821,9 @@ function toUserSourceError(value: unknown, source: string): Error {
 }
 
 function createBridgeErrorHandle(
-  context: QuickJSAsyncContext,
+  context: QuickJS,
   error: WorkerBridgeResponse['error'],
-): QuickJSHandle {
+): JSValueHandle {
   const handle = context.newError(
     error?.message ?? 'Host bridge request failed.',
   );
@@ -871,4 +839,43 @@ function createBridgeErrorHandle(
     code.dispose();
   }
   return handle;
+}
+
+function dumpQuickJSError(context: QuickJS, error: unknown): unknown {
+  if (!(error instanceof JSException)) {
+    return error;
+  }
+  try {
+    return dumpQuickJSErrorHandle(context, error.handle);
+  } finally {
+    error.dispose();
+  }
+}
+
+function dumpQuickJSErrorHandle(
+  context: QuickJS,
+  handle: JSValueHandle,
+): unknown {
+  const dumped = context.dump(handle);
+  if (!(dumped instanceof Error)) {
+    return dumped;
+  }
+
+  for (const property of ['code', 'details'] as const) {
+    const descriptor = handle.getOwnPropertyDescriptor(property);
+    if (descriptor?.value === undefined) {
+      descriptor?.get?.dispose();
+      descriptor?.set?.dispose();
+      continue;
+    }
+    try {
+      Object.defineProperty(dumped, property, {
+        enumerable: true,
+        value: context.dump(descriptor.value),
+      });
+    } finally {
+      descriptor.value.dispose();
+    }
+  }
+  return dumped;
 }

@@ -1,16 +1,14 @@
 # Third-party notices
 
 `run` embeds the `devalue` serializer and a QuickJS WebAssembly runtime built by the
-[`quickjs-emscripten`](https://github.com/justjake/quickjs-emscripten) project.
+[`quickjs-wasi`](https://github.com/vercel-labs/quickjs-wasi) project.
 The following packages are used to build the published JavaScript and embedded
 WebAssembly artifact:
 
-| Package                                   | Version | License |
-| ----------------------------------------- | ------- | ------- |
-| `devalue`                                 | 5.8.2   | MIT     |
-| `quickjs-emscripten`                      | 0.32.0  | MIT     |
-| `quickjs-emscripten-core`                 | 0.32.0  | MIT     |
-| `@jitl/quickjs-wasmfile-release-asyncify` | 0.32.0  | MIT     |
+| Package        | Version | License |
+| -------------- | ------- | ------- |
+| `devalue`      | 5.8.2   | MIT     |
+| `quickjs-wasi` | 3.5.0   | MIT     |
 
 The release verification script rejects unreviewed changes to these embedded
 dependencies.
@@ -37,11 +35,11 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-## quickjs-emscripten
+## quickjs-wasi
 
 The MIT License
 
-quickjs-emscripten copyright (c) 2019-2024 Jake Teton-Landis
+Copyright (c) quickjs-wasi contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -65,8 +63,10 @@ SOFTWARE.
 
 QuickJS Javascript Engine
 
-Copyright (c) 2017-2021 Fabrice Bellard
-Copyright (c) 2017-2021 Charlie Gordon
+Copyright (c) 2017-2026 Fabrice Bellard
+Copyright (c) 2017-2025 Charlie Gordon
+Copyright (c) 2023-2026 Ben Noordhuis
+Copyright (c) 2023-2026 Saúl Ibarra Corretgé
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
