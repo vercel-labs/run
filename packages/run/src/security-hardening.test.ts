@@ -384,7 +384,7 @@ describe('guest sandbox hardening', () => {
   });
 
   it('preserves trusted bridge codes without guest-supplied details', async () => {
-    const error = await run({
+    const resultError = await run({
       hostFunctions: {
         tools: {
           fail() {
@@ -409,7 +409,7 @@ describe('guest sandbox hardening', () => {
       `,
     }).catch((error: unknown) => error);
 
-    expect(error).toMatchObject({
+    expect(resultError).toMatchObject({
       code: 'RUN_HOST_FUNCTION_ERROR',
       details: undefined,
       message: 'Host function failed.',
