@@ -10,6 +10,12 @@ describe('guest runtime sources', () => {
     );
     expect(source).toContain('__runCreateBridgePromise');
     expect(source).toContain('__runAssertNoDetachedBridgeCalls');
+    expect(source).toContain(
+      "return createBridgePromise('hostFunction', hostFunctionPath",
+    );
+    expect(source).not.toContain(
+      "return globalThis.__runCreateBridgePromise('hostFunction'",
+    );
   });
 
   it('includes deterministic and hardening setup', () => {

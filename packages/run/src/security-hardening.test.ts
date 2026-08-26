@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RunDetachedBridgeRequestError } from './errors.js';
 import { getHostFunctionContext, run } from './index.js';
 import type { HostFunctions } from './index.js';
+import { serializeRunValue } from './utils/serde.js';
 
 async function value(
   source: string,
@@ -218,6 +219,51 @@ describe('guest sandbox hardening', () => {
       setName: 'Set',
       toolsType: 'function',
     });
+  });
+
+  it('uses the captured result serializer after guest global redefinition', async () => {
+    const forgedPayload = serializeRunValue(
+      new Map([['injectedKey', 'injectedValue']]),
+    );
+
+    await expectValue(`
+      try {
+        Object.defineProperty(globalThis, '__runSerializeJsonPayload', {
+          value: () => ${JSON.stringify(forgedPayload)},
+          writable: false,
+          configurable: false,
+        });
+      } catch {}
+      return 'legitimate result';
+    `).resolves.toBe('legitimate result');
+  });
+
+  it('uses captured bridge tracking after guest global redefinition', async () => {
+    let sideEffects = 0;
+
+    await expect(
+      run({
+        hostFunctions: {
+          tools: {
+            sideEffect: () => {
+              sideEffects += 1;
+            },
+          },
+        },
+        source: `
+          try {
+            Object.defineProperty(globalThis, '__runCreateBridgePromise', {
+              value: (_kind, _name, start) => start(),
+              writable: false,
+              configurable: false,
+            });
+          } catch {}
+          tools.sideEffect();
+          return 'clean';
+        `,
+      }),
+    ).rejects.toBeInstanceOf(RunDetachedBridgeRequestError);
+    expect(sideEffects).toBe(0);
   });
 
   it('locks every privileged guest global binding', async () => {

@@ -184,6 +184,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let consoleFormatter: JSValueHandle | undefined;
   let determinismHandle: JSValueHandle | undefined;
   let resetDateNowHandle: JSValueHandle | undefined;
+  let serializeJsonPayloadHandle: JSValueHandle | undefined;
   let executionFailure: { error: unknown } | undefined;
   const getExecutionFailure = (): { error: unknown } | undefined =>
     executionFailure;
@@ -226,13 +227,19 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       () => resetDateNowHandle,
     );
     determinismHandle = jsToHandle(context, message.determinism);
-    resetDateNowHandle = initializeGuestRuntime(
+    const guestRuntimeHandles = initializeGuestRuntime(
       context,
       message,
       bridgeFunctions.invokeHostFunction,
       determinismHandle,
     );
-    const valueJson = await evaluateUserSource(context, message);
+    resetDateNowHandle = guestRuntimeHandles.resetDateNow;
+    serializeJsonPayloadHandle = guestRuntimeHandles.serializeJsonPayload;
+    const valueJson = await evaluateUserSource(
+      context,
+      message,
+      serializeJsonPayloadHandle,
+    );
     const completedFailure = getExecutionFailure();
     if (completedFailure !== undefined) {
       throw completedFailure.error;
@@ -270,6 +277,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     disposeHandle(bridgeFunctions?.invokeHostFunction);
     disposeHandle(consoleFormatter);
     disposeHandle(resetDateNowHandle);
+    disposeHandle(serializeJsonPayloadHandle);
     disposeHandle(determinismHandle);
     context.dispose();
   }
@@ -280,7 +288,10 @@ function initializeGuestRuntime(
   message: WorkerRunMessage,
   invokeHostFunction: JSValueHandle,
   determinismHandle: JSValueHandle,
-): JSValueHandle | undefined {
+): {
+  resetDateNow: JSValueHandle;
+  serializeJsonPayload: JSValueHandle;
+} {
   const setupSource = buildGuestRuntimeSetupSource(
     message.hostFunctionNamespaces,
   );
@@ -303,7 +314,10 @@ function initializeGuestRuntime(
       throw toError(dumpQuickJSError(context, error));
     }
     try {
-      return setupResult.getProp('resetDateNow');
+      return {
+        resetDateNow: setupResult.getProp('resetDateNow'),
+        serializeJsonPayload: setupResult.getProp('serializeJsonPayload'),
+      };
     } finally {
       setupResult.dispose();
     }
@@ -321,6 +335,7 @@ function disposeHandle(handle: JSValueHandle | undefined): void {
 async function evaluateUserSource(
   context: QuickJS,
   message: WorkerRunMessage,
+  serializeJsonPayload: JSValueHandle,
 ): Promise<string> {
   const wrapped = wrapUserCode(message.source);
   try {
@@ -342,7 +357,11 @@ async function evaluateUserSource(
     throw toUserSourceError(error, message.source);
   }
 
-  const valueJson = serializeQuickJSJsonPayload(context, resolvedResult.value);
+  const valueJson = serializeQuickJSJsonPayload(
+    context,
+    serializeJsonPayload,
+    resolvedResult.value,
+  );
   if (!resolvedResult.value.disposed) {
     resolvedResult.value.dispose();
   }
@@ -420,25 +439,19 @@ function decodeBase64ArrayBuffer(value: string): ArrayBuffer {
 
 function serializeQuickJSJsonPayload(
   context: QuickJS,
+  serialize: JSValueHandle,
   value: JSValueHandle,
 ): string {
-  const serialize = context.global.getProp('__runSerializeJsonPayload');
+  let result: JSValueHandle;
   try {
-    let result: JSValueHandle;
-    try {
-      result = context.callFunction(serialize, context.undefined, value);
-    } catch (error) {
-      throw toError(dumpQuickJSError(context, error));
-    }
-    try {
-      return result.toString();
-    } finally {
-      result.dispose();
-    }
+    result = context.callFunction(serialize, context.undefined, value);
+  } catch (error) {
+    throw toError(dumpQuickJSError(context, error));
+  }
+  try {
+    return result.toString();
   } finally {
-    if (!serialize.disposed) {
-      serialize.dispose();
-    }
+    result.dispose();
   }
 }
 
