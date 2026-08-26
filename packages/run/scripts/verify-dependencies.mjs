@@ -12,33 +12,20 @@ const expected = [
   },
   {
     license: 'MIT',
-    name: 'quickjs-emscripten',
-    version: '0.32.0',
-  },
-  {
-    license: 'MIT',
-    name: 'quickjs-emscripten-core',
-    version: '0.32.0',
-  },
-  {
-    license: 'MIT',
-    name: '@jitl/quickjs-wasmfile-release-asyncify',
-    version: '0.32.0',
+    name: 'quickjs-wasi',
+    version: '3.6.0',
   },
 ];
 
-const quickJsManifestPath = require.resolve('quickjs-emscripten/package.json');
-const quickJsRequire = createRequire(quickJsManifestPath);
-
-async function findManifest(packageName, entryPath) {
-  let directory = dirname(entryPath);
+async function findManifest(packageName) {
+  let directory = dirname(require.resolve(packageName));
 
   while (true) {
     const manifestPath = join(directory, 'package.json');
     try {
       const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
       if (manifest.name === packageName) {
-        return { manifest, manifestPath };
+        return manifest;
       }
     } catch (error) {
       if (error?.code !== 'ENOENT') {
@@ -56,17 +43,7 @@ async function findManifest(packageName, entryPath) {
 
 const inventory = await Promise.all(
   expected.map(async expectedPackage => {
-    const { manifest } =
-      expectedPackage.name === 'quickjs-emscripten'
-        ? {
-            manifest: JSON.parse(await readFile(quickJsManifestPath, 'utf8')),
-          }
-        : await findManifest(
-            expectedPackage.name,
-            expectedPackage.name === 'devalue'
-              ? require.resolve('devalue')
-              : quickJsRequire.resolve(expectedPackage.name),
-          );
+    const manifest = await findManifest(expectedPackage.name);
     const actual = {
       license: manifest.license,
       name: manifest.name,

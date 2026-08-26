@@ -70,6 +70,17 @@ const HARDENING_SOURCE = `
       configurable: false,
     });
   }
+  for (const name of [
+    'AsyncDisposableStack',
+    'DOMException',
+    'DisposableStack',
+    'SuppressedError',
+    'atob',
+    'btoa',
+    'queueMicrotask',
+  ]) {
+    try { delete globalThis[name]; } catch {}
+  }
 
   Object.defineProperty(globalThis, 'eval', {
     value: undefined,
