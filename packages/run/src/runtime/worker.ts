@@ -26,6 +26,7 @@ const pendingBridgeRequests = new Map<
     context: QuickJS;
     deferred: Deferred;
     invocationId: string;
+    registerTrustedError?: JSValueHandle;
     resetDateNow?: JSValueHandle;
   }
 >();
@@ -88,6 +89,7 @@ async function handleMainMessage(value: unknown): Promise<void> {
       pending.deferred,
       message,
       pending.resetDateNow,
+      pending.registerTrustedError,
     );
     pendingBridgeRequests.delete(message.requestId);
     return;
@@ -183,6 +185,8 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let bridgeFunctions: { invokeHostFunction: JSValueHandle } | undefined;
   let consoleFormatter: JSValueHandle | undefined;
   let determinismHandle: JSValueHandle | undefined;
+  let getTrustedErrorCodeHandle: JSValueHandle | undefined;
+  let registerTrustedErrorHandle: JSValueHandle | undefined;
   let resetDateNowHandle: JSValueHandle | undefined;
   let serializeJsonPayloadHandle: JSValueHandle | undefined;
   let executionFailure: { error: unknown } | undefined;
@@ -225,6 +229,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       context,
       message,
       () => resetDateNowHandle,
+      () => registerTrustedErrorHandle,
     );
     determinismHandle = jsToHandle(context, message.determinism);
     const guestRuntimeHandles = initializeGuestRuntime(
@@ -233,12 +238,15 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       bridgeFunctions.invokeHostFunction,
       determinismHandle,
     );
+    getTrustedErrorCodeHandle = guestRuntimeHandles.getTrustedErrorCode;
+    registerTrustedErrorHandle = guestRuntimeHandles.registerTrustedError;
     resetDateNowHandle = guestRuntimeHandles.resetDateNow;
     serializeJsonPayloadHandle = guestRuntimeHandles.serializeJsonPayload;
     const valueJson = await evaluateUserSource(
       context,
       message,
       serializeJsonPayloadHandle,
+      getTrustedErrorCodeHandle,
     );
     const completedFailure = getExecutionFailure();
     if (completedFailure !== undefined) {
@@ -276,6 +284,8 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     }
     disposeHandle(bridgeFunctions?.invokeHostFunction);
     disposeHandle(consoleFormatter);
+    disposeHandle(getTrustedErrorCodeHandle);
+    disposeHandle(registerTrustedErrorHandle);
     disposeHandle(resetDateNowHandle);
     disposeHandle(serializeJsonPayloadHandle);
     disposeHandle(determinismHandle);
@@ -289,6 +299,8 @@ function initializeGuestRuntime(
   invokeHostFunction: JSValueHandle,
   determinismHandle: JSValueHandle,
 ): {
+  getTrustedErrorCode: JSValueHandle;
+  registerTrustedError: JSValueHandle;
   resetDateNow: JSValueHandle;
   serializeJsonPayload: JSValueHandle;
 } {
@@ -315,6 +327,8 @@ function initializeGuestRuntime(
     }
     try {
       return {
+        getTrustedErrorCode: setupResult.getProp('getTrustedErrorCode'),
+        registerTrustedError: setupResult.getProp('registerTrustedError'),
         resetDateNow: setupResult.getProp('resetDateNow'),
         serializeJsonPayload: setupResult.getProp('serializeJsonPayload'),
       };
@@ -336,6 +350,7 @@ async function evaluateUserSource(
   context: QuickJS,
   message: WorkerRunMessage,
   serializeJsonPayload: JSValueHandle,
+  getTrustedErrorCode: JSValueHandle,
 ): Promise<string> {
   const wrapped = wrapUserCode(message.source);
   try {
@@ -350,11 +365,16 @@ async function evaluateUserSource(
     promiseHandle.dispose();
   }
   if ('error' in resolvedResult) {
+    const trustedCode = readTrustedErrorCode(
+      context,
+      getTrustedErrorCode,
+      resolvedResult.error,
+    );
     const error = dumpQuickJSErrorHandle(context, resolvedResult.error);
     if (!resolvedResult.error.disposed) {
       resolvedResult.error.dispose();
     }
-    throw toUserSourceError(error, message.source);
+    throw toUserSourceError(error, message.source, trustedCode);
   }
 
   const valueJson = serializeQuickJSJsonPayload(
@@ -602,6 +622,7 @@ function createBridgeFunctions(
   context: QuickJS,
   message: WorkerRunMessage,
   getResetDateNow: () => JSValueHandle | undefined,
+  getRegisterTrustedError: () => JSValueHandle | undefined,
 ): { invokeHostFunction: JSValueHandle } {
   const invokeHostFunction = context.newFunction(
     '__runInvokeHostFunction',
@@ -626,6 +647,7 @@ function createBridgeFunctions(
           inputJson,
         },
         getResetDateNow(),
+        getRegisterTrustedError(),
       );
     },
   );
@@ -638,6 +660,7 @@ function requestHost(
   invocationId: string,
   payload: Record<string, unknown>,
   resetDateNow?: JSValueHandle,
+  registerTrustedError?: JSValueHandle,
 ): JSValueHandle {
   bridgeRequestCounter += 1;
   const requestId = `${invocationId}:bridge-${bridgeRequestCounter}`;
@@ -646,6 +669,7 @@ function requestHost(
     context,
     deferred,
     invocationId,
+    ...(registerTrustedError === undefined ? {} : { registerTrustedError }),
     ...(resetDateNow === undefined ? {} : { resetDateNow }),
   });
   completeDeferredWhenSettled(context, deferred);
@@ -682,6 +706,7 @@ function resolveBridgeResponse(
   deferred: Deferred,
   message: WorkerBridgeResponse,
   resetDateNow?: JSValueHandle,
+  registerTrustedError?: JSValueHandle,
 ): void {
   resetGuestDateNow(context, resetDateNow, message.dateNowMs);
   if (message.success) {
@@ -692,9 +717,33 @@ function resolveBridgeResponse(
     return;
   }
   const error = createBridgeErrorHandle(context, message.error);
+  registerBridgeError(context, registerTrustedError, error, message.error);
   deferred.reject(error);
   error.dispose();
   context.executePendingJobs();
+}
+
+function registerBridgeError(
+  context: QuickJS,
+  registerTrustedError: JSValueHandle | undefined,
+  error: JSValueHandle,
+  serializedError: WorkerBridgeResponse['error'],
+): void {
+  if (registerTrustedError === undefined) {
+    return;
+  }
+  const name = jsToHandle(context, serializedError?.name);
+  const code = jsToHandle(context, serializedError?.code);
+  try {
+    context
+      .callFunction(registerTrustedError, context.undefined, error, name, code)
+      .dispose();
+  } catch (registrationError) {
+    throw toError(dumpQuickJSError(context, registrationError));
+  } finally {
+    name.dispose();
+    code.dispose();
+  }
 }
 
 function resetGuestDateNow(
@@ -773,16 +822,13 @@ async function resolveQuickJSPromise(
   }
 }
 
-const GUEST_FORBIDDEN_ERROR_CODES = new Set([
-  'RUN_ABORTED',
-  'RUN_CONCURRENCY_LIMIT',
-  'RUN_DETACHED_BRIDGE_REQUEST',
-  'RUN_PROTOCOL_ERROR',
-  'RUN_SOURCE_TOO_LARGE',
-  'RUN_TIMEOUT',
-]);
+const GUEST_ALLOWED_RUN_ERROR_CODES = new Set(['RUN_ERROR']);
 
-function toError(value: unknown, filterGuestCode = false): Error {
+function toError(
+  value: unknown,
+  filterGuestCode = false,
+  trustedCode?: string,
+): Error {
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -797,6 +843,7 @@ function toError(value: unknown, filterGuestCode = false): Error {
       details?: unknown;
     };
     const error = new Error(errorValue.message);
+    const errorCode = trustedCode ?? errorValue.code;
     const { name } = errorValue;
     if (typeof name === 'string') {
       error.name = name;
@@ -808,17 +855,19 @@ function toError(value: unknown, filterGuestCode = false): Error {
       error.stack = (value as { stack: string }).stack;
     }
     if (
-      errorValue.code !== undefined &&
+      errorCode !== undefined &&
       (!filterGuestCode ||
-        typeof errorValue.code !== 'string' ||
-        !GUEST_FORBIDDEN_ERROR_CODES.has(errorValue.code))
+        trustedCode !== undefined ||
+        typeof errorCode !== 'string' ||
+        !errorCode.startsWith('RUN_') ||
+        GUEST_ALLOWED_RUN_ERROR_CODES.has(errorCode))
     ) {
       Object.defineProperty(error, 'code', {
         enumerable: true,
-        value: errorValue.code,
+        value: errorCode,
       });
     }
-    if (errorValue.details !== undefined) {
+    if (trustedCode === undefined && errorValue.details !== undefined) {
       Object.defineProperty(error, 'details', {
         enumerable: true,
         value: errorValue.details,
@@ -829,8 +878,12 @@ function toError(value: unknown, filterGuestCode = false): Error {
   return new Error(String(value));
 }
 
-function toUserSourceError(value: unknown, source: string): Error {
-  const error = toError(value, true);
+function toUserSourceError(
+  value: unknown,
+  source: string,
+  trustedCode?: string,
+): Error {
+  const error = toError(value, true, trustedCode);
   error.stack = normalizeUserSourceStack({
     message: error.message,
     name: error.name,
@@ -840,25 +893,33 @@ function toUserSourceError(value: unknown, source: string): Error {
   return error;
 }
 
+function readTrustedErrorCode(
+  context: QuickJS,
+  getTrustedErrorCode: JSValueHandle,
+  error: JSValueHandle,
+): string | undefined {
+  let result: JSValueHandle;
+  try {
+    result = context.callFunction(
+      getTrustedErrorCode,
+      context.undefined,
+      error,
+    );
+  } catch (readError) {
+    throw toError(dumpQuickJSError(context, readError));
+  }
+  try {
+    return context.typeof(result) === 'string' ? result.toString() : undefined;
+  } finally {
+    result.dispose();
+  }
+}
+
 function createBridgeErrorHandle(
   context: QuickJS,
   error: WorkerBridgeResponse['error'],
 ): JSValueHandle {
-  const handle = context.newError(
-    error?.message ?? 'Host bridge request failed.',
-  );
-  if (!error) {
-    return handle;
-  }
-  const name = context.newString(error.name);
-  context.setProp(handle, 'name', name);
-  name.dispose();
-  if (error.code !== undefined) {
-    const code = context.newString(error.code);
-    context.setProp(handle, 'code', code);
-    code.dispose();
-  }
-  return handle;
+  return context.newError(error?.message ?? 'Host bridge request failed.');
 }
 
 function dumpQuickJSError(context: QuickJS, error: unknown): unknown {

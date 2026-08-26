@@ -483,6 +483,36 @@ const __runSerializeJsonPayloadHandle = (function() {
 })();
 `;
 
+const TRUSTED_ERROR_SOURCE = `
+const __runTrustedErrorHandles = (function() {
+  var trustedCodes = new __runOriginalWeakMap();
+  return __runOriginalObject.freeze({
+    register: function(error, name, code) {
+      if (typeof name === 'string') {
+        __runOriginalObject.defineProperty(error, 'name', {
+          value: __runOriginalString(name),
+          writable: true,
+          configurable: true
+        });
+      }
+      if (typeof code === 'string') {
+        var trustedCode = __runOriginalString(code);
+        __runOriginalObject.defineProperty(error, 'code', {
+          value: trustedCode,
+          writable: true,
+          configurable: true,
+          enumerable: true
+        });
+        trustedCodes.set(error, trustedCode);
+      }
+    },
+    getCode: function(error) {
+      return trustedCodes.get(error);
+    }
+  });
+})();
+`;
+
 export const buildGuestRuntimeSetupSource = (
   hostFunctionNamespaces: string[],
 ): string => {
@@ -500,6 +530,7 @@ const __runOriginalReflect = Reflect;
 const __runOriginalString = String;
 const __runOriginalSymbol = Symbol;
 const __runOriginalTypeError = TypeError;
+const __runOriginalWeakMap = WeakMap;
 ${DETERMINISTIC_APIS_SOURCE}
 ${BASE64_SOURCE}
 ${GUEST_SERDE_SOURCE}
@@ -507,7 +538,10 @@ ${HARDENING_SOURCE}
 ${BRIDGE_TRACKING_SOURCE}
 ${HOST_FUNCTIONS_PROXY_SOURCE}
 ${SERIALIZATION_GUARD_SOURCE}
+${TRUSTED_ERROR_SOURCE}
 return Object.freeze({
+  getTrustedErrorCode: __runTrustedErrorHandles.getCode,
+  registerTrustedError: __runTrustedErrorHandles.register,
   resetDateNow: __runResetDateNow,
   serializeJsonPayload: __runSerializeJsonPayloadHandle
 });
