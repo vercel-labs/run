@@ -43,6 +43,7 @@ let activeCancellation:
 let pendingInvocationFailure:
   | { invocationId: string; error: unknown }
   | undefined;
+const MAX_SAFE_WASI_STACK_LIMIT_BYTES = 512 * 1024;
 
 parentPort.on('message', async (value: unknown) => {
   try {
@@ -176,6 +177,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       executionTimedOut ||= timedOut;
       return cancelled || timedOut;
     },
+    maxStackSizeBytes: message.options.maxStackSizeBytes,
     memoryLimitBytes: message.options.memoryLimitBytes,
   });
   let bridgeFunctions: { invokeHostFunction: JSValueHandle } | undefined;
@@ -374,6 +376,7 @@ function rejectPendingBridgeRequests(
 
 async function createQuickJSContext(options: {
   interruptHandler: () => boolean;
+  maxStackSizeBytes: number;
   memoryLimitBytes: number;
 }): Promise<QuickJS> {
   const embeddedWasmBase64 = getEmbeddedQuickJsWasmBase64();
@@ -382,6 +385,10 @@ async function createQuickJSContext(options: {
   }
   return QuickJS.create({
     interruptHandler: options.interruptHandler,
+    maxStackSize: Math.min(
+      options.maxStackSizeBytes,
+      MAX_SAFE_WASI_STACK_LIMIT_BYTES,
+    ),
     memoryLimit: options.memoryLimitBytes,
     wasm: await getEmbeddedQuickJsWasmModule(embeddedWasmBase64),
   });

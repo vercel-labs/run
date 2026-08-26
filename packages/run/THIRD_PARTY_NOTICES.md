@@ -8,7 +8,7 @@ WebAssembly artifact:
 | Package        | Version | License |
 | -------------- | ------- | ------- |
 | `devalue`      | 5.8.2   | MIT     |
-| `quickjs-wasi` | 3.5.0   | MIT     |
+| `quickjs-wasi` | 3.6.0   | MIT     |
 
 The release verification script rejects unreviewed changes to these embedded
 dependencies.

@@ -95,6 +95,38 @@ describe('resource and lifecycle hardening', () => {
     }
   });
 
+  it('surfaces stack exhaustion as a catchable guest error at the configured limit', async () => {
+    await expect(
+      run({
+        limits: {
+          maxStackSizeBytes: 64 * 1024,
+          timeoutMs: 1000,
+        },
+        source: `
+            function recurse() {
+              return recurse();
+            }
+            try {
+              recurse();
+              return { caught: false };
+            } catch (error) {
+              return {
+                caught: true,
+                message: String(error && error.message),
+                name: String(error && error.name),
+              };
+            }
+          `,
+      }),
+    ).resolves.toMatchObject({
+      status: 'completed',
+      value: {
+        caught: true,
+        message: expect.stringMatching(/stack/i),
+      },
+    });
+  });
+
   it('aborts a pending host function on timeout and releases runtime capacity', async () => {
     const started = deferred<null>();
     const aborted = deferred<null>();
