@@ -13,7 +13,7 @@ const expected = [
   {
     license: 'MIT',
     name: 'quickjs-wasi',
-    version: '3.5.0',
+    version: '3.6.0',
   },
 ];
 
