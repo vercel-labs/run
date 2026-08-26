@@ -181,6 +181,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let consoleFormatter: QuickJSHandle | undefined;
   let determinismHandle: QuickJSHandle | undefined;
   let resetDateNowHandle: QuickJSHandle | undefined;
+  let serializeJsonPayloadHandle: QuickJSHandle | undefined;
   let cancelled = false;
   let executionTimedOut = false;
   let executionFailure: { error: unknown } | undefined;
@@ -234,13 +235,19 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       () => resetDateNowHandle,
     );
     determinismHandle = jsToHandle(context, message.determinism);
-    resetDateNowHandle = await initializeGuestRuntime(
+    const guestRuntimeHandles = await initializeGuestRuntime(
       context,
       message,
       bridgeFunctions.invokeHostFunction,
       determinismHandle,
     );
-    const valueJson = await evaluateUserSource(context, message);
+    resetDateNowHandle = guestRuntimeHandles.resetDateNow;
+    serializeJsonPayloadHandle = guestRuntimeHandles.serializeJsonPayload;
+    const valueJson = await evaluateUserSource(
+      context,
+      message,
+      serializeJsonPayloadHandle,
+    );
     const completedFailure = getExecutionFailure();
     if (completedFailure !== undefined) {
       throw completedFailure.error;
@@ -284,6 +291,9 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     if (resetDateNowHandle?.alive) {
       resetDateNowHandle.dispose();
     }
+    if (serializeJsonPayloadHandle?.alive) {
+      serializeJsonPayloadHandle.dispose();
+    }
     if (determinismHandle?.alive) {
       determinismHandle.dispose();
     }
@@ -296,7 +306,10 @@ async function initializeGuestRuntime(
   message: WorkerRunMessage,
   invokeHostFunction: QuickJSHandle,
   determinismHandle: QuickJSHandle,
-): Promise<QuickJSHandle | undefined> {
+): Promise<{
+  resetDateNow: QuickJSHandle;
+  serializeJsonPayload: QuickJSHandle;
+}> {
   const setupSource = buildGuestRuntimeSetupSource(
     message.hostFunctionNamespaces,
   );
@@ -326,14 +339,21 @@ async function initializeGuestRuntime(
       throw toError(error);
     }
     if (!setupCallResult.value.alive) {
-      return undefined;
+      throw new Error('Guest runtime setup did not return its handles.');
     }
     const resetDateNowHandle = context.getProp(
       setupCallResult.value,
       'resetDateNow',
     );
+    const serializeJsonPayloadHandle = context.getProp(
+      setupCallResult.value,
+      'serializeJsonPayload',
+    );
     setupCallResult.value.dispose();
-    return resetDateNowHandle;
+    return {
+      resetDateNow: resetDateNowHandle,
+      serializeJsonPayload: serializeJsonPayloadHandle,
+    };
   } finally {
     if (setupEvalResult.value.alive) {
       setupEvalResult.value.dispose();
@@ -344,6 +364,7 @@ async function initializeGuestRuntime(
 async function evaluateUserSource(
   context: QuickJSAsyncContext,
   message: WorkerRunMessage,
+  serializeJsonPayload: QuickJSHandle,
 ): Promise<string> {
   const wrapped = wrapUserCode(message.source);
   const evalResult = await context.evalCodeAsync(wrapped, 'run.js');
@@ -371,7 +392,11 @@ async function evaluateUserSource(
     throw toUserSourceError(error, message.source);
   }
 
-  const valueJson = serializeQuickJSJsonPayload(context, resolvedResult.value);
+  const valueJson = serializeQuickJSJsonPayload(
+    context,
+    serializeJsonPayload,
+    resolvedResult.value,
+  );
   if (resolvedResult.value.alive) {
     resolvedResult.value.dispose();
   }
@@ -438,31 +463,22 @@ function decodeBase64ArrayBuffer(value: string): ArrayBuffer {
 
 function serializeQuickJSJsonPayload(
   context: QuickJSAsyncContext,
+  serialize: QuickJSHandle,
   value: QuickJSHandle,
 ): string {
-  const serialize = context.getProp(
-    context.global,
-    '__runSerializeJsonPayload',
-  );
-  try {
-    const result = context.callFunction(serialize, context.undefined, value);
-    if (result.error) {
-      const error = context.dump(result.error);
-      if (result.error.alive) {
-        result.error.dispose();
-      }
-      throw toError(error);
+  const result = context.callFunction(serialize, context.undefined, value);
+  if (result.error) {
+    const error = context.dump(result.error);
+    if (result.error.alive) {
+      result.error.dispose();
     }
-    const valueJson = context.getString(result.value);
-    if (result.value.alive) {
-      result.value.dispose();
-    }
-    return valueJson;
-  } finally {
-    if (serialize.alive) {
-      serialize.dispose();
-    }
+    throw toError(error);
   }
+  const valueJson = context.getString(result.value);
+  if (result.value.alive) {
+    result.value.dispose();
+  }
+  return valueJson;
 }
 
 function installConsole(
