@@ -380,7 +380,12 @@ const HOST_FUNCTIONS_PROXY_SOURCE = `
   function serializationError(label, error) {
     var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
     var result = new __runOriginalTypeError(label + ': ' + message);
-    result.code = 'RUN_SERIALIZATION_ERROR';
+    __runOriginalObject.defineProperty(result, 'code', {
+      value: 'RUN_SERIALIZATION_ERROR',
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
     return result;
   }
 
@@ -446,13 +451,23 @@ const __runSerializeJsonPayloadHandle = (function() {
     } catch (error) {
       var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
       var serializationError = new __runOriginalTypeError('JavaScript runtime result is not serializable: ' + message);
-      serializationError.code = 'RUN_SERIALIZATION_ERROR';
+      __runOriginalObject.defineProperty(serializationError, 'code', {
+        value: 'RUN_SERIALIZATION_ERROR',
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
       throw serializationError;
     }
 
     if (encoded === undefined) {
       var serializationError = new __runOriginalTypeError('JavaScript runtime result is not serializable.');
-      serializationError.code = 'RUN_SERIALIZATION_ERROR';
+      __runOriginalObject.defineProperty(serializationError, 'code', {
+        value: 'RUN_SERIALIZATION_ERROR',
+        writable: true,
+        configurable: true,
+        enumerable: true
+      });
       throw serializationError;
     }
 

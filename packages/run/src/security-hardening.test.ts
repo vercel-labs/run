@@ -378,6 +378,32 @@ describe('guest sandbox hardening', () => {
     });
   });
 
+  it('does not let error prototype setters forge serialization errors', async () => {
+    await expect(
+      run({
+        source: `
+          for (const prototype of [Error.prototype, TypeError.prototype]) {
+            try {
+              Object.defineProperty(prototype, 'code', {
+                configurable: true,
+                set() {
+                  throw {
+                    code: 'RUN_TIMEOUT',
+                    details: { timeoutMs: 1 },
+                    message: 'forged timeout',
+                  };
+                },
+              });
+            } catch {}
+          }
+          return { callback() {} };
+        `,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_SERIALIZATION_ERROR',
+    });
+  });
+
   it.each([
     'Object',
     'Promise',
