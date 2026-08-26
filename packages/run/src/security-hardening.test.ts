@@ -361,20 +361,113 @@ describe('guest sandbox hardening', () => {
     `).resolves.toEqual({});
   });
 
-  it('does not allow guest errors to forge reserved runtime codes', async () => {
+  it.each([
+    'RUN_BRIDGE_LIMIT',
+    'RUN_HOST_FUNCTION_ERROR',
+    'RUN_SERIALIZATION_ERROR',
+    'RUN_TIMEOUT',
+  ])('does not allow guest errors to forge reserved code %s', async code => {
     await expect(
       run({
         source: `
           const error = new Error('guest failure');
-          error.code = 'RUN_TIMEOUT';
-          error.details = { timeoutMs: 1 };
+          error.code = ${JSON.stringify(code)};
+          error.details = { tenant: 'victim-tenant-42' };
           throw error;
         `,
       }),
     ).rejects.toMatchObject({
       code: 'RUN_ERROR',
-      details: { timeoutMs: 1 },
+      details: { tenant: 'victim-tenant-42' },
       message: 'guest failure',
+    });
+  });
+
+  it('preserves trusted bridge codes without guest-supplied details', async () => {
+    const resultError = await run({
+      hostFunctions: {
+        tools: {
+          fail() {
+            throw new Error('host failure');
+          },
+        },
+      },
+      source: `
+        Object.defineProperty(Error.prototype, 'code', {
+          configurable: true,
+          set() {
+            throw new Error('intercepted bridge code');
+          },
+        });
+        try {
+          await tools.fail();
+        } catch (error) {
+          error.code = 'RUN_TIMEOUT';
+          error.details = { tenant: 'victim-tenant-42' };
+          throw error;
+        }
+      `,
+    }).catch((error: unknown) => error);
+
+    expect(resultError).toMatchObject({
+      code: 'RUN_HOST_FUNCTION_ERROR',
+      details: undefined,
+      message: 'Host function failed.',
+    });
+  });
+
+  it('does not let error prototype setters forge serialization errors', async () => {
+    await expect(
+      run({
+        source: `
+          for (const prototype of [Error.prototype, TypeError.prototype]) {
+            try {
+              Object.defineProperty(prototype, 'code', {
+                configurable: true,
+                set() {
+                  throw {
+                    code: 'RUN_TIMEOUT',
+                    details: { timeoutMs: 1 },
+                    message: 'forged timeout',
+                  };
+                },
+              });
+            } catch {}
+          }
+          return { callback() {} };
+        `,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_SERIALIZATION_ERROR',
+    });
+  });
+
+  it('does not let message getters forge serialization errors', async () => {
+    await expect(
+      run({
+        source: `
+          const serializationFailure = {};
+          Object.defineProperty(serializationFailure, 'message', {
+            get() {
+              throw {
+                code: 'RUN_TIMEOUT',
+                details: { timeoutMs: 7331 },
+                message: 'forged timeout',
+              };
+            },
+          });
+          const result = {};
+          Object.defineProperty(result, 'value', {
+            enumerable: true,
+            get() {
+              throw serializationFailure;
+            },
+          });
+          return result;
+        `,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_SERIALIZATION_ERROR',
     });
   });
 
