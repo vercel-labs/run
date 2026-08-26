@@ -416,7 +416,7 @@ const HOST_FUNCTIONS_PROXY_SOURCE = `
 `;
 
 const SERIALIZATION_GUARD_SOURCE = `
-(function() {
+const __runSerializeJsonPayloadHandle = (function() {
   function serializeValuePayload(value) {
     if (typeof globalThis.__runAssertNoDetachedBridgeCalls === 'function') {
       globalThis.__runAssertNoDetachedBridgeCalls();
@@ -446,6 +446,7 @@ const SERIALIZATION_GUARD_SOURCE = `
     writable: false,
     configurable: false,
   });
+  return serializeValuePayload;
 })();
 `;
 
@@ -473,7 +474,10 @@ ${HARDENING_SOURCE}
 ${BRIDGE_TRACKING_SOURCE}
 ${HOST_FUNCTIONS_PROXY_SOURCE}
 ${SERIALIZATION_GUARD_SOURCE}
-return Object.freeze({ resetDateNow: __runResetDateNow });
+return Object.freeze({
+  resetDateNow: __runResetDateNow,
+  serializeJsonPayload: __runSerializeJsonPayloadHandle
+});
 })
 `;
 };
