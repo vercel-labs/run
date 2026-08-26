@@ -238,6 +238,34 @@ describe('guest sandbox hardening', () => {
     `).resolves.toBe('legitimate result');
   });
 
+  it('uses captured bridge tracking after guest global redefinition', async () => {
+    let sideEffects = 0;
+
+    await expect(
+      run({
+        hostFunctions: {
+          tools: {
+            sideEffect: () => {
+              sideEffects += 1;
+            },
+          },
+        },
+        source: `
+          try {
+            Object.defineProperty(globalThis, '__runCreateBridgePromise', {
+              value: (_kind, _name, start) => start(),
+              writable: false,
+              configurable: false,
+            });
+          } catch {}
+          tools.sideEffect();
+          return 'clean';
+        `,
+      }),
+    ).rejects.toBeInstanceOf(RunDetachedBridgeRequestError);
+    expect(sideEffects).toBe(0);
+  });
+
   it('locks every privileged guest global binding', async () => {
     const results = (await value(`
       const realmGlobal = globalThis;
