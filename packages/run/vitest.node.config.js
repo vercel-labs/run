@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 
-const isBunRuntime = typeof globalThis.Bun !== 'undefined';
+const isBunRuntime = globalThis.Bun !== undefined;
 
 export default defineConfig({
   resolve: {
