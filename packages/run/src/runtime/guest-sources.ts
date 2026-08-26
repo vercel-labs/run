@@ -254,7 +254,7 @@ var __runResetDateNow = (function(config) {
 `;
 
 const BRIDGE_TRACKING_SOURCE = `
-(function() {
+const __runCreateBridgePromiseHandle = (function() {
   var nextRecordId = 0;
   var records = [];
 
@@ -288,51 +288,53 @@ const BRIDGE_TRACKING_SOURCE = `
     return error;
   }
 
-  Object.defineProperty(globalThis, '__runCreateBridgePromise', {
-    value: function(kind, name, start) {
-      var record = {
-        id: ++nextRecordId,
-        kind: __runOriginalString(kind),
-        name: __runOriginalString(name || ''),
-        observed: false,
-        status: 'idle'
-      };
-      var promise;
-      records.push(record);
+  function createBridgePromise(kind, name, start) {
+    var record = {
+      id: ++nextRecordId,
+      kind: __runOriginalString(kind),
+      name: __runOriginalString(name || ''),
+      observed: false,
+      status: 'idle'
+    };
+    var promise;
+    records.push(record);
 
-      function getPromise() {
-        record.observed = true;
-        if (!promise) {
-          record.status = 'pending';
-          promise = __runOriginalPromise.resolve().then(start).then(
-            function(value) {
-              record.status = 'fulfilled';
-              return value;
-            },
-            function(error) {
-              record.status = 'rejected';
-              throw error;
-            }
-          );
-        }
-        return promise;
+    function getPromise() {
+      record.observed = true;
+      if (!promise) {
+        record.status = 'pending';
+        promise = __runOriginalPromise.resolve().then(start).then(
+          function(value) {
+            record.status = 'fulfilled';
+            return value;
+          },
+          function(error) {
+            record.status = 'rejected';
+            throw error;
+          }
+        );
       }
+      return promise;
+    }
 
-      return __runOriginalObject.freeze({
-        then: function(onFulfilled, onRejected) {
-          return getPromise().then(onFulfilled, onRejected);
-        },
-        catch: function(onRejected) {
-          return getPromise().catch(onRejected);
-        },
-        finally: function(onFinally) {
-          return getPromise().finally(onFinally);
-        },
-        get [__runOriginalSymbol.toStringTag]() {
-          return 'Promise';
-        }
-      });
-    },
+    return __runOriginalObject.freeze({
+      then: function(onFulfilled, onRejected) {
+        return getPromise().then(onFulfilled, onRejected);
+      },
+      catch: function(onRejected) {
+        return getPromise().catch(onRejected);
+      },
+      finally: function(onFinally) {
+        return getPromise().finally(onFinally);
+      },
+      get [__runOriginalSymbol.toStringTag]() {
+        return 'Promise';
+      }
+    });
+  }
+
+  Object.defineProperty(globalThis, '__runCreateBridgePromise', {
+    value: createBridgePromise,
     writable: false,
     configurable: false
   });
@@ -358,11 +360,12 @@ const BRIDGE_TRACKING_SOURCE = `
     writable: false,
     configurable: false
   });
+  return createBridgePromise;
 })();
 `;
 
 const HOST_FUNCTIONS_PROXY_SOURCE = `
-(function(invokeHostFunction, hostFunctionNamespaces) {
+(function(invokeHostFunction, hostFunctionNamespaces, createBridgePromise) {
   function serializationError(label, error) {
     var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
     var result = new __runOriginalTypeError(label + ': ' + message);
@@ -386,7 +389,7 @@ const HOST_FUNCTIONS_PROXY_SOURCE = `
         } catch (error) {
           throw serializationError('Host function arguments are not serializable', error);
         }
-        return globalThis.__runCreateBridgePromise('hostFunction', hostFunctionPath, async function() {
+        return createBridgePromise('hostFunction', hostFunctionPath, async function() {
           var resultJson;
           try {
             resultJson = await invokeHostFunction(hostFunctionPath, inputJson);
@@ -412,7 +415,11 @@ const HOST_FUNCTIONS_PROXY_SOURCE = `
       configurable: false
     });
   }
-})(__runInvokeHostFunction, __runHostFunctionNamespaces);
+})(
+  __runInvokeHostFunction,
+  __runHostFunctionNamespaces,
+  __runCreateBridgePromiseHandle
+);
 `;
 
 const SERIALIZATION_GUARD_SOURCE = `
