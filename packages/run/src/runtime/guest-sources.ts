@@ -378,7 +378,7 @@ const __runCreateBridgePromiseHandle = (function() {
 const HOST_FUNCTIONS_PROXY_SOURCE = `
 (function(invokeHostFunction, hostFunctionNamespaces, createBridgePromise) {
   function serializationError(label, error) {
-    var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
+    var message = __runSafeErrorMessage(error);
     var result = new __runOriginalTypeError(label + ': ' + message);
     __runOriginalObject.defineProperty(result, 'code', {
       value: 'RUN_SERIALIZATION_ERROR',
@@ -449,7 +449,7 @@ const __runSerializeJsonPayloadHandle = (function() {
     try {
       encoded = __runSerdeBundle.serializeRunValue(value);
     } catch (error) {
-      var message = error && error.message ? __runOriginalString(error.message) : __runOriginalString(error);
+      var message = __runSafeErrorMessage(error);
       var serializationError = new __runOriginalTypeError('JavaScript runtime result is not serializable: ' + message);
       __runOriginalObject.defineProperty(serializationError, 'code', {
         value: 'RUN_SERIALIZATION_ERROR',
@@ -531,6 +531,21 @@ const __runOriginalString = String;
 const __runOriginalSymbol = Symbol;
 const __runOriginalTypeError = TypeError;
 const __runOriginalWeakMap = WeakMap;
+function __runSafeErrorMessage(error) {
+  if (typeof error === 'string') return error;
+  if (
+    (typeof error === 'object' && error !== null) ||
+    typeof error === 'function'
+  ) {
+    try {
+      var descriptor = __runOriginalObject.getOwnPropertyDescriptor(error, 'message');
+      if (descriptor && typeof descriptor.value === 'string') {
+        return descriptor.value;
+      }
+    } catch {}
+  }
+  return 'Serialization failed.';
+}
 ${DETERMINISTIC_APIS_SOURCE}
 ${BASE64_SOURCE}
 ${GUEST_SERDE_SOURCE}

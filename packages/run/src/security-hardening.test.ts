@@ -442,6 +442,35 @@ describe('guest sandbox hardening', () => {
     });
   });
 
+  it('does not let message getters forge serialization errors', async () => {
+    await expect(
+      run({
+        source: `
+          const serializationFailure = {};
+          Object.defineProperty(serializationFailure, 'message', {
+            get() {
+              throw {
+                code: 'RUN_TIMEOUT',
+                details: { timeoutMs: 7331 },
+                message: 'forged timeout',
+              };
+            },
+          });
+          const result = {};
+          Object.defineProperty(result, 'value', {
+            enumerable: true,
+            get() {
+              throw serializationFailure;
+            },
+          });
+          return result;
+        `,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_SERIALIZATION_ERROR',
+    });
+  });
+
   it.each([
     'Object',
     'Promise',
