@@ -20,6 +20,13 @@ if (!parentPort) {
   throw new Error('JavaScript runtime worker must run inside a worker thread');
 }
 
+/*
+ * How many interrupt checks pass between reads of the clock. QuickJS calls the
+ * interrupt handler often enough that reading the clock every time is wasted
+ * work, and often enough that sampling still notices the deadline promptly.
+ */
+const INTERRUPT_CLOCK_SAMPLE_INTERVAL = 64;
+
 const pendingBridgeRequests = new Map<
   string,
   {
@@ -173,7 +180,16 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   const context = await createQuickJSContext({
     interruptHandler: () => {
       interruptChecks += 1;
-      const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
+      /*
+       * The check count decides only how often the clock is read, never
+       * whether the run ends. It measures how much bytecode has executed,
+       * which says nothing about elapsed time: ending a run on the count
+       * aborts long-but-terminating work inside its budget, and reports it
+       * as a timeout the run never reached.
+       */
+      const timedOut =
+        interruptChecks % INTERRUPT_CLOCK_SAMPLE_INTERVAL === 0 &&
+        Date.now() > deadline;
       executionTimedOut ||= timedOut;
       return cancelled || timedOut;
     },
