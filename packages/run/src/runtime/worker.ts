@@ -282,22 +282,22 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     for (const [requestId] of pendingForInvocation) {
       pendingBridgeRequests.delete(requestId);
     }
-    if (bridgeFunctions?.invokeHostFunction.alive) {
-      bridgeFunctions.invokeHostFunction.dispose();
-    }
-    if (consoleFormatter?.alive) {
-      consoleFormatter.dispose();
-    }
-    if (resetDateNowHandle?.alive) {
-      resetDateNowHandle.dispose();
-    }
-    if (serializeJsonPayloadHandle?.alive) {
-      serializeJsonPayloadHandle.dispose();
-    }
-    if (determinismHandle?.alive) {
-      determinismHandle.dispose();
-    }
+    disposeHandles(
+      bridgeFunctions?.invokeHostFunction,
+      consoleFormatter,
+      resetDateNowHandle,
+      serializeJsonPayloadHandle,
+      determinismHandle,
+    );
     context.dispose();
+  }
+}
+
+function disposeHandles(...handles: (QuickJSHandle | undefined)[]): void {
+  for (const handle of handles) {
+    if (handle?.alive) {
+      handle.dispose();
+    }
   }
 }
 
