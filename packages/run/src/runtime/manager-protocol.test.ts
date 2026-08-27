@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getHostFunctionContext } from '../host-function-context.js';
 import { createRunner, run } from '../run.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
-import { setRuntimeWorkerFactoryForTest } from './manager.js';
+import {
+  getRuntimeDiagnostics,
+  setRuntimeWorkerFactoryForTest,
+} from './manager.js';
 
 type WorkerListener = (value: unknown) => void;
 type WorkerEmit = (event: string, value: unknown) => void;
@@ -279,5 +282,42 @@ describe('manager protocol state machine', () => {
       continuation: 'encoded-interruption',
       status: 'interrupted',
     });
+  });
+
+  it('discards a pooled worker that reports an error while idle', async () => {
+    let emitWorker: WorkerEmit | undefined;
+    setRuntimeWorkerFactoryForTest(() =>
+      createWorkerDouble({
+        postMessage: (value, emit) => {
+          emitWorker = emit;
+          const message = value as { invocationId?: string; type?: string };
+          const { invocationId } = message;
+          if (message.type !== 'run' || invocationId === undefined) {
+            return;
+          }
+          queueMicrotask(() => {
+            emit('message', {
+              invocationId,
+              success: true,
+              type: 'result',
+              valueJson: '[1]',
+            });
+            emit('message', { invocationId, type: 'ready' });
+          });
+        },
+        terminate: emit => emit('exit', 0),
+      }),
+    );
+
+    await expect(run({ source: 'return 1;' })).resolves.toEqual({
+      status: 'completed',
+      value: 1,
+    });
+    const pooledWorkers = getRuntimeDiagnostics().idleWorkers;
+    expect(pooledWorkers).toBeGreaterThan(0);
+
+    emitWorker?.('error', new Error('idle worker crashed'));
+
+    expect(getRuntimeDiagnostics().idleWorkers).toBe(pooledWorkers - 1);
   });
 });

@@ -1209,6 +1209,7 @@ function acquireWorker(maxPoolSize: number): PooledWorker {
   }
   pooledWorker ??= createWorker();
   pooledWorker.worker.removeAllListeners('exit');
+  pooledWorker.worker.removeAllListeners('error');
   pooledWorker.worker.ref();
   trimIdleWorkers(Math.max(0, maxPoolSize - activeInvocations));
   return pooledWorker;
@@ -1239,13 +1240,17 @@ function releaseWorker(pooledWorker: PooledWorker): void {
   if (pooledWorker.destroyed) {
     return;
   }
-  pooledWorker.worker.once('exit', () => {
+  const discardPooledWorker = () => {
     pooledWorker.destroyed = true;
     const index = idleWorkers.indexOf(pooledWorker);
     if (index !== -1) {
       idleWorkers.splice(index, 1);
     }
-  });
+  };
+  pooledWorker.worker.once('exit', discardPooledWorker);
+  // An idle worker has no invocation-scoped listeners, so an 'error' at rest
+  // would reach a bare EventEmitter and throw in the host process.
+  pooledWorker.worker.once('error', discardPooledWorker);
   pooledWorker.worker.unref();
   idleWorkers.push(pooledWorker);
 }
