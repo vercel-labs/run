@@ -15,9 +15,9 @@ service requires a host function.
 
 ## Source
 
-The `source` property accepts JavaScript or type-stripped TypeScript. The source
-is evaluated as the body of an asynchronous function rather than as a module,
-so it can use top-level `await` and `return`.
+The `source` property accepts JavaScript or type-stripped TypeScript. By default,
+source is evaluated as the body of an asynchronous function, so it can use
+top-level `await` and `return`.
 
 ```ts
 const result = await run({
@@ -36,11 +36,12 @@ const result = await run({
   with `atob()` and `btoa()`.
 - The guest implementation of `Date` and `Math.random()` is deterministic. This
   allows an interrupted run to execute consistently when it is replayed.
-- TypeScript annotations are stripped before execution. Common TypeScript
-  syntax works, but nothing is type-checked and this is not a full TypeScript
-  compiler.
-- The source cannot use static imports or dynamic `import()`. Dependencies must
-  either be included directly in the source or represented by a host function.
+- TypeScript annotations are stripped before execution when the runtime has a
+  native stripper. Node 20 uses the optional `typescript` peer dependency as a
+  fallback. Nothing is type-checked.
+- Default function-body source cannot import modules. Passing a `moduleLoader`
+  evaluates source as an ES module and enables static and dynamic imports
+  through host-controlled resolution.
 - The sandbox does not provide Node.js globals such as `process`, `require`,
   `module`, or `Buffer`. It also does not provide browser networking APIs such
   as `fetch`, `WebSocket`, or `XMLHttpRequest`.

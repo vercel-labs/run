@@ -53,7 +53,7 @@ import { run } from 'run';
   {
     "name": "source",
     "type": "string",
-    "description": "JavaScript or type-stripped TypeScript function-body source. Top-level await and return are supported."
+    "description": "JavaScript or type-stripped TypeScript source. Without moduleLoader it is an async function body with top-level await and return; with moduleLoader it is an ES module."
   },
   {
     "name": "hostFunctions",
@@ -80,6 +80,36 @@ import { run } from 'run';
                 ]
               }
             ]
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "moduleLoader",
+    "type": "RunModuleLoader",
+    "isOptional": true,
+    "description": "A host-controlled native ES module loader. Its presence evaluates source as a module; completed module-backed runs have value undefined and cannot create or resume continuations.",
+    "properties": [
+      {
+        "type": "RunModuleLoader",
+        "parameters": [
+          {
+            "name": "identity",
+            "type": "string",
+            "isOptional": true,
+            "description": "A stable loader identity, limited to 512 bytes."
+          },
+          {
+            "name": "normalize",
+            "type": "(specifier: string, importer: string) => string | Promise<string>",
+            "isOptional": true,
+            "description": "Returns the canonical module name for a raw specifier and importer. The raw specifier is used when omitted."
+          },
+          {
+            "name": "load",
+            "type": "(specifier: string) => string | Promise<string>",
+            "description": "Returns source text for a normalized module name."
           }
         ]
       }

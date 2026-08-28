@@ -23,8 +23,11 @@ const createRunMessage = (invocationId: string) => ({
   determinism: DETERMINISM,
   hostFunctionNamespaces: ['tools'],
   invocationId,
+  moduleLoader: false,
   options: WORKER_OPTIONS,
   source: 'return await tools.echo({ value: 1 });',
+  syncBridge: undefined,
+  syncHostFunctionNamespaces: [],
   type: 'run',
 });
 
@@ -37,6 +40,18 @@ const requireEntry = <T>(values: readonly T[], index: number): T => {
 };
 
 describe('worker protocol hardening', () => {
+  it('accepts an omitted bridge only when synchronous features are disabled', () => {
+    expect(() =>
+      assertMainToWorkerMessage(createRunMessage('run-a')),
+    ).not.toThrow();
+    expect(() =>
+      assertMainToWorkerMessage({
+        ...createRunMessage('run-b'),
+        syncHostFunctionNamespaces: ['fs'],
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'RUN_PROTOCOL_ERROR' }));
+  });
+
   it.each([
     null,
     {},
@@ -77,6 +92,7 @@ describe('worker protocol hardening', () => {
       inputJson: '[]',
       invocationId: 'run-1',
       requestId: 'request-1',
+      requestIndex: 1,
       type: 'host-function-request',
     },
     { invocationId: 'run-1', success: true, type: 'result' },
@@ -171,6 +187,7 @@ describe('worker protocol hardening', () => {
           inputJson: 'null',
           invocationId: 'run-a',
           requestId: 'request-a',
+          requestIndex: 1,
           type: 'host-function-request',
         },
       },

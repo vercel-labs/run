@@ -126,7 +126,9 @@ await runner.run({
 Synchronous host functions must settle to a serializable value and cannot
 interrupt a run. Their calls share `maxBridgeRequests` with ordinary host
 functions. Forward `getHostFunctionContext().abortSignal` to cancellable work;
-the signal is aborted on timeout or caller cancellation.
+the signal is aborted on timeout or caller cancellation. The synchronous bridge
+is allocated only for runs that configure synchronous bindings or a module
+loader, is included in invocation memory admission, and is capped at 64 MiB.
 
 ### Native ES modules
 
@@ -135,7 +137,7 @@ cyclic, and dynamic imports through QuickJS's native module loader:
 
 ```ts
 await runner.run({
-  source: `import { value } from './value.js'; export { value };`,
+  source: `import { value } from './value.js'; console.log(value);`,
   moduleLoader: {
     identity: 'workspace-v1',
     normalize(specifier, importer) {
@@ -151,7 +153,19 @@ await runner.run({
 `normalize` and `load` may be synchronous or asynchronous. Their results are
 bounded by the host-function bridge limits, and `SharedArrayBuffer` and
 `Atomics` remain unavailable to guest JavaScript. Module-backed runs cannot
-create or resume continuations.
+create or resume continuations. Loader failures are redacted before entering the
+sandbox.
+
+Entry modules execute for their side effects and a completed module-backed run
+has `value: undefined`; the module namespace is not serialized as the run
+result. This allows modules to export functions and cyclic namespaces without
+turning those exports into result-serialization failures.
+
+Native Node type stripping is used when the runtime provides it, and Bun uses
+its native TypeScript transpiler. On Node 20, install the optional `typescript`
+peer dependency to enable runtime type stripping. Without that peer, JavaScript
+and already type-stripped input remain supported and QuickJS reports unsupported
+TypeScript syntax without exposing a host module-resolution error.
 
 ### Host function context
 

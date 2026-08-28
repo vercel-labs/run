@@ -13,6 +13,11 @@ import { createRunner } from 'run';
 
 const runner = createRunner({
   limits: { timeoutMs: 10_000 },
+  syncHostFunctions: {
+    values: {
+      read: () => 42,
+    },
+  },
 });
 
 const result = await runner.run<number>({
@@ -119,6 +124,24 @@ import { createRunner } from 'run';
             "type": "number",
             "isOptional": true,
             "description": "Maximum serialized continuation state in bytes. Default: 33554432."
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "name": "syncHostFunctions",
+    "type": "SyncHostFunctions",
+    "isOptional": true,
+    "description": "Host function groups exposed with synchronous guest call semantics. Calls must settle to serializable values, cannot interrupt, and share maxBridgeRequests with asynchronous host functions. Default: {}.",
+    "properties": [
+      {
+        "type": "SyncHostFunctions",
+        "parameters": [
+          {
+            "name": "[groupName]",
+            "type": "HostFunctionGroup",
+            "description": "A synchronous binding namespace. It cannot overlap an asynchronous host-function namespace."
           }
         ]
       }

@@ -481,6 +481,7 @@ const SYNC_HOST_FUNCTIONS_PROXY_SOURCE = `
           if (typeof serialized.name === 'string') error.name = serialized.name;
           if (typeof serialized.code === 'string') error.code = serialized.code;
           if (serialized.details !== undefined) error.details = serialized.details;
+          __runTrustedErrorHandles.register(error, serialized.name, serialized.code);
           throw error;
         }
         try {

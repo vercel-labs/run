@@ -107,23 +107,40 @@ const stripSnippetTypes = (source: string, moduleMode: boolean): string => {
   }
 
   if (bunTypeScriptTranspiler === undefined) {
-    typeScriptRuntime ??= require('typescript') as typeof ts;
+    try {
+      typeScriptRuntime ??= require('typescript') as typeof ts;
+    } catch {
+      // TypeScript is an optional Node 20 fallback. Without it, QuickJS reports
+      // unsupported syntax using guest coordinates rather than exposing a host
+      // module-resolution failure.
+      return source;
+    }
     const wrapperDeclaration = 'async function __runUser__()';
     const input = moduleMode ? source : `${wrapperDeclaration}{\n${source}\n}`;
-    const transformed = typeScriptRuntime.transpileModule(input, {
-      compilerOptions: {
-        module: typeScriptRuntime.ModuleKind.ESNext,
-        target: typeScriptRuntime.ScriptTarget.ES2023,
-      },
-    }).outputText;
-    if (moduleMode) {
-      return transformed;
+    try {
+      const transformed = typeScriptRuntime.transpileModule(input, {
+        compilerOptions: {
+          isolatedModules: true,
+          module: typeScriptRuntime.ModuleKind.ESNext,
+          target: typeScriptRuntime.ScriptTarget.ES2023,
+          verbatimModuleSyntax: true,
+        },
+      }).outputText;
+      if (moduleMode) {
+        return transformed;
+      }
+      return (
+        extractTransformedFunctionBody(transformed, wrapperDeclaration) ??
+        source
+      );
+    } catch {
+      return source;
     }
-    return (
-      extractTransformedFunctionBody(transformed, wrapperDeclaration) ?? source
-    );
   }
   try {
+    if (moduleMode) {
+      return bunTypeScriptTranspiler.transformSync(source);
+    }
     const wrapperDeclaration = 'async function __runUser__()';
     const transformed = bunTypeScriptTranspiler.transformSync(
       `${wrapperDeclaration}{\n${source}\n}`,

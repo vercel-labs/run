@@ -125,9 +125,9 @@ if (resumed.status === 'completed') {
 }
 ```
 
-The original source, host function names, audience, and continuation context
-must match when the run resumes. A mismatch rejects the continuation before the
-interrupted host function is invoked.
+The original source, asynchronous and synchronous host function names, audience,
+and continuation context must match when the run resumes. A mismatch rejects
+the continuation before the interrupted host function is invoked.
 
 Host function implementations are not compared. Deployments must preserve
 compatible behavior for interrupted host functions while old continuations
@@ -136,6 +136,11 @@ remain valid.
 Several host functions can interrupt during the same invocation. The result
 contains the full batch, and the host must resolve every interruption in that
 batch together. Replay may later reach another batch of interruptions.
+
+Continuations are limited to asynchronous host functions. A run cannot mint a
+continuation after it has used a synchronous binding, and replay rejects a
+synchronous bridge request before dispatching it. Module-backed runs cannot
+create or resume continuations.
 
 ## Signing
 

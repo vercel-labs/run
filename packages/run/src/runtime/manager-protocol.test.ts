@@ -8,6 +8,10 @@ import { setRuntimeWorkerFactoryForTest } from './manager.js';
 type WorkerListener = (value: unknown) => void;
 type WorkerEmit = (event: string, value: unknown) => void;
 
+function ThrowingSharedArrayBuffer(): never {
+  throw new RangeError('allocation failed');
+}
+
 const createWorkerDouble = ({
   postMessage,
   terminate,
@@ -107,7 +111,65 @@ const expectCleanRun = async (): Promise<void> => {
 };
 
 describe('manager protocol state machine', () => {
-  afterEach(() => setRuntimeWorkerFactoryForTest(undefined));
+  afterEach(() => {
+    setRuntimeWorkerFactoryForTest(undefined);
+    vi.unstubAllGlobals();
+  });
+
+  it('omits the synchronous bridge for ordinary runs', async () => {
+    let receivedSyncBridge: unknown = 'not-received';
+    setRuntimeWorkerFactoryForTest(() =>
+      createWorkerDouble({
+        postMessage: (value, emit) => {
+          const message = value as {
+            invocationId?: string;
+            syncBridge?: unknown;
+            type?: string;
+          };
+          if (message.type !== 'run' || message.invocationId === undefined) {
+            return;
+          }
+          receivedSyncBridge = message.syncBridge;
+          queueMicrotask(() => {
+            emit('message', {
+              invocationId: message.invocationId,
+              success: true,
+              type: 'result',
+              valueJson: '[1]',
+            });
+            emit('message', {
+              invocationId: message.invocationId,
+              type: 'ready',
+            });
+          });
+        },
+      }),
+    );
+
+    await expect(run({ source: 'return 1;' })).resolves.toEqual({
+      status: 'completed',
+      value: 1,
+    });
+    expect(receivedSyncBridge).toBeUndefined();
+  });
+
+  it('allocates the synchronous bridge before acquiring a worker', async () => {
+    const workerFactory = vi.fn(() =>
+      createProtocolWorker(invocationId => [
+        { invocationId, success: true, type: 'result', valueJson: '[1]' },
+        { invocationId, type: 'ready' },
+      ]),
+    );
+    setRuntimeWorkerFactoryForTest(workerFactory);
+    vi.stubGlobal('SharedArrayBuffer', ThrowingSharedArrayBuffer);
+
+    await expect(
+      createRunner({
+        syncHostFunctions: { values: { read: () => 1 } },
+      }).run({ source: 'return values.read();' }),
+    ).rejects.toThrow('allocation failed');
+    expect(workerFactory).not.toHaveBeenCalled();
+  });
 
   it.each([
     {
@@ -161,6 +223,7 @@ describe('manager protocol state machine', () => {
           inputJson: '[[]]',
           invocationId,
           requestId: `${invocationId}:bridge-1`,
+          requestIndex: 1,
           type: 'host-function-request',
         },
       ]),
@@ -223,6 +286,7 @@ describe('manager protocol state machine', () => {
               inputJson: '[[]]',
               invocationId: message.invocationId,
               requestId: `${message.invocationId}:bridge-1`,
+              requestIndex: 1,
               type: 'host-function-request',
             });
             emit('message', {

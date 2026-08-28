@@ -17,12 +17,14 @@ describe('synchronous bridge protocol', () => {
       kind: SyncBridgeRequestKind.HostFunction,
       name: 'fs.readFile',
       payload: '["/value"]',
+      requestIndex: 3,
       sequence: 1,
     });
     expect(readSyncBridgeRequest(buffer)).toEqual({
       kind: SyncBridgeRequestKind.HostFunction,
       name: 'fs.readFile',
       payload: '["/value"]',
+      requestIndex: 3,
       sequence: 1,
     });
 
@@ -44,10 +46,11 @@ describe('synchronous bridge protocol', () => {
       kind: SyncBridgeRequestKind.HostFunction,
       name: 'values.read',
       payload: '[]',
+      requestIndex: 1,
       sequence: 1,
     });
     const { header } = getSyncBridgeViews(buffer);
-    Atomics.store(header, SyncBridgeHeader.ReservedOne, 1);
+    Atomics.store(header, SyncBridgeHeader.Reserved, 1);
     expect(() => readSyncBridgeRequest(buffer)).toThrow(
       'Invalid synchronous bridge request header',
     );
@@ -70,6 +73,7 @@ describe('synchronous bridge protocol', () => {
         kind: SyncBridgeRequestKind.HostFunction,
         name: 'values.read',
         payload: 'x'.repeat(bytes.byteLength),
+        requestIndex: 1,
         sequence: 1,
       }),
     ).toThrow('exceeds the synchronous bridge capacity');

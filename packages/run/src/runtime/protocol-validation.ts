@@ -129,11 +129,14 @@ const assertHostFunctionRequest = (value: Record<string, unknown>): void => {
     'inputJson',
     'invocationId',
     'requestId',
+    'requestIndex',
     'type',
   ]);
   if (
     !isIdentifier(value.invocationId) ||
     !isIdentifier(value.requestId) ||
+    !Number.isSafeInteger(value.requestIndex) ||
+    (value.requestIndex as number) <= 0 ||
     typeof value.hostFunctionName !== 'string' ||
     value.hostFunctionName.length === 0 ||
     Buffer.byteLength(value.hostFunctionName) > 1024 ||
@@ -185,6 +188,16 @@ type AssertMainToWorkerMessage = (
   value: unknown,
 ) => asserts value is MainToWorkerMessage;
 
+const hasValidSyncBridgeConfiguration = (
+  value: Record<string, unknown>,
+): boolean =>
+  (value.syncBridge === undefined ||
+    value.syncBridge instanceof SharedArrayBuffer) &&
+  (!value.moduleLoader || value.syncBridge !== undefined) &&
+  (!Array.isArray(value.syncHostFunctionNamespaces) ||
+    value.syncHostFunctionNamespaces.length === 0 ||
+    value.syncBridge !== undefined);
+
 export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
   if (!isRecord(value) || typeof value.type !== 'string') {
     throw invalidMessage('main-to-worker');
@@ -213,7 +226,7 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
       new Set(value.syncHostFunctionNamespaces).size !==
         value.syncHostFunctionNamespaces.length ||
       typeof value.moduleLoader !== 'boolean' ||
-      !(value.syncBridge instanceof SharedArrayBuffer) ||
+      !hasValidSyncBridgeConfiguration(value) ||
       !isDeterminism(value.determinism) ||
       !isRunOptions(value.options)
     ) {

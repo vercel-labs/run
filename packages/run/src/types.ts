@@ -102,12 +102,17 @@ export interface RunnerOptions<TOKEN = string> {
 /** Input accepted by `run` and `Runner.run`. */
 export interface RunInput<TOKEN = unknown> {
   /**
-   * JavaScript or type-stripped TypeScript function-body source.
+   * JavaScript or type-stripped TypeScript function-body source. Runtime type
+   * stripping is used when provided natively by Node or Bun, or through the
+   * optional TypeScript peer dependency on Node 20.
    * Top-level `await` and `return` are supported.
    */
   source: string;
   hostFunctions?: HostFunctions;
-  /** Optional native ES module loader. Its presence evaluates source as ESM. */
+  /**
+   * Optional native ES module loader. Its presence evaluates source as ESM;
+   * entry-module evaluation completes with an undefined run value.
+   */
   moduleLoader?: RunModuleLoader;
   abortSignal?: AbortSignal;
   limits?: RunLimits;

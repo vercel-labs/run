@@ -4,6 +4,7 @@ import { parentPort } from 'node:worker_threads';
 import { EvalFlags, JSException, QuickJS } from 'quickjs-wasi';
 import type { Deferred, JSValueHandle } from 'quickjs-wasi';
 import {
+  deserializeError,
   RunProtocolError,
   RunTimeoutError,
   serializeError,
@@ -39,6 +40,7 @@ const pendingBridgeRequests = new Map<
   }
 >();
 let activeInvocationId: string | undefined;
+let aggregateBridgeRequestCounter = 0;
 let bridgeRequestCounter = 0;
 let bridgeIdleGeneration = 0;
 let syncBridgeRequestCounter = 0;
@@ -116,6 +118,7 @@ async function handleMainMessage(value: unknown): Promise<void> {
     }
 
     activeInvocationId = message.invocationId;
+    aggregateBridgeRequestCounter = 0;
     bridgeRequestCounter = 0;
     syncBridgeRequestCounter = 0;
     bridgeIdleGeneration += 1;
@@ -397,11 +400,16 @@ async function evaluateUserSource(
       modulePromise.dispose();
     }
     if ('error' in resolvedModule) {
+      const trustedCode = readTrustedErrorCode(
+        context,
+        getTrustedErrorCode,
+        resolvedModule.error,
+      );
       const error = dumpQuickJSErrorHandle(context, resolvedModule.error);
       if (!resolvedModule.error.disposed) {
         resolvedModule.error.dispose();
       }
-      throw toUserSourceError(error, message.source);
+      throw toUserSourceError(error, message.source, trustedCode);
     }
     if (!resolvedModule.value.disposed) {
       resolvedModule.value.dispose();
@@ -764,7 +772,7 @@ function requestSyncModuleNormalize(
     JSON.stringify([specifier, importer]),
   );
   if (!response.success) {
-    throw new Error(response.error.message);
+    throwModuleBridgeError(response.error);
   }
   const value = JSON.parse(response.payload) as unknown;
   if (typeof value !== 'string') {
@@ -784,7 +792,7 @@ function requestSyncModuleLoad(
     JSON.stringify([name]),
   );
   if (!response.success) {
-    throw new Error(response.error.message);
+    throwModuleBridgeError(response.error);
   }
   const value = JSON.parse(response.payload) as unknown;
   if (typeof value !== 'string') {
@@ -793,23 +801,50 @@ function requestSyncModuleLoad(
   return value;
 }
 
+function throwModuleBridgeError(
+  error: NonNullable<WorkerBridgeResponse['error']>,
+): never {
+  if (error.code !== undefined && error.code !== 'RUN_HOST_BRIDGE_ERROR') {
+    const trustedError = deserializeError(error);
+    trustedError.message = error.message;
+    activeCancellation?.fail(trustedError);
+  }
+  throw new Error(error.message);
+}
+
 function requestSyncHost(
   message: WorkerRunMessage,
   kind: SyncBridgeRequestKind,
   name: string,
   payload: string,
 ) {
-  const { header } = getSyncBridgeViews(message.syncBridge);
+  const { syncBridge } = message;
+  if (syncBridge === undefined) {
+    throw new RunProtocolError('Synchronous bridge is unavailable.');
+  }
+  if (Buffer.byteLength(name) > 1024) {
+    throw new Error('Synchronous bridge request name exceeds 1024 bytes.');
+  }
+  if (Buffer.byteLength(payload) > message.options.maxHostFunctionInputBytes) {
+    throw new Error(
+      `Synchronous bridge request arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
+    );
+  }
+  const { header } = getSyncBridgeViews(syncBridge);
   if (Atomics.load(header, SyncBridgeHeader.State) !== SyncBridgeState.Idle) {
     throw new RunProtocolError('Synchronous bridge was not idle.');
   }
-  syncBridgeRequestCounter += 1;
-  writeSyncBridgeRequest(message.syncBridge, {
+  const sequence = syncBridgeRequestCounter + 1;
+  const requestIndex = aggregateBridgeRequestCounter + 1;
+  writeSyncBridgeRequest(syncBridge, {
     kind,
     name,
     payload,
-    sequence: syncBridgeRequestCounter,
+    requestIndex,
+    sequence,
   });
+  syncBridgeRequestCounter = sequence;
+  aggregateBridgeRequestCounter = requestIndex;
   Atomics.store(header, SyncBridgeHeader.State, SyncBridgeState.Request);
   Atomics.notify(header, SyncBridgeHeader.State);
   while (
@@ -822,10 +857,7 @@ function requestSyncHost(
   ) {
     throw new RunProtocolError('Synchronous bridge closed before responding.');
   }
-  const response = readSyncBridgeResponse(
-    message.syncBridge,
-    syncBridgeRequestCounter,
-  );
+  const response = readSyncBridgeResponse(syncBridge, syncBridgeRequestCounter);
   Atomics.store(header, SyncBridgeHeader.State, SyncBridgeState.Idle);
   Atomics.notify(header, SyncBridgeHeader.State);
   return response;
@@ -838,6 +870,7 @@ function requestHost(
   resetDateNow?: JSValueHandle,
   registerTrustedError?: JSValueHandle,
 ): JSValueHandle {
+  aggregateBridgeRequestCounter += 1;
   bridgeRequestCounter += 1;
   const requestId = `${invocationId}:bridge-${bridgeRequestCounter}`;
   const deferred = context.newPromise();
@@ -852,6 +885,7 @@ function requestHost(
   parentPort?.postMessage({
     invocationId,
     requestId,
+    requestIndex: aggregateBridgeRequestCounter,
     type: 'host-function-request',
     ...payload,
   });

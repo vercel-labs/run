@@ -31,6 +31,18 @@ describe('source limits and transform cache', () => {
     expect(transformed.split('\n')).toHaveLength(source.split('\n').length);
   });
 
+  it('strips TypeScript syntax from ES module source', () => {
+    const source = 'export const value: number = 42;';
+    const transformed = transformSource(source, true);
+    expect(transformed).not.toContain(': number');
+    expect(transformed).toContain('export const value');
+  });
+
+  it('falls back when the host transformer rejects deeply nested source', () => {
+    const source = `${'('.repeat(1000)}1${')'.repeat(1000)}`;
+    expect(() => transformSource(source, true)).not.toThrow();
+  });
+
   it('does not extract Bun transforms that inject external helpers', () => {
     if ((globalThis as { Bun?: unknown }).Bun === undefined) {
       return;
