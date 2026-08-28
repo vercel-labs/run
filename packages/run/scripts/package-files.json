@@ -52,6 +52,8 @@
   "dist/runtime/protocol.js.map",
   "dist/runtime/source-stack.js",
   "dist/runtime/source-stack.js.map",
+  "dist/runtime/sync-bridge-protocol.js",
+  "dist/runtime/sync-bridge-protocol.js.map",
   "dist/runtime/worker-source.d.ts",
   "dist/runtime/worker-source.js",
   "dist/types.js",

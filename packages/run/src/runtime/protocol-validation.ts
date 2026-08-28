@@ -194,8 +194,11 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
       'determinism',
       'hostFunctionNamespaces',
       'invocationId',
+      'moduleLoader',
       'options',
       'source',
+      'syncBridge',
+      'syncHostFunctionNamespaces',
       'type',
     ]);
     if (
@@ -205,6 +208,12 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
       value.hostFunctionNamespaces.some(item => !isIdentifier(item)) ||
       new Set(value.hostFunctionNamespaces).size !==
         value.hostFunctionNamespaces.length ||
+      !Array.isArray(value.syncHostFunctionNamespaces) ||
+      value.syncHostFunctionNamespaces.some(item => !isIdentifier(item)) ||
+      new Set(value.syncHostFunctionNamespaces).size !==
+        value.syncHostFunctionNamespaces.length ||
+      typeof value.moduleLoader !== 'boolean' ||
+      !(value.syncBridge instanceof SharedArrayBuffer) ||
       !isDeterminism(value.determinism) ||
       !isRunOptions(value.options)
     ) {

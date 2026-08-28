@@ -45,6 +45,19 @@ export type HostFunctionGroup = Record<string, HostFunction<never[], unknown>>;
  */
 export type HostFunctions = Record<string, HostFunctionGroup>;
 
+/** Host functions exposed to guest JavaScript with synchronous call semantics. */
+export type SyncHostFunctions = HostFunctions;
+
+/** Native ES module resolver used by QuickJS. */
+export interface RunModuleLoader {
+  /** Stable identity used for diagnostics and future continuation scoping. */
+  identity?: string;
+  /** Resolve a raw specifier relative to its importing module. */
+  normalize?(specifier: string, importer: string): string | Promise<string>;
+  /** Return source code for a normalized module specifier. */
+  load(specifier: string): string | Promise<string>;
+}
+
 /** @internal */
 export type HostFunctionManifest = ReadonlyMap<string, ReadonlySet<string>>;
 
@@ -77,6 +90,8 @@ export interface RunLimits {
 /** Shared defaults used by a runner. */
 export interface RunnerOptions<TOKEN = string> {
   limits?: RunLimits;
+  /** Host functions exposed with synchronous guest call semantics. */
+  syncHostFunctions?: SyncHostFunctions;
   /** HMAC key used for signed continuations. Cannot be combined with continuationCodec. */
   continuationSecret?: string | Uint8Array;
   continuationCodec?: ContinuationCodec<TOKEN>;
@@ -92,6 +107,8 @@ export interface RunInput<TOKEN = unknown> {
    */
   source: string;
   hostFunctions?: HostFunctions;
+  /** Optional native ES module loader. Its presence evaluates source as ESM. */
+  moduleLoader?: RunModuleLoader;
   abortSignal?: AbortSignal;
   limits?: RunLimits;
   continuation?: TOKEN;
@@ -228,6 +245,8 @@ export interface Runner<TOKEN = unknown> {
 export interface InternalRunInput extends RunInput<unknown> {
   hostFunctions: HostFunctions;
   hostFunctionManifest: HostFunctionManifest;
+  syncHostFunctions: SyncHostFunctions;
+  syncHostFunctionManifest: HostFunctionManifest;
   limits: RunLimits;
   continuationCodec: ContinuationCodec;
   continuationAudience: string;

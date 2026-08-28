@@ -2,6 +2,7 @@ import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import * as nodeModule from 'node:module';
 import { RunSourceTooLargeError } from '../errors.js';
+import type ts from 'typescript';
 
 const MAX_CACHE_ENTRIES = 256;
 const MAX_CACHE_BYTES = 4 * 1024 * 1024;
@@ -19,6 +20,8 @@ const bunTypeScriptTranspiler =
   bunRuntime === undefined
     ? undefined
     : new bunRuntime.Transpiler({ loader: 'ts' });
+const require = nodeModule.createRequire(import.meta.url);
+let typeScriptRuntime: typeof ts | undefined;
 const transformedSourceCache = new Map<
   string,
   {
@@ -45,11 +48,47 @@ const evictTransformedSourceCache = (): void => {
   }
 };
 
-const stripSnippetTypes = (source: string): string => {
+const extractTransformedFunctionBody = (
+  transformed: string,
+  wrapperDeclaration: string,
+): string | undefined => {
+  const declarationStart = transformed.indexOf(wrapperDeclaration);
+  if (
+    declarationStart === -1 ||
+    transformed.slice(0, declarationStart).trim() !== ''
+  ) {
+    return undefined;
+  }
+  const bodyStart = transformed.indexOf(
+    '{',
+    declarationStart + wrapperDeclaration.length,
+  );
+  const bodyEnd = transformed.lastIndexOf('}');
+  if (
+    bodyStart === -1 ||
+    bodyEnd <= bodyStart ||
+    transformed.slice(bodyEnd + 1).trim() !== ''
+  ) {
+    return undefined;
+  }
+  return transformed
+    .slice(bodyStart + 1, bodyEnd)
+    .replace(/^\n/u, '')
+    .replace(/\n$/u, '');
+};
+
+const stripSnippetTypes = (source: string, moduleMode: boolean): string => {
   const { stripTypeScriptTypes } = nodeModule as typeof nodeModule & {
     stripTypeScriptTypes?: (source: string) => string;
   };
   if (stripTypeScriptTypes !== undefined) {
+    if (moduleMode) {
+      try {
+        return stripTypeScriptTypes(source);
+      } catch {
+        return source;
+      }
+    }
     const prefix = 'async function __runUser__(){\n';
     const suffix = '\n}';
     let stripped: string;
@@ -68,36 +107,30 @@ const stripSnippetTypes = (source: string): string => {
   }
 
   if (bunTypeScriptTranspiler === undefined) {
-    return source;
+    typeScriptRuntime ??= require('typescript') as typeof ts;
+    const wrapperDeclaration = 'async function __runUser__()';
+    const input = moduleMode ? source : `${wrapperDeclaration}{\n${source}\n}`;
+    const transformed = typeScriptRuntime.transpileModule(input, {
+      compilerOptions: {
+        module: typeScriptRuntime.ModuleKind.ESNext,
+        target: typeScriptRuntime.ScriptTarget.ES2023,
+      },
+    }).outputText;
+    if (moduleMode) {
+      return transformed;
+    }
+    return (
+      extractTransformedFunctionBody(transformed, wrapperDeclaration) ?? source
+    );
   }
   try {
     const wrapperDeclaration = 'async function __runUser__()';
     const transformed = bunTypeScriptTranspiler.transformSync(
       `${wrapperDeclaration}{\n${source}\n}`,
     );
-    const declarationStart = transformed.indexOf(wrapperDeclaration);
-    if (
-      declarationStart === -1 ||
-      transformed.slice(0, declarationStart).trim() !== ''
-    ) {
-      return source;
-    }
-    const bodyStart = transformed.indexOf(
-      '{',
-      declarationStart + wrapperDeclaration.length,
+    return (
+      extractTransformedFunctionBody(transformed, wrapperDeclaration) ?? source
     );
-    const bodyEnd = transformed.lastIndexOf('}');
-    if (
-      bodyStart === -1 ||
-      bodyEnd <= bodyStart ||
-      transformed.slice(bodyEnd + 1).trim() !== ''
-    ) {
-      return source;
-    }
-    return transformed
-      .slice(bodyStart + 1, bodyEnd)
-      .replace(/^\n/u, '')
-      .replace(/\n$/u, '');
   } catch {
     return source;
   }
@@ -113,9 +146,9 @@ export const assertSourceSize = (
   }
 };
 
-export const transformSource = (source: string): string => {
+export const transformSource = (source: string, moduleMode = false): string => {
   const hash = createHash('sha256')
-    .update('strip:')
+    .update(moduleMode ? 'strip-module:' : 'strip:')
     .update(source)
     .digest('hex');
   const cached = transformedSourceCache.get(hash);
@@ -125,7 +158,7 @@ export const transformSource = (source: string): string => {
     return cached.source;
   }
 
-  const transformed = stripSnippetTypes(source);
+  const transformed = stripSnippetTypes(source, moduleMode);
   const transformedBytes = byteLength(transformed);
   if (transformedBytes <= MAX_CACHE_ENTRY_BYTES) {
     transformedSourceCache.set(hash, {

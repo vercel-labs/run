@@ -9,6 +9,9 @@ export interface WorkerRunMessage {
   invocationId: string;
   source: string;
   hostFunctionNamespaces: string[];
+  syncHostFunctionNamespaces: string[];
+  moduleLoader: boolean;
+  syncBridge: SharedArrayBuffer;
   determinism: RunDeterminismState;
   options: Pick<
     NormalizedRunOptions,

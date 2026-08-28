@@ -26,6 +26,8 @@ export type {
   HostFunctionGroup,
   HostFunctionResumeContext,
   HostFunctions,
+  SyncHostFunctions,
+  RunModuleLoader,
   ContinuationCodec,
   ContinuationDecodeTransaction,
   ContinuationOperationContext,

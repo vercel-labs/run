@@ -12,9 +12,14 @@ import {
   RunTimeoutError,
   MAX_SERIALIZED_ERROR_BYTES,
   deserializeError,
+  serializeError,
   serializeBridgeErrorForGuest,
 } from '../errors.js';
-import { invokeHostFunction } from '../host-function-invocation.js';
+import {
+  invokeHostFunction,
+  raceAgainstAbort,
+} from '../host-function-invocation.js';
+import { runWithHostFunctionContext } from '../host-function-context.js';
 import {
   assertContinuationState,
   assertContinuationTokenSize,
@@ -59,11 +64,34 @@ import type {
 } from './protocol.js';
 import { assertWorkerToMainMessage } from './protocol-validation.js';
 import { INLINE_RUN_WORKER_SOURCE } from './worker-source.js';
+import {
+  SyncBridgeHeader,
+  SyncBridgeRequestKind,
+  SyncBridgeState,
+  createSyncBridgeBuffer,
+  getSyncBridgeViews,
+  readSyncBridgeRequest,
+  waitAsyncForSyncBridgeChange,
+  writeSyncBridgeResponse,
+} from './sync-bridge-protocol.js';
 
 interface PooledWorker {
   worker: Worker;
   destroyed: boolean;
 }
+
+const getSyncBridgeHostFunctionName = (
+  kind: SyncBridgeRequestKind,
+  name: string,
+): string => {
+  if (kind === SyncBridgeRequestKind.HostFunction) {
+    return name;
+  }
+  if (kind === SyncBridgeRequestKind.ModuleNormalize) {
+    return 'moduleLoader.normalize';
+  }
+  return 'moduleLoader.load';
+};
 
 interface ManagedWorkerRun {
   result: Promise<RunResult>;
@@ -329,7 +357,10 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
   activeInvocations += 1;
   try {
     assertSourceSize(input.source, normalizedOptions.maxSourceBytes);
-    const transformedSource = transformSource(input.source);
+    const transformedSource = transformSource(
+      input.source,
+      input.moduleLoader !== undefined,
+    );
     const scopeHash = createContinuationScopeHash(input, normalizedOptions);
     const continuationState = await readContinuation(
       input,
@@ -378,6 +409,9 @@ function startWorkerRun({
   originalSource,
   hostFunctions,
   hostFunctionManifest,
+  syncHostFunctions,
+  syncHostFunctionManifest,
+  moduleLoader,
   abortSignal,
   resolutions,
   continuationCodec,
@@ -418,6 +452,8 @@ function startWorkerRun({
   let workerCleanedUp = false;
   let workerCleanup: Promise<void> | undefined;
   let totalBridgeRequests = 0;
+  let asyncBridgeRequests = 0;
+  let syncBridgeRequests = 0;
   let inFlightBridgeRequests = 0;
   let suspensionSettling = false;
   let interruptedResultPending: RunInterruptedResult | undefined;
@@ -447,6 +483,11 @@ function startWorkerRun({
   };
   const logicalRunId =
     continuationState?.logicalRunId ?? randomBytes(16).toString('hex');
+  const syncBridge = createSyncBridgeBuffer(
+    normalizedOptions.maxHostFunctionInputBytes,
+    normalizedOptions.maxHostFunctionOutputBytes,
+  );
+  const { header: syncBridgeHeader } = getSyncBridgeViews(syncBridge);
 
   const {
     promise: result,
@@ -468,6 +509,12 @@ function startWorkerRun({
       return Promise.resolve();
     }
     workerCleanedUp = true;
+    Atomics.store(
+      syncBridgeHeader,
+      SyncBridgeHeader.State,
+      SyncBridgeState.Closed,
+    );
+    Atomics.notify(syncBridgeHeader, SyncBridgeHeader.State);
     clearTimeout(timeoutHandle);
     outerAbortSignal?.removeEventListener('abort', onAbort);
     worker.off('message', onMessage);
@@ -609,12 +656,12 @@ function startWorkerRun({
     }
 
     if (message.type === 'bridge-idle') {
-      if (message.requestCount !== totalBridgeRequests) {
+      if (message.requestCount !== asyncBridgeRequests) {
         failTerminal(
           new RunProtocolError(
-            `Worker bridge-idle count mismatch: expected ${totalBridgeRequests}, received ${message.requestCount}.`,
+            `Worker bridge-idle count mismatch: expected ${asyncBridgeRequests}, received ${message.requestCount}.`,
             {
-              expectedRequestCount: totalBridgeRequests,
+              expectedRequestCount: asyncBridgeRequests,
               receivedRequestCount: message.requestCount,
             },
           ),
@@ -670,6 +717,7 @@ function startWorkerRun({
     determinism,
     hostFunctionNamespaces: [...hostFunctionManifest.keys()],
     invocationId,
+    moduleLoader: moduleLoader !== undefined,
     options: {
       executionTimeoutMs: getWorkerExecutionTimeoutMs(
         normalizedOptions.timeoutMs,
@@ -682,8 +730,12 @@ function startWorkerRun({
       timeoutMs: timeoutErrorMs,
     },
     source,
+    syncBridge,
+    syncHostFunctionNamespaces: [...syncHostFunctionManifest.keys()],
     type: 'run',
   };
+
+  runInBackground(runSyncBridgeLoop());
 
   if (!terminalReached) {
     try {
@@ -698,11 +750,11 @@ function startWorkerRun({
 
   function markWorkerRequest(
     message: WorkerHostFunctionRequest,
-  ): number | undefined {
+  ): { bridgeIndex: number; requestIndex: number } | undefined {
     if (terminalReached) {
       return undefined;
     }
-    const expectedRequestId = `${invocationId}:bridge-${totalBridgeRequests + 1}`;
+    const expectedRequestId = `${invocationId}:bridge-${asyncBridgeRequests + 1}`;
     if (message.requestId !== expectedRequestId) {
       failTerminal(
         new RunProtocolError(
@@ -750,14 +802,19 @@ function startWorkerRun({
     }
 
     totalBridgeRequests += 1;
+    asyncBridgeRequests += 1;
     inFlightBridgeRequests += 1;
-    return totalBridgeRequests;
+    return {
+      bridgeIndex: asyncBridgeRequests,
+      requestIndex: totalBridgeRequests,
+    };
   }
 
   async function handleHostFunctionRequest(
     message: WorkerHostFunctionRequest,
-    bridgeIndex: number,
+    indexes: { bridgeIndex: number; requestIndex: number },
   ): Promise<void> {
+    const { bridgeIndex, requestIndex } = indexes;
     const entryIndex = bridgeIndex - 1;
     const replayEntry = ledger[entryIndex];
     try {
@@ -799,7 +856,7 @@ function startWorkerRun({
           invocationId,
           logicalRunId,
           requestId: message.requestId,
-          requestIndex: bridgeIndex,
+          requestIndex,
           ...(replayEntry?.status === 'interrupted'
             ? {
                 resume: {
@@ -825,6 +882,7 @@ function startWorkerRun({
           normalizedOptions.maxHostFunctionOutputBytes,
       });
       if (outcome.status === 'interrupted') {
+        assertCanCreateContinuation();
         const interruptionId =
           replayEntry?.status === 'interrupted'
             ? replayEntry.interruptionId
@@ -900,6 +958,193 @@ function startWorkerRun({
       if (pendingInterruptionIndexes.size > 0 && inFlightBridgeRequests === 0) {
         settleInterruptionsIfQuiescent();
       }
+    }
+  }
+
+  function assertCanCreateContinuation(): void {
+    if (moduleLoader !== undefined || syncBridgeRequests > 0) {
+      throw new RunProtocolError(
+        'A run cannot create a continuation after using synchronous host functions or module loading.',
+      );
+    }
+  }
+
+  async function runSyncBridgeLoop(): Promise<void> {
+    try {
+      for (;;) {
+        const state = Atomics.load(syncBridgeHeader, SyncBridgeHeader.State);
+        if (state === SyncBridgeState.Closed || terminalReached) {
+          return;
+        }
+        if (state === SyncBridgeState.Idle) {
+          await waitAsyncForSyncBridgeChange(
+            syncBridgeHeader,
+            SyncBridgeState.Idle,
+          );
+          continue;
+        }
+        if (state !== SyncBridgeState.Request) {
+          throw new RunProtocolError(
+            'Synchronous bridge entered an invalid request state.',
+          );
+        }
+        const request = readSyncBridgeRequest(syncBridge);
+        if (request.sequence !== syncBridgeRequests + 1) {
+          throw new RunProtocolError(
+            `Synchronous bridge request sequence mismatch: expected ${syncBridgeRequests + 1}, received ${request.sequence}.`,
+          );
+        }
+        if (Buffer.byteLength(request.name) > 1024) {
+          throw new RunProtocolError(
+            'Synchronous bridge request name exceeds 1024 bytes.',
+          );
+        }
+        assertJsonPayloadSize(
+          request.payload,
+          normalizedOptions.maxHostFunctionInputBytes,
+          'Synchronous bridge request arguments',
+        );
+        if (totalBridgeRequests >= normalizedOptions.maxBridgeRequests) {
+          throw new RunBridgeLimitError(
+            `JavaScript runtime exceeded the ${normalizedOptions.maxBridgeRequests} bridge request limit.`,
+          );
+        }
+        syncBridgeRequests += 1;
+        totalBridgeRequests += 1;
+        const response = await dispatchSyncBridgeRequest(
+          request.kind,
+          request.name,
+          request.payload,
+          request.sequence,
+          totalBridgeRequests,
+        );
+        if (terminalReached) {
+          return;
+        }
+        writeSyncBridgeResponse(syncBridge, response);
+        Atomics.store(
+          syncBridgeHeader,
+          SyncBridgeHeader.State,
+          SyncBridgeState.Response,
+        );
+        Atomics.notify(syncBridgeHeader, SyncBridgeHeader.State);
+        await waitAsyncForSyncBridgeChange(
+          syncBridgeHeader,
+          SyncBridgeState.Response,
+        );
+      }
+    } catch (error) {
+      failTerminal(
+        error instanceof RunError
+          ? error
+          : new RunProtocolError('Synchronous bridge protocol failed.', {
+              cause: error instanceof Error ? error.message : String(error),
+            }),
+      );
+    }
+  }
+
+  async function dispatchSyncBridgeRequest(
+    kind: SyncBridgeRequestKind,
+    name: string,
+    payload: string,
+    sequence: number,
+    requestIndex: number,
+  ) {
+    const context: HostFunctionContext = {
+      abortSignal: invocationAbortController.signal,
+      hostFunctionName: getSyncBridgeHostFunctionName(kind, name),
+      interrupt,
+      invocationId,
+      logicalRunId,
+      requestId: `${invocationId}:sync-${sequence}`,
+      requestIndex,
+    };
+    try {
+      if (kind === SyncBridgeRequestKind.HostFunction) {
+        const outcome = await invokeHostFunction({
+          context,
+          hostFunctionManifest: syncHostFunctionManifest,
+          hostFunctionName: name,
+          hostFunctions: syncHostFunctions,
+          inputJson: payload,
+          maxHostFunctionInputBytes:
+            normalizedOptions.maxHostFunctionInputBytes,
+          maxHostFunctionOutputBytes:
+            normalizedOptions.maxHostFunctionOutputBytes,
+        });
+        if (outcome.status === 'interrupted') {
+          throw new RunProtocolError(
+            'Synchronous host functions cannot interrupt a run.',
+          );
+        }
+        return {
+          payload: outcome.valueJson,
+          sequence,
+          success: true as const,
+        };
+      }
+
+      if (moduleLoader === undefined) {
+        throw new RunProtocolError(
+          'Worker requested module loading without a configured module loader.',
+        );
+      }
+      const args = JSON.parse(payload) as unknown;
+      if (
+        !Array.isArray(args) ||
+        args.some(value => typeof value !== 'string')
+      ) {
+        throw new RunProtocolError('Module loader arguments are malformed.');
+      }
+      const output = await raceAgainstAbort(
+        runWithHostFunctionContext(context, async () => {
+          if (kind === SyncBridgeRequestKind.ModuleNormalize) {
+            if (args.length !== 2) {
+              throw new RunProtocolError(
+                'Module normalize arguments are malformed.',
+              );
+            }
+            return await (moduleLoader.normalize?.(
+              args[0] as string,
+              args[1] as string,
+            ) ?? args[0]);
+          }
+          if (args.length !== 1) {
+            throw new RunProtocolError('Module load arguments are malformed.');
+          }
+          return await moduleLoader.load(args[0] as string);
+        }),
+        context.abortSignal,
+      );
+      if (typeof output !== 'string') {
+        throw new TypeError(
+          `${context.hostFunctionName} must return a string.`,
+        );
+      }
+      const bridgeOutput =
+        kind === SyncBridgeRequestKind.ModuleLoad
+          ? transformSource(output, true)
+          : output;
+      assertJsonPayloadSize(
+        bridgeOutput,
+        normalizedOptions.maxHostFunctionOutputBytes,
+        `${context.hostFunctionName} output`,
+      );
+      return {
+        payload: JSON.stringify(bridgeOutput),
+        sequence,
+        success: true as const,
+      };
+    } catch (error) {
+      return {
+        error:
+          kind === SyncBridgeRequestKind.HostFunction
+            ? serializeBridgeErrorForGuest(error, 'hostFunction')
+            : serializeError(error),
+        sequence,
+        success: false as const,
+      };
     }
   }
 

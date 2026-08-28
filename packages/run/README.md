@@ -18,7 +18,7 @@ repeating already invoked host functions.
 pnpm add run
 ```
 
-`run` supports Node.js 22.13 or newer and Bun.
+`run` supports Node.js 20.19 or newer and Bun.
 
 ## Run JavaScript
 
@@ -96,6 +96,62 @@ Functions, symbols, promises, weak collections, and arbitrary class instances
 cannot cross the boundary. Returning one fails with a serialization error that
 includes its path when available. Keep capabilities in host functions and send
 data through their arguments and results.
+
+### Synchronous host functions
+
+Use `syncHostFunctions` when guest APIs must return before the next guest
+statement runs, such as filesystem compatibility methods. The host handler may
+still be asynchronous; `run` blocks only the invocation's worker while it
+settles and returns the serialized value directly to guest code.
+
+```ts
+const runner = createRunner({
+  syncHostFunctions: {
+    fs: {
+      readFile: async (path: string) => storage.read(path),
+      writeFile: async (path: string, value: string) =>
+        storage.write(path, value),
+    },
+  },
+});
+
+await runner.run({
+  source: `
+    fs.writeFile('/state', 'ready');
+    return fs.readFile('/state');
+  `,
+});
+```
+
+Synchronous host functions must settle to a serializable value and cannot
+interrupt a run. Their calls share `maxBridgeRequests` with ordinary host
+functions. Forward `getHostFunctionContext().abortSignal` to cancellable work;
+the signal is aborted on timeout or caller cancellation.
+
+### Native ES modules
+
+Passing `moduleLoader` evaluates `source` as an ES module and enables static,
+cyclic, and dynamic imports through QuickJS's native module loader:
+
+```ts
+await runner.run({
+  source: `import { value } from './value.js'; export { value };`,
+  moduleLoader: {
+    identity: 'workspace-v1',
+    normalize(specifier, importer) {
+      return resolveModuleSpecifier(specifier, importer);
+    },
+    load(specifier) {
+      return readModuleSource(specifier);
+    },
+  },
+});
+```
+
+`normalize` and `load` may be synchronous or asynchronous. Their results are
+bounded by the host-function bridge limits, and `SharedArrayBuffer` and
+`Atomics` remain unavailable to guest JavaScript. Module-backed runs cannot
+create or resume continuations.
 
 ### Host function context
 

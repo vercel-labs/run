@@ -15,6 +15,7 @@ const createRunMessage = (
   },
   hostFunctionNamespaces: ['tools'],
   invocationId,
+  moduleLoader: false,
   options: {
     executionTimeoutMs: 950,
     maxConsoleOutputBytes: 64 * 1024,
@@ -25,6 +26,8 @@ const createRunMessage = (
     timeoutMs: 1000,
   },
   source,
+  syncBridge: new SharedArrayBuffer(1024),
+  syncHostFunctionNamespaces: [],
   type: 'run',
 });
 

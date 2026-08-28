@@ -70,6 +70,14 @@ const HARDENING_SOURCE = `
       configurable: false,
     });
   }
+  try { delete globalThis.Atomics; } catch {}
+  if ('Atomics' in globalThis) {
+    Object.defineProperty(globalThis, 'Atomics', {
+      value: undefined,
+      writable: false,
+      configurable: false,
+    });
+  }
   for (const name of [
     'AsyncDisposableStack',
     'DOMException',
@@ -438,6 +446,63 @@ const HOST_FUNCTIONS_PROXY_SOURCE = `
 );
 `;
 
+const SYNC_HOST_FUNCTIONS_PROXY_SOURCE = `
+(function(invokeSyncHostFunction, syncHostFunctionNamespaces) {
+  function serializationError(label, error) {
+    var message = __runSafeErrorMessage(error);
+    var result = new __runOriginalTypeError(label + ': ' + message);
+    __runOriginalObject.defineProperty(result, 'code', {
+      value: 'RUN_SERIALIZATION_ERROR',
+      writable: true,
+      configurable: true,
+      enumerable: true
+    });
+    return result;
+  }
+
+  function makeProxy(path) {
+    return new __runOriginalProxy(function(){}, {
+      get: function(_target, prop) {
+        if (prop === 'then' || typeof prop === 'symbol') return undefined;
+        return makeProxy(path.concat([__runOriginalString(prop)]));
+      },
+      apply: function(_target, _thisArg, args) {
+        var hostFunctionPath = path.join('.');
+        var inputJson;
+        try {
+          inputJson = __runSerdeBundle.serializeRunValue(args);
+        } catch (error) {
+          throw serializationError('Synchronous host function arguments are not serializable', error);
+        }
+        var encoded = invokeSyncHostFunction(hostFunctionPath, inputJson);
+        if (encoded.charCodeAt(0) === 0) {
+          var serialized = JSON.parse(encoded.slice(1));
+          var error = new __runOriginalError(serialized.message || 'Synchronous host function failed');
+          if (typeof serialized.name === 'string') error.name = serialized.name;
+          if (typeof serialized.code === 'string') error.code = serialized.code;
+          if (serialized.details !== undefined) error.details = serialized.details;
+          throw error;
+        }
+        try {
+          return __runSerdeBundle.deserializeRunValue(encoded.slice(1));
+        } catch (error) {
+          throw serializationError('Synchronous host function result is invalid run-js-v1 data', error);
+        }
+      }
+    });
+  }
+
+  for (var i = 0; i < syncHostFunctionNamespaces.length; i++) {
+    var namespace = syncHostFunctionNamespaces[i];
+    Object.defineProperty(globalThis, namespace, {
+      value: makeProxy([namespace]),
+      writable: false,
+      configurable: false
+    });
+  }
+})(__runInvokeSyncHostFunction, __runSyncHostFunctionNamespaces);
+`;
+
 const SERIALIZATION_GUARD_SOURCE = `
 const __runSerializeJsonPayloadHandle = (function() {
   function serializeValuePayload(value) {
@@ -515,11 +580,14 @@ const __runTrustedErrorHandles = (function() {
 
 export const buildGuestRuntimeSetupSource = (
   hostFunctionNamespaces: string[],
+  syncHostFunctionNamespaces: string[] = [],
 ): string => {
   const namespacesJson = JSON.stringify(hostFunctionNamespaces);
+  const syncNamespacesJson = JSON.stringify(syncHostFunctionNamespaces);
   return `
-(function(__runInvokeHostFunction, __runDeterminism) {
+(function(__runInvokeHostFunction, __runInvokeSyncHostFunction, __runDeterminism) {
 const __runHostFunctionNamespaces = ${namespacesJson};
+const __runSyncHostFunctionNamespaces = ${syncNamespacesJson};
 const __runOriginalError = Error;
 const __runOriginalMath = Math;
 const __runOriginalNumber = Number;
@@ -552,6 +620,7 @@ ${GUEST_SERDE_SOURCE}
 ${HARDENING_SOURCE}
 ${BRIDGE_TRACKING_SOURCE}
 ${HOST_FUNCTIONS_PROXY_SOURCE}
+${SYNC_HOST_FUNCTIONS_PROXY_SOURCE}
 ${SERIALIZATION_GUARD_SOURCE}
 ${TRUSTED_ERROR_SOURCE}
 return Object.freeze({

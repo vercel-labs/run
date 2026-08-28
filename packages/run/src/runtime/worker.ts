@@ -1,7 +1,7 @@
 import { writeSync } from 'node:fs';
 import { formatWithOptions } from 'node:util';
 import { parentPort } from 'node:worker_threads';
-import { JSException, QuickJS } from 'quickjs-wasi';
+import { EvalFlags, JSException, QuickJS } from 'quickjs-wasi';
 import type { Deferred, JSValueHandle } from 'quickjs-wasi';
 import {
   RunProtocolError,
@@ -15,6 +15,14 @@ import { buildGuestRuntimeSetupSource, wrapUserCode } from './guest-sources.js';
 import { normalizeUserSourceStack } from './source-stack.js';
 import type { WorkerBridgeResponse, WorkerRunMessage } from './protocol.js';
 import { assertMainToWorkerMessage } from './protocol-validation.js';
+import {
+  SyncBridgeHeader,
+  SyncBridgeRequestKind,
+  SyncBridgeState,
+  getSyncBridgeViews,
+  readSyncBridgeResponse,
+  writeSyncBridgeRequest,
+} from './sync-bridge-protocol.js';
 
 if (!parentPort) {
   throw new Error('JavaScript runtime worker must run inside a worker thread');
@@ -33,6 +41,7 @@ const pendingBridgeRequests = new Map<
 let activeInvocationId: string | undefined;
 let bridgeRequestCounter = 0;
 let bridgeIdleGeneration = 0;
+let syncBridgeRequestCounter = 0;
 let embeddedQuickJsWasmModulePromise: Promise<WebAssembly.Module> | undefined;
 let activeCancellation:
   | {
@@ -108,6 +117,7 @@ async function handleMainMessage(value: unknown): Promise<void> {
 
     activeInvocationId = message.invocationId;
     bridgeRequestCounter = 0;
+    syncBridgeRequestCounter = 0;
     bridgeIdleGeneration += 1;
     try {
       await run(message);
@@ -181,8 +191,22 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     },
     maxStackSizeBytes: message.options.maxStackSizeBytes,
     memoryLimitBytes: message.options.memoryLimitBytes,
+    ...(message.moduleLoader
+      ? {
+          moduleLoader: {
+            load: name => requestSyncModuleLoad(message, name),
+            normalize: (baseName, specifier) =>
+              requestSyncModuleNormalize(message, specifier, baseName),
+          },
+        }
+      : {}),
   });
-  let bridgeFunctions: { invokeHostFunction: JSValueHandle } | undefined;
+  let bridgeFunctions:
+    | {
+        invokeHostFunction: JSValueHandle;
+        invokeSyncHostFunction: JSValueHandle;
+      }
+    | undefined;
   let consoleFormatter: JSValueHandle | undefined;
   let determinismHandle: JSValueHandle | undefined;
   let getTrustedErrorCodeHandle: JSValueHandle | undefined;
@@ -236,6 +260,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       context,
       message,
       bridgeFunctions.invokeHostFunction,
+      bridgeFunctions.invokeSyncHostFunction,
       determinismHandle,
     );
     getTrustedErrorCodeHandle = guestRuntimeHandles.getTrustedErrorCode;
@@ -283,6 +308,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       pendingBridgeRequests.delete(requestId);
     }
     disposeHandle(bridgeFunctions?.invokeHostFunction);
+    disposeHandle(bridgeFunctions?.invokeSyncHostFunction);
     disposeHandle(consoleFormatter);
     disposeHandle(getTrustedErrorCodeHandle);
     disposeHandle(registerTrustedErrorHandle);
@@ -297,6 +323,7 @@ function initializeGuestRuntime(
   context: QuickJS,
   message: WorkerRunMessage,
   invokeHostFunction: JSValueHandle,
+  invokeSyncHostFunction: JSValueHandle,
   determinismHandle: JSValueHandle,
 ): {
   getTrustedErrorCode: JSValueHandle;
@@ -306,6 +333,7 @@ function initializeGuestRuntime(
 } {
   const setupSource = buildGuestRuntimeSetupSource(
     message.hostFunctionNamespaces,
+    message.syncHostFunctionNamespaces,
   );
   let setupFunction: JSValueHandle;
   try {
@@ -320,6 +348,7 @@ function initializeGuestRuntime(
         setupFunction,
         context.undefined,
         invokeHostFunction,
+        invokeSyncHostFunction,
         determinismHandle,
       );
     } catch (error) {
@@ -352,6 +381,37 @@ async function evaluateUserSource(
   serializeJsonPayload: JSValueHandle,
   getTrustedErrorCode: JSValueHandle,
 ): Promise<string> {
+  if (message.moduleLoader) {
+    let modulePromise: JSValueHandle;
+    try {
+      modulePromise = context.evalCode(
+        message.source,
+        '<entry>',
+        EvalFlags.TYPE_MODULE,
+      );
+    } catch (error) {
+      throw toUserSourceError(dumpQuickJSError(context, error), message.source);
+    }
+    const resolvedModule = await resolveQuickJSPromise(context, modulePromise);
+    if (!modulePromise.disposed) {
+      modulePromise.dispose();
+    }
+    if ('error' in resolvedModule) {
+      const error = dumpQuickJSErrorHandle(context, resolvedModule.error);
+      if (!resolvedModule.error.disposed) {
+        resolvedModule.error.dispose();
+      }
+      throw toUserSourceError(error, message.source);
+    }
+    if (!resolvedModule.value.disposed) {
+      resolvedModule.value.dispose();
+    }
+    return serializeQuickJSJsonPayload(
+      context,
+      serializeJsonPayload,
+      context.undefined,
+    );
+  }
   const wrapped = wrapUserCode(message.source);
   try {
     context.evalCode(wrapped, 'run.js').dispose();
@@ -417,6 +477,10 @@ async function createQuickJSContext(options: {
   interruptHandler: () => boolean;
   maxStackSizeBytes: number;
   memoryLimitBytes: number;
+  moduleLoader?: {
+    normalize: (baseName: string, specifier: string) => string;
+    load: (name: string) => string;
+  };
 }): Promise<QuickJS> {
   const embeddedWasmBase64 = getEmbeddedQuickJsWasmBase64();
   if (embeddedWasmBase64 === undefined) {
@@ -429,6 +493,7 @@ async function createQuickJSContext(options: {
       MAX_SAFE_WASI_STACK_LIMIT_BYTES,
     ),
     memoryLimit: options.memoryLimitBytes,
+    moduleLoader: options.moduleLoader,
     wasm: await getEmbeddedQuickJsWasmModule(embeddedWasmBase64),
   });
 }
@@ -623,7 +688,10 @@ function createBridgeFunctions(
   message: WorkerRunMessage,
   getResetDateNow: () => JSValueHandle | undefined,
   getRegisterTrustedError: () => JSValueHandle | undefined,
-): { invokeHostFunction: JSValueHandle } {
+): {
+  invokeHostFunction: JSValueHandle;
+  invokeSyncHostFunction: JSValueHandle;
+} {
   const invokeHostFunction = context.newFunction(
     '__runInvokeHostFunction',
     (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
@@ -652,7 +720,115 @@ function createBridgeFunctions(
     },
   );
 
-  return { invokeHostFunction };
+  const invokeSyncHostFunction = context.newFunction(
+    '__runInvokeSyncHostFunction',
+    (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
+      const hostFunctionName = hostFunctionNameHandle.toString();
+      const inputJson = inputJsonHandle.toString();
+      if (Buffer.byteLength(hostFunctionName) > 1024) {
+        throw new Error('Host function name exceeds 1024 bytes.');
+      }
+      if (
+        Buffer.byteLength(inputJson) > message.options.maxHostFunctionInputBytes
+      ) {
+        throw new Error(
+          `Host function arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
+        );
+      }
+      const response = requestSyncHost(
+        message,
+        SyncBridgeRequestKind.HostFunction,
+        hostFunctionName,
+        inputJson,
+      );
+      return context.newString(
+        response.success
+          ? `\u0001${response.payload}`
+          : `\u0000${JSON.stringify(response.error)}`,
+      );
+    },
+  );
+
+  return { invokeHostFunction, invokeSyncHostFunction };
+}
+
+function requestSyncModuleNormalize(
+  message: WorkerRunMessage,
+  specifier: string,
+  importer: string,
+): string {
+  const response = requestSyncHost(
+    message,
+    SyncBridgeRequestKind.ModuleNormalize,
+    specifier,
+    JSON.stringify([specifier, importer]),
+  );
+  if (!response.success) {
+    throw new Error(response.error.message);
+  }
+  const value = JSON.parse(response.payload) as unknown;
+  if (typeof value !== 'string') {
+    throw new TypeError('Module loader normalize() must return a string.');
+  }
+  return value;
+}
+
+function requestSyncModuleLoad(
+  message: WorkerRunMessage,
+  name: string,
+): string {
+  const response = requestSyncHost(
+    message,
+    SyncBridgeRequestKind.ModuleLoad,
+    name,
+    JSON.stringify([name]),
+  );
+  if (!response.success) {
+    throw new Error(response.error.message);
+  }
+  const value = JSON.parse(response.payload) as unknown;
+  if (typeof value !== 'string') {
+    throw new TypeError('Module loader load() must return source text.');
+  }
+  return value;
+}
+
+function requestSyncHost(
+  message: WorkerRunMessage,
+  kind: SyncBridgeRequestKind,
+  name: string,
+  payload: string,
+) {
+  const { header } = getSyncBridgeViews(message.syncBridge);
+  if (Atomics.load(header, SyncBridgeHeader.State) !== SyncBridgeState.Idle) {
+    throw new RunProtocolError('Synchronous bridge was not idle.');
+  }
+  syncBridgeRequestCounter += 1;
+  writeSyncBridgeRequest(message.syncBridge, {
+    kind,
+    name,
+    payload,
+    sequence: syncBridgeRequestCounter,
+  });
+  Atomics.store(header, SyncBridgeHeader.State, SyncBridgeState.Request);
+  Atomics.notify(header, SyncBridgeHeader.State);
+  while (
+    Atomics.load(header, SyncBridgeHeader.State) === SyncBridgeState.Request
+  ) {
+    Atomics.wait(header, SyncBridgeHeader.State, SyncBridgeState.Request);
+  }
+  if (
+    Atomics.load(header, SyncBridgeHeader.State) !== SyncBridgeState.Response
+  ) {
+    throw new RunProtocolError('Synchronous bridge closed before responding.');
+  }
+  const response = readSyncBridgeResponse(
+    message.syncBridge,
+    syncBridgeRequestCounter,
+  );
+  Atomics.store(header, SyncBridgeHeader.State, SyncBridgeState.Idle);
+  Atomics.notify(header, SyncBridgeHeader.State);
+  return response;
 }
 
 function requestHost(
