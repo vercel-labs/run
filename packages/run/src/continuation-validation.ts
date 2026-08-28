@@ -82,12 +82,16 @@ const assertSerializedPayload = (
   }
 };
 
-type FulfilledLedgerEntry = Extract<RunLedgerEntry, { status: 'fulfilled' }>;
-type RejectedLedgerEntry = Extract<RunLedgerEntry, { status: 'rejected' }>;
+type FulfilledLedgerEntry = Extract<RunLedgerEntry, { settledOrder: number }>;
+type RejectedLedgerEntry = Extract<
+  RunLedgerEntry,
+  { settledOrder: number; status: 'rejected' }
+>;
 type InterruptedLedgerEntry = Extract<
   RunLedgerEntry,
   { status: 'interrupted' }
 >;
+type SynchronousLedgerEntry = Extract<RunLedgerEntry, { bridgeKind: string }>;
 
 type AssertFulfilledEntry = (
   value: Record<string, unknown>,
@@ -194,6 +198,146 @@ const assertInterruptedEntry: AssertInterruptedEntry = (
   );
 };
 
+const assertPlainJsonPayload = (
+  value: string,
+  maxBytes: number,
+  index: number,
+): unknown => {
+  const bytes = Buffer.byteLength(value);
+  if (bytes > maxBytes) {
+    throw new RunProtocolError('Continuation ledger payload is too large.', {
+      bytes,
+      index,
+      maxBytes,
+    });
+  }
+  try {
+    return parseJson(value);
+  } catch {
+    throw new RunProtocolError('Continuation module payload is invalid JSON.', {
+      index,
+    });
+  }
+};
+
+type AssertSynchronousEntry = (
+  value: Record<string, unknown>,
+  index: number,
+  options: NormalizedRunOptions,
+) => asserts value is SynchronousLedgerEntry;
+
+const assertSynchronousEntry: AssertSynchronousEntry = (
+  value,
+  index,
+  options,
+) => {
+  if (
+    !['sync-host', 'module-normalize', 'module-load'].includes(
+      String(value.bridgeKind),
+    ) ||
+    !['fulfilled', 'rejected'].includes(String(value.status)) ||
+    (value.status === 'fulfilled'
+      ? !hasExactKeys(value, [
+          'bindingName',
+          'bridgeKind',
+          'inputJson',
+          'status',
+          'valueJson',
+        ]) || typeof value.valueJson !== 'string'
+      : !hasExactKeys(value, [
+          'bindingName',
+          'bridgeKind',
+          'error',
+          'inputJson',
+          'status',
+        ]) || !isSerializableError(value.error))
+  ) {
+    throw new RunProtocolError('Synchronous continuation entry is malformed.', {
+      index,
+    });
+  }
+
+  if (value.bridgeKind === 'sync-host') {
+    assertSerializedPayload(
+      value.inputJson as string,
+      options.maxHostFunctionInputBytes,
+      index,
+    );
+    if (
+      !Array.isArray(
+        parseJsonPayload(
+          value.inputJson as string,
+          'Continuation ledger arguments',
+        ),
+      )
+    ) {
+      throw new RunProtocolError(
+        'Continuation ledger arguments must be encoded as an array.',
+        { index },
+      );
+    }
+    if (value.status === 'fulfilled') {
+      assertSerializedPayload(
+        value.valueJson as string,
+        options.maxHostFunctionOutputBytes,
+        index,
+      );
+    }
+  } else {
+    const input = assertPlainJsonPayload(
+      value.inputJson as string,
+      options.maxHostFunctionInputBytes,
+      index,
+    );
+    const expectedLength = value.bridgeKind === 'module-normalize' ? 2 : 1;
+    if (
+      !Array.isArray(input) ||
+      input.length !== expectedLength ||
+      input.some(argument => typeof argument !== 'string')
+    ) {
+      throw new RunProtocolError(
+        'Continuation module arguments are malformed.',
+        { index },
+      );
+    }
+    if (value.status === 'fulfilled') {
+      const output = assertPlainJsonPayload(
+        value.valueJson as string,
+        options.maxHostFunctionOutputBytes,
+        index,
+      );
+      if (typeof output !== 'string') {
+        throw new RunProtocolError(
+          'Continuation module result must be a string.',
+          { index },
+        );
+      }
+      if (
+        value.bridgeKind === 'module-load' &&
+        Buffer.byteLength(output) > options.maxSourceBytes
+      ) {
+        throw new RunProtocolError('Continuation module source is too large.', {
+          bytes: Buffer.byteLength(output),
+          index,
+          maxBytes: options.maxSourceBytes,
+        });
+      }
+    }
+  }
+
+  if (value.status === 'rejected') {
+    assertJsonValue(value.error);
+    const errorBytes = Buffer.byteLength(JSON.stringify(value.error));
+    if (errorBytes > options.maxHostFunctionOutputBytes) {
+      throw new RunProtocolError('Continuation error payload is too large.', {
+        bytes: errorBytes,
+        index,
+        maxBytes: options.maxHostFunctionOutputBytes,
+      });
+    }
+  }
+};
+
 type AssertLedgerEntry = (
   value: unknown,
   index: number,
@@ -212,6 +356,10 @@ const assertLedgerEntry: AssertLedgerEntry = (value, index, options) => {
     throw new RunProtocolError('Continuation ledger entry is malformed.', {
       index,
     });
+  }
+  if ('bridgeKind' in value) {
+    assertSynchronousEntry(value, index, options);
+    return;
   }
   assertSerializedPayload(
     value.inputJson,
@@ -299,7 +447,13 @@ const validateLedger = (
     assertLedgerEntry(entry, index, options);
     totalBytes += Buffer.byteLength(entry.bindingName);
     totalBytes += Buffer.byteLength(entry.inputJson);
-    if (entry.status === 'fulfilled') {
+    if ('bridgeKind' in entry) {
+      totalBytes += Buffer.byteLength(
+        entry.status === 'fulfilled'
+          ? entry.valueJson
+          : JSON.stringify(entry.error),
+      );
+    } else if (entry.status === 'fulfilled') {
       addSettledOrder(settledOrders, entry.settledOrder);
       totalBytes += Buffer.byteLength(entry.valueJson);
     } else if (entry.status === 'rejected') {

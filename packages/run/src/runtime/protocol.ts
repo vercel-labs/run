@@ -11,7 +11,7 @@ export interface WorkerRunMessage {
   hostFunctionNamespaces: string[];
   syncHostFunctionNamespaces: string[];
   moduleLoader: boolean;
-  syncBridge: SharedArrayBuffer;
+  syncBridge: SharedArrayBuffer | undefined;
   determinism: RunDeterminismState;
   options: Pick<
     NormalizedRunOptions,
@@ -35,6 +35,7 @@ export interface WorkerHostFunctionRequest {
   type: 'host-function-request';
   invocationId: string;
   requestId: string;
+  requestIndex: number;
   hostFunctionName: string;
   inputJson: string;
 }

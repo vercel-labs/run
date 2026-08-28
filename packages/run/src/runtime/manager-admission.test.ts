@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getHostFunctionContext, run, setMaxWorkers } from '../index.js';
+import {
+  RunSourceTooLargeError,
+  getHostFunctionContext,
+  run,
+  setMaxWorkers,
+} from '../index.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import * as sourceCache from '../utils/source-cache.js';
 
@@ -105,6 +110,18 @@ describe('run admission and source transformation', () => {
       status: 'completed',
       value: 2,
     });
+  });
+
+  it('rejects transformed entry source above the configured limit', async () => {
+    transformSourceSpy.mockImplementationOnce(() => 'x'.repeat(65));
+
+    await expect(
+      run({
+        limits: { maxSourceBytes: 64 },
+        moduleLoader: { load: () => 'export {};' },
+        source: 'export {};',
+      }),
+    ).rejects.toBeInstanceOf(RunSourceTooLargeError);
   });
 
   it('resumes when TypeScript transform output changes between hosts', async () => {

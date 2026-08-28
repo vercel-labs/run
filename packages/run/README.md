@@ -126,7 +126,9 @@ await runner.run({
 Synchronous host functions must settle to a serializable value and cannot
 interrupt a run. Their calls share `maxBridgeRequests` with ordinary host
 functions. Forward `getHostFunctionContext().abortSignal` to cancellable work;
-the signal is aborted on timeout or caller cancellation.
+the signal is aborted on timeout or caller cancellation. The synchronous bridge
+is allocated only for runs that configure synchronous bindings or a module
+loader, is included in invocation memory admission, and is capped at 64 MiB.
 
 ### Native ES modules
 
@@ -135,7 +137,7 @@ cyclic, and dynamic imports through QuickJS's native module loader:
 
 ```ts
 await runner.run({
-  source: `import { value } from './value.js'; export { value };`,
+  source: `import { value } from './value.js'; console.log(value);`,
   moduleLoader: {
     identity: 'workspace-v1',
     normalize(specifier, importer) {
@@ -150,8 +152,20 @@ await runner.run({
 
 `normalize` and `load` may be synchronous or asynchronous. Their results are
 bounded by the host-function bridge limits, and `SharedArrayBuffer` and
-`Atomics` remain unavailable to guest JavaScript. Module-backed runs cannot
-create or resume continuations.
+`Atomics` remain unavailable to guest JavaScript. Module-backed runs can create
+and resume continuations when the loader has a non-empty stable `identity`.
+Loader failures are redacted before entering the sandbox.
+
+Entry modules execute for their side effects and a completed module-backed run
+has `value: undefined`; the module namespace is not serialized as the run
+result. This allows modules to export functions and cyclic namespaces without
+turning those exports into result-serialization failures.
+
+Native Node type stripping is used when the runtime provides it, and Bun uses
+its native TypeScript transpiler. On Node 20, install the optional `typescript`
+peer dependency to enable runtime type stripping. Without that peer, JavaScript
+and already type-stripped input remain supported and QuickJS reports unsupported
+TypeScript syntax without exposing a host module-resolution error.
 
 ### Host function context
 
@@ -333,14 +347,16 @@ verifying old tokens.
 ### Replay behavior
 
 A continuation contains a replay ledger. On resume, completed and rejected
-host functions are read from that ledger instead of being invoked again. The
-runtime replays the program and reinvokes only interrupted host functions that
-now have a resolution.
+asynchronous host functions, synchronous host functions, and module-loader
+operations are read from that ledger instead of being invoked again. The
+runtime reinvokes only interrupted host functions that now have a resolution;
+operations first reached after the recorded frontier dispatch normally.
 
-Replay verifies the source, host-function-name manifest, and complete
-serialized argument list for every host function call. Guest `Date`,
-`Date.now()`, and `Math.random()` remain deterministic across replay.
-Divergence is rejected before a mismatched host function executes.
+Replay verifies the source, asynchronous and synchronous host-function-name
+manifests, module-loader identity, and complete serialized argument list for
+every bridge call. Guest `Date`, `Date.now()`, and `Math.random()` remain
+deterministic across replay. Divergence is rejected before a mismatched
+integration executes.
 
 An interrupted host function itself is reinvoked. Call `interrupt()` before
 doing non-idempotent work. For writes that may be retried, use
@@ -386,10 +402,10 @@ array.
 
 ### Scope and authorization
 
-Signed continuations are bound to the runner audience, transformed source,
-host-function-name manifest, and `continuationContext`. For tenant-, user-, or
-policy-scoped execution, provide authenticated context on both the initial run
-and every resume:
+Signed continuations are bound to the runner audience, source, asynchronous and
+synchronous host-function-name manifests, module-loader identity, and
+`continuationContext`. For tenant-, user-, or policy-scoped execution, provide
+authenticated context on both the initial run and every resume:
 
 ```ts
 await runner.run({

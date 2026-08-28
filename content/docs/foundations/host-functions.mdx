@@ -86,6 +86,57 @@ const [profile, orders] = await Promise.all([
 The invocation limits both the total number of host function calls and the
 number that may be in flight at once.
 
+## Synchronous host functions
+
+Use `syncHostFunctions` when a guest API must return before the next guest
+statement executes. Synchronous bindings are configured on a runner and exposed
+as ordinary, non-promise-returning guest methods:
+
+```ts
+import { createRunner } from 'run';
+
+const files = new Map<string, string>();
+
+const runner = createRunner({
+  syncHostFunctions: {
+    fs: {
+      readFile(path: string) {
+        return files.get(path);
+      },
+      writeFile(path: string, value: string) {
+        files.set(path, value);
+      },
+    },
+  },
+});
+
+const result = await runner.run({
+  source: `
+    fs.writeFile('/state', 'ready');
+    return fs.readFile('/state');
+  `,
+});
+```
+
+The host implementation may itself be asynchronous. The worker remains blocked
+until it settles, while guest code receives either the serializable return value
+or an immediate throw. A synchronous binding cannot interrupt a run.
+
+Synchronous and asynchronous namespaces must not overlap. Both kinds of calls
+share `maxBridgeRequests`; synchronous requests execute one at a time and do not
+count toward `maxInFlightBridgeRequests`.
+
+The synchronous bridge is created only for runners that expose synchronous
+bindings or runs that use a module loader. Its allocation is included in memory
+admission and capped at 64 MiB. `SharedArrayBuffer` and `Atomics` remain
+unavailable to guest code.
+
+Synchronous outcomes are recorded in the continuation ledger. Replay returns a
+recorded value or throws the recorded error without invoking the binding again;
+calls first reached after the recorded frontier dispatch normally. The
+synchronous binding-name manifest is part of continuation scope, so changing it
+invalidates an existing continuation before replay.
+
 ## Context
 
 A host function can call `getHostFunctionContext()` to read information about
@@ -150,6 +201,10 @@ const hostFunctions = {
   },
 };
 ```
+
+This requirement also applies to synchronous bindings whose host implementation
+returns a promise. Although the guest worker is blocked, the host operation can
+still observe cancellation and stop its work.
 
 Aborting the signal cannot automatically undo work that has already completed.
 Host functions that perform writes should use application-level idempotency and

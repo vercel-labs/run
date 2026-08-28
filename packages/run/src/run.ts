@@ -230,10 +230,12 @@ export const createRunner = <TOKEN = string>(
       }
       if (
         input.moduleLoader !== undefined &&
-        input.continuation !== undefined
+        input.continuation !== undefined &&
+        (input.moduleLoader.identity === undefined ||
+          input.moduleLoader.identity.length === 0)
       ) {
         throw new TypeError(
-          'Continuations cannot be resumed with a module loader configured.',
+          'A module loader must have a non-empty identity to resume a continuation.',
         );
       }
       const value = await runManaged({

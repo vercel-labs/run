@@ -38,12 +38,14 @@ import type {
   RunInterruption,
   RunLedgerEntry,
   RunLimits,
+  RunModuleLoader,
   RunResolution,
   Runner,
   RunnerOptions,
   RunResult,
   SignedContinuationCodecOptions,
   StoredContinuation,
+  SyncHostFunctions,
 } from 'run';
 ```
 
@@ -64,13 +66,19 @@ import type {
           {
             "name": "source",
             "type": "string",
-            "description": "JavaScript or type-stripped TypeScript function-body source."
+            "description": "JavaScript or type-stripped TypeScript source, evaluated as a function body by default or as ESM when moduleLoader is present."
           },
           {
             "name": "hostFunctions",
             "type": "HostFunctions",
             "isOptional": true,
             "description": "Host function groups installed as guest globals."
+          },
+          {
+            "name": "moduleLoader",
+            "type": "RunModuleLoader",
+            "isOptional": true,
+            "description": "A host-controlled native ES module loader. Its presence evaluates source as ESM."
           },
           {
             "name": "abortSignal",
@@ -314,6 +322,12 @@ import type {
             "description": "Shared resource limits."
           },
           {
+            "name": "syncHostFunctions",
+            "type": "SyncHostFunctions",
+            "isOptional": true,
+            "description": "Host functions exposed with synchronous guest call semantics."
+          },
+          {
             "name": "continuationSecret",
             "type": "string | Uint8Array",
             "isOptional": true,
@@ -373,6 +387,40 @@ import type {
     "name": "HostFunctions",
     "type": "Record<string, HostFunctionGroup>",
     "description": "Host function groups installed as guest globals."
+  },
+  {
+    "name": "SyncHostFunctions",
+    "type": "HostFunctions",
+    "description": "Host function groups exposed with synchronous guest call semantics."
+  },
+  {
+    "name": "RunModuleLoader",
+    "type": "interface",
+    "description": "A host-controlled native ES module resolver.",
+    "properties": [
+      {
+        "type": "RunModuleLoader",
+        "parameters": [
+          {
+            "name": "identity",
+            "type": "string",
+            "isOptional": true,
+            "description": "A stable loader identity authenticated by continuations, limited to 512 bytes and required to create or resume one."
+          },
+          {
+            "name": "normalize",
+            "type": "(specifier: string, importer: string) => string | Promise<string>",
+            "isOptional": true,
+            "description": "Returns a canonical module name."
+          },
+          {
+            "name": "load",
+            "type": "(specifier: string) => string | Promise<string>",
+            "description": "Returns source for a normalized module name."
+          }
+        ]
+      }
+    ]
   },
   {
     "name": "HostFunctionContext",

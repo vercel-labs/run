@@ -71,6 +71,11 @@ The `fetch()` call runs in the host, not in the sandbox. When the run is
 cancelled, the host function receives the abort event and the request can stop
 without waiting for the remote server.
 
+The same rule applies to promise-returning `syncHostFunctions` and to
+`moduleLoader.normalize()` and `moduleLoader.load()`. Those APIs block the guest
+worker while their host implementation settles, so forwarding the signal is
+required to stop underlying filesystem, network, or command work promptly.
+
 Handle cancellation by checking the stable package error code:
 
 ```ts
@@ -125,8 +130,9 @@ Cancellation and timeouts both stop an invocation, but they report different
 errors. An explicit abort produces `RUN_ABORTED`, while exceeding `timeoutMs`
 produces `RUN_TIMEOUT`.
 
-The timeout covers guest execution, host function work, and continuation
-operations. Both outcomes abort the signal exposed to active host functions.
+The timeout covers guest execution, asynchronous and synchronous host function
+work, module loading, and continuation operations. Both outcomes abort the
+signal exposed to active host callbacks.
 
 Use `timeoutMs` as the runtime budget and an abort signal for lifecycle events
 such as client disconnects and application shutdown:

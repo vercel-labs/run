@@ -32,10 +32,6 @@ importers:
         version: 22.19.19
 
   packages/run:
-    dependencies:
-      typescript:
-        specifier: 5.8.3
-        version: 5.8.3
     devDependencies:
       '@types/node':
         specifier: 22.19.19
@@ -61,6 +57,9 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.26)(tsx@4.23.5)(typescript@5.8.3)(yaml@2.9.0)
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
       ultracite:
         specifier: 7.3.2
         version: 7.3.2(oxlint@1.56.0)

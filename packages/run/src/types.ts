@@ -50,7 +50,7 @@ export type SyncHostFunctions = HostFunctions;
 
 /** Native ES module resolver used by QuickJS. */
 export interface RunModuleLoader {
-  /** Stable identity used for diagnostics and future continuation scoping. */
+  /** Stable identity authenticated by continuations that use this loader. */
   identity?: string;
   /** Resolve a raw specifier relative to its importing module. */
   normalize?(specifier: string, importer: string): string | Promise<string>;
@@ -102,12 +102,17 @@ export interface RunnerOptions<TOKEN = string> {
 /** Input accepted by `run` and `Runner.run`. */
 export interface RunInput<TOKEN = unknown> {
   /**
-   * JavaScript or type-stripped TypeScript function-body source.
+   * JavaScript or type-stripped TypeScript function-body source. Runtime type
+   * stripping is used when provided natively by Node or Bun, or through the
+   * optional TypeScript peer dependency on Node 20.
    * Top-level `await` and `return` are supported.
    */
   source: string;
   hostFunctions?: HostFunctions;
-  /** Optional native ES module loader. Its presence evaluates source as ESM. */
+  /**
+   * Optional native ES module loader. Its presence evaluates source as ESM;
+   * entry-module evaluation completes with an undefined run value.
+   */
   moduleLoader?: RunModuleLoader;
   abortSignal?: AbortSignal;
   limits?: RunLimits;
@@ -232,6 +237,20 @@ export type RunLedgerEntry =
       status: 'interrupted';
       interruptionId: string;
       payloadJson: string;
+    }
+  | {
+      bridgeKind: 'sync-host' | 'module-normalize' | 'module-load';
+      bindingName: string;
+      inputJson: string;
+      status: 'fulfilled';
+      valueJson: string;
+    }
+  | {
+      bridgeKind: 'sync-host' | 'module-normalize' | 'module-load';
+      bindingName: string;
+      inputJson: string;
+      status: 'rejected';
+      error: SerializableError;
     };
 
 /** Configured JavaScript runner. */

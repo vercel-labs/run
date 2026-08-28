@@ -1,5 +1,4 @@
-import { setTimeout as delay } from 'node:timers/promises';
-import { once } from 'node:events';
+import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   RunBridgeLimitError,
@@ -7,6 +6,20 @@ import {
   createRunner,
   getHostFunctionContext,
 } from './index.js';
+import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
+import { toJsonPayload } from './utils/serialization.js';
+
+const waitForAbort = (abortSignal: AbortSignal): Promise<null> => {
+  const aborted = createPromiseWithResolvers<null>();
+  if (abortSignal.aborted) {
+    aborted.resolve(null);
+  } else {
+    abortSignal.addEventListener('abort', () => aborted.resolve(null), {
+      once: true,
+    });
+  }
+  return aborted.promise;
+};
 
 describe('synchronous host functions', () => {
   it('returns serializable values synchronously and throws synchronously', async () => {
@@ -29,7 +42,10 @@ describe('synchronous host functions', () => {
     ).resolves.toEqual({ status: 'completed', value: 'ok' });
     await expect(
       runner.run({ source: 'values.fail(); return "unreachable";' }),
-    ).rejects.toThrow('Host function failed.');
+    ).rejects.toMatchObject({
+      code: 'RUN_HOST_FUNCTION_ERROR',
+      message: 'Host function failed.',
+    });
   });
 
   it('provides live read-after-write semantics', async () => {
@@ -67,17 +83,125 @@ describe('synchronous host functions', () => {
     ).rejects.toBeInstanceOf(RunBridgeLimitError);
   });
 
+  it('preserves aggregate request order across async and sync transports', async () => {
+    const observed: string[] = [];
+    const runner = createRunner({
+      syncHostFunctions: {
+        syncValues: {
+          read() {
+            observed.push(`sync:${getHostFunctionContext().requestIndex}`);
+            return 'sync';
+          },
+        },
+      },
+    });
+
+    await expect(
+      runner.run({
+        hostFunctions: {
+          asyncValues: {
+            read() {
+              observed.push(`async:${getHostFunctionContext().requestIndex}`);
+              return 'async';
+            },
+          },
+        },
+        source: `
+          const pending = asyncValues.read();
+          const observed = pending.then(value => value);
+          await Promise.resolve();
+          const immediate = syncValues.read();
+          return [await observed, immediate];
+        `,
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      value: ['async', 'sync'],
+    });
+    expect(observed).toEqual(['async:1', 'sync:2']);
+  });
+
+  it('does not execute a later sync request beyond the aggregate limit', async () => {
+    let sideEffect = false;
+    const runner = createRunner({
+      limits: { maxBridgeRequests: 1 },
+      syncHostFunctions: {
+        effects: { write: () => (sideEffect = true) },
+      },
+    });
+
+    await expect(
+      runner.run({
+        hostFunctions: { values: { read: () => 1 } },
+        source: `
+          const pending = values.read();
+          const observed = pending.then(value => value);
+          await Promise.resolve();
+          try { effects.write(); } catch {}
+          return await observed;
+        `,
+      }),
+    ).rejects.toBeInstanceOf(RunBridgeLimitError);
+    expect(sideEffect).toBe(false);
+  });
+
+  it('terminates when a synchronous binding attempts to interrupt', async () => {
+    let continued = false;
+    const runner = createRunner({
+      syncHostFunctions: {
+        gate: {
+          check: () => getHostFunctionContext().interrupt('approval'),
+          continued: () => (continued = true),
+        },
+      },
+    });
+
+    await expect(
+      runner.run({
+        source: `
+          try { gate.check(); } catch {}
+          gate.continued();
+        `,
+      }),
+    ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
+    expect(continued).toBe(false);
+  });
+
+  it('rejects bridge allocations outside invocation and hard memory bounds', async () => {
+    await expect(
+      createRunner({
+        limits: {
+          maxHostFunctionOutputBytes: 2 * 1024 * 1024,
+          memoryLimitBytes: 1024 * 1024,
+        },
+        syncHostFunctions: { values: { read: () => 1 } },
+      }).run({ source: 'return values.read();' }),
+    ).rejects.toBeInstanceOf(RunBridgeLimitError);
+
+    await expect(
+      createRunner({
+        limits: {
+          maxHostFunctionOutputBytes: 128 * 1024 * 1024,
+          memoryLimitBytes: 256 * 1024 * 1024,
+        },
+        syncHostFunctions: { values: { read: () => 1 } },
+      }).run({ source: 'return values.read();' }),
+    ).rejects.toBeInstanceOf(RunBridgeLimitError);
+  });
+
   it('aborts the host context and tears down a blocked worker on timeout', async () => {
     let lateSideEffect = false;
-    let observedAbort = false;
+    const started = createPromiseWithResolvers<null>();
+    const observedAbort = createPromiseWithResolvers<null>();
     const runner = createRunner({
-      limits: { timeoutMs: 200 },
+      limits: { timeoutMs: 1000 },
       syncHostFunctions: {
         operations: {
           async blocked() {
             const { abortSignal } = getHostFunctionContext();
-            await once(abortSignal, 'abort');
-            observedAbort = true;
+            started.resolve(null);
+            await waitForAbort(abortSignal);
+            observedAbort.resolve(null);
             if (!abortSignal.aborted) {
               lateSideEffect = true;
             }
@@ -86,11 +210,13 @@ describe('synchronous host functions', () => {
       },
     });
 
-    await expect(
-      runner.run({ source: 'operations.blocked(); return 1;' }),
-    ).rejects.toBeInstanceOf(RunTimeoutError);
-    await delay(20);
-    expect(observedAbort).toBe(true);
+    await runner.run({ source: 'return 0;' });
+    const execution = runner.run({
+      source: 'operations.blocked(); return 1;',
+    });
+    await started.promise;
+    await expect(execution).rejects.toBeInstanceOf(RunTimeoutError);
+    await observedAbort.promise;
     expect(lateSideEffect).toBe(false);
   });
 
@@ -107,6 +233,204 @@ describe('synchronous host functions', () => {
       status: 'completed',
       value: ['undefined', 'undefined', 1],
     });
+  });
+
+  it('binds synchronous capabilities into continuation scope', async () => {
+    const secret = 's'.repeat(32);
+    const source = 'return await tools.pause();';
+    const firstRunner = createRunner({
+      continuationSecret: secret,
+      syncHostFunctions: { safe: { read: () => 1 } },
+    });
+    const interrupted = await firstRunner.run({
+      hostFunctions: {
+        tools: {
+          pause: () => getHostFunctionContext().interrupt('pause'),
+        },
+      },
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+
+    const changedRunner = createRunner({
+      continuationSecret: secret,
+      syncHostFunctions: { privileged: { write: () => {} } },
+    });
+    await expect(
+      changedRunner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause: () => {} } },
+        resolutions: [
+          { interruptionId: interrupted.interruptions[0]?.id ?? '', value: 1 },
+        ],
+        source,
+      }),
+    ).rejects.toThrow(/scope|binding|continuation/iu);
+  });
+
+  it('preserves the legacy continuation scope without sync bindings', async () => {
+    const source = 'return await tools.pause();';
+    let actualScopeHash: string | undefined;
+    const runner = createRunner({
+      continuationCodec: {
+        decode: () => {
+          throw new Error('decode is unused');
+        },
+        encode(state) {
+          actualScopeHash = state.scopeHash;
+          return 'legacy-compatible-token';
+        },
+      },
+    });
+
+    await expect(
+      runner.run({
+        hostFunctions: {
+          tools: {
+            pause: () => getHostFunctionContext().interrupt('pause'),
+          },
+        },
+        source,
+      }),
+    ).resolves.toMatchObject({
+      continuation: 'legacy-compatible-token',
+      status: 'interrupted',
+    });
+
+    const legacyScope = toJsonPayload(
+      {
+        audience: 'run',
+        bindingManifest: ['tools.pause'],
+        continuationContext: undefined,
+        transformedSourceHash: createHash('sha256')
+          .update(source)
+          .digest('hex'),
+      },
+      Number.MAX_SAFE_INTEGER,
+      'Continuation scope',
+    );
+    expect(actualScopeHash).toBe(
+      createHash('sha256').update(legacyScope).digest('hex'),
+    );
+  });
+
+  it('replays synchronous outcomes without repeating side effects', async () => {
+    const secret = 'r'.repeat(32);
+    const sideEffects: string[] = [];
+    const createReplayRunner = () =>
+      createRunner({
+        continuationSecret: secret,
+        syncHostFunctions: {
+          effects: {
+            write(label: string) {
+              sideEffects.push(label);
+              return sideEffects.length;
+            },
+          },
+        },
+      });
+    const source = `
+      const first = effects.write('first');
+      const firstResolution = await tools.pause('first');
+      const second = effects.write('second');
+      const secondResolution = await tools.pause('second');
+      return [first, firstResolution, second, secondResolution];
+    `;
+    const pause = (label: string) => {
+      const context = getHostFunctionContext();
+      if (context.resume !== undefined) {
+        return context.resume.resolution;
+      }
+      return context.interrupt(label);
+    };
+    const first = await createReplayRunner().run({
+      hostFunctions: {
+        tools: {
+          pause,
+        },
+      },
+      source,
+    });
+    if (first.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['first']);
+
+    const second = await createReplayRunner().run({
+      continuation: first.continuation,
+      hostFunctions: { tools: { pause } },
+      resolutions: [
+        {
+          interruptionId: first.interruptions[0]?.id ?? '',
+          value: 'approved-first',
+        },
+      ],
+      source,
+    });
+    if (second.status !== 'interrupted') {
+      throw new Error('Expected the resumed run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['first', 'second']);
+
+    await expect(
+      createReplayRunner().run({
+        continuation: second.continuation,
+        hostFunctions: { tools: { pause } },
+        resolutions: [
+          {
+            interruptionId: second.interruptions[0]?.id ?? '',
+            value: 'approved-second',
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      value: [1, 'approved-first', 2, 'approved-second'],
+    });
+    expect(sideEffects).toEqual(['first', 'second']);
+  });
+
+  it('waits for a racing synchronous call before minting its ledger', async () => {
+    let sideEffects = 0;
+    const runner = createRunner({
+      continuationSecret: 'q'.repeat(32),
+      limits: { timeoutMs: 3000 },
+      syncHostFunctions: {
+        effects: { write: () => (sideEffects += 1) },
+      },
+    });
+
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const source =
+      'const pending = tools.pause(); effects.write(); await pending;';
+    const interrupted = await runner.run({
+      hostFunctions: { tools: { pause } },
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+    expect(sideEffects).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(sideEffects).toBe(1);
   });
 });
 
@@ -171,40 +495,258 @@ describe('native module loading', () => {
     expect(seen).toEqual(['ab:dynamic:42']);
   });
 
-  it('does not allow module-backed runs to create continuations', async () => {
+  it('replays module loading without invoking the loader again', async () => {
     const runner = createRunner({ continuationSecret: 'x'.repeat(32) });
+    let loads = 0;
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const moduleLoader = {
+      identity: 'modules-v1',
+      load() {
+        loads += 1;
+        return 'export const value = 1;';
+      },
+    };
+    const source = "import './dependency.js'; await tools.pause();";
+    const interrupted = await runner.run({
+      hostFunctions: { tools: { pause } },
+      moduleLoader,
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the module run to be interrupted.');
+    }
+    expect(loads).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        moduleLoader: { ...moduleLoader, identity: 'modules-v2' },
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).rejects.toThrow(/continuation|scope/iu);
+    expect(loads).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        moduleLoader,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(loads).toBe(1);
+  });
+
+  it('requires a stable module-loader identity for continuations', async () => {
+    const runner = createRunner({ continuationSecret: 'i'.repeat(32) });
     await expect(
       runner.run({
         hostFunctions: {
           tools: {
-            pause() {
-              getHostFunctionContext().interrupt('pause');
-            },
+            pause: () => getHostFunctionContext().interrupt('pause'),
           },
         },
         moduleLoader: { load: () => 'export {};' },
         source: 'await tools.pause();',
       }),
-    ).rejects.toThrow('cannot create a continuation');
+    ).rejects.toThrow('non-empty identity');
   });
 
-  it('aborts a blocked module loader on timeout', async () => {
-    let observedAbort = false;
-    const runner = createRunner({ limits: { timeoutMs: 200 } });
+  it('redacts module loader errors from guest code', async () => {
+    const seen: string[] = [];
+    const runner = createRunner({
+      syncHostFunctions: {
+        report: { error: (message: string) => seen.push(message) },
+      },
+    });
 
     await expect(
       runner.run({
         moduleLoader: {
-          async load() {
-            const { abortSignal } = getHostFunctionContext();
-            await once(abortSignal, 'abort');
-            observedAbort = true;
-            return 'export const value = 1;';
+          load() {
+            const error = new Error('ENOENT: /private/tenant/secret.ts');
+            Object.assign(error, { code: 'ENOENT' });
+            throw error;
           },
         },
-        source: "import './blocked.js';",
+        source: `
+          try {
+            await import('/private/tenant/secret.ts');
+          } catch (error) {
+            report.error(error.message);
+          }
+        `,
       }),
-    ).rejects.toBeInstanceOf(RunTimeoutError);
-    expect(observedAbort).toBe(true);
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(seen).toEqual(['Host bridge request failed.']);
+  });
+
+  it('rejects a non-string result from a configured normalizer', async () => {
+    let loaded = false;
+    const runner = createRunner({
+      syncHostFunctions: { report: { value: () => {} } },
+    });
+
+    await expect(
+      runner.run({
+        moduleLoader: {
+          load() {
+            loaded = true;
+            return 'export {};';
+          },
+          normalize: () => undefined as never,
+        },
+        source: `
+          try { await import('/forbidden.js'); } catch {}
+          report.value();
+        `,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(loaded).toBe(false);
+  });
+
+  it('preserves trusted synchronous binding errors in module runs', async () => {
+    const runner = createRunner({
+      syncHostFunctions: {
+        values: {
+          fail() {
+            throw new Error('private failure');
+          },
+        },
+      },
+    });
+
+    await expect(
+      runner.run({
+        moduleLoader: { load: () => 'export {};' },
+        source: 'values.fail();',
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_HOST_FUNCTION_ERROR',
+      details: undefined,
+      message: 'Host function failed.',
+    });
+  });
+
+  it('rejects oversized module requests without desynchronizing the bridge', async () => {
+    const seen: string[] = [];
+    const runner = createRunner({
+      limits: { maxHostFunctionArgumentsBytes: 64 },
+      syncHostFunctions: {
+        report: { value: (value: string) => seen.push(value) },
+      },
+    });
+
+    await expect(
+      runner.run({
+        moduleLoader: {
+          load: specifier =>
+            specifier === '/ok.js'
+              ? "export const value = 'ok';"
+              : 'export {};',
+        },
+        source: `
+          try { await import('x'.repeat(70_000)); } catch {}
+          const loaded = await import('/ok.js');
+          report.value(loaded.value);
+        `,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(seen).toEqual(['ok']);
+  });
+
+  it('preserves side-effectful imports whose bindings are unused', async () => {
+    const seen: string[] = [];
+    const runner = createRunner({
+      syncHostFunctions: {
+        report: { value: (value: string) => seen.push(value) },
+      },
+    });
+
+    await expect(
+      runner.run({
+        moduleLoader: {
+          load: specifier => {
+            if (specifier === '/side.ts') {
+              return "report.value('side'); export const unused: number = 1;";
+            }
+            throw new Error('not found');
+          },
+        },
+        source: "import { unused } from '/side.ts';",
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(seen).toEqual(['side']);
+  });
+
+  it('bounds encoded and transformed module source', async () => {
+    const escapedSource = `export const value = ${JSON.stringify('\\'.repeat(48))};`;
+    const encodedRunner = createRunner({
+      limits: {
+        maxHostFunctionOutputBytes: 128,
+        maxSourceBytes: 512,
+      },
+    });
+    await expect(
+      encodedRunner.run({
+        moduleLoader: { load: () => escapedSource },
+        source: "import './escaped.js';",
+      }),
+    ).rejects.toThrow(
+      'moduleLoader.load output exceeds the 128 byte size limit.',
+    );
+
+    const sourceRunner = createRunner({
+      limits: {
+        maxHostFunctionOutputBytes: 1024,
+        maxSourceBytes: 128,
+      },
+    });
+    await expect(
+      sourceRunner.run({
+        moduleLoader: { load: () => `/*${'x'.repeat(256)}*/ export {};` },
+        source: "import './large.js';",
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_SOURCE_TOO_LARGE',
+      message: expect.stringMatching(/source.*128 byte size limit/iu),
+    });
+  });
+
+  it('aborts a blocked module loader on timeout', async () => {
+    const started = createPromiseWithResolvers<null>();
+    const observedAbort = createPromiseWithResolvers<null>();
+    const runner = createRunner({ limits: { timeoutMs: 1000 } });
+
+    await runner.run({ source: 'return 0;' });
+    const execution = runner.run({
+      moduleLoader: {
+        async load() {
+          const { abortSignal } = getHostFunctionContext();
+          started.resolve(null);
+          await waitForAbort(abortSignal);
+          observedAbort.resolve(null);
+          return 'export const value = 1;';
+        },
+      },
+      source: "import './blocked.js';",
+    });
+    await started.promise;
+    await expect(execution).rejects.toBeInstanceOf(RunTimeoutError);
+    await observedAbort.promise;
   });
 });

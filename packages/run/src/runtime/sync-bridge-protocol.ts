@@ -4,6 +4,7 @@ import type { SerializableError } from '../types.js';
 export const SYNC_BRIDGE_HEADER_INTS = 8;
 export const SYNC_BRIDGE_HEADER_BYTES =
   SYNC_BRIDGE_HEADER_INTS * Int32Array.BYTES_PER_ELEMENT;
+export const MAX_SYNC_BRIDGE_BUFFER_BYTES = 64 * 1024 * 1024;
 
 export enum SyncBridgeState {
   Idle = 0,
@@ -25,12 +26,13 @@ export enum SyncBridgeHeader {
   NameBytes = 3,
   PayloadBytes = 4,
   Success = 5,
-  ReservedOne = 6,
-  ReservedTwo = 7,
+  RequestIndex = 6,
+  Reserved = 7,
 }
 
 export interface SyncBridgeRequest {
   sequence: number;
+  requestIndex: number;
   kind: SyncBridgeRequestKind;
   name: string;
   payload: string;
@@ -46,13 +48,19 @@ export type SyncBridgeResponse =
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
 
+export const getSyncBridgeBufferBytes = (
+  maxInputBytes: number,
+  maxOutputBytes: number,
+): number =>
+  SYNC_BRIDGE_HEADER_BYTES +
+  Math.max(1024 + maxInputBytes, maxOutputBytes, 64 * 1024);
+
 export const createSyncBridgeBuffer = (
   maxInputBytes: number,
   maxOutputBytes: number,
 ): SharedArrayBuffer =>
   new SharedArrayBuffer(
-    SYNC_BRIDGE_HEADER_BYTES +
-      Math.max(1024 + maxInputBytes, maxOutputBytes, 64 * 1024),
+    getSyncBridgeBufferBytes(maxInputBytes, maxOutputBytes),
   );
 
 export const getSyncBridgeViews = (buffer: SharedArrayBuffer) => ({
@@ -91,8 +99,8 @@ export const writeSyncBridgeRequest = (
   Atomics.store(header, SyncBridgeHeader.NameBytes, name.byteLength);
   Atomics.store(header, SyncBridgeHeader.PayloadBytes, payload.byteLength);
   Atomics.store(header, SyncBridgeHeader.Success, 0);
-  Atomics.store(header, SyncBridgeHeader.ReservedOne, 0);
-  Atomics.store(header, SyncBridgeHeader.ReservedTwo, 0);
+  Atomics.store(header, SyncBridgeHeader.RequestIndex, request.requestIndex);
+  Atomics.store(header, SyncBridgeHeader.Reserved, 0);
 };
 
 export const readSyncBridgeRequest = (
@@ -103,6 +111,7 @@ export const readSyncBridgeRequest = (
   const kind = Atomics.load(header, SyncBridgeHeader.Kind);
   const nameBytes = Atomics.load(header, SyncBridgeHeader.NameBytes);
   const payloadBytes = Atomics.load(header, SyncBridgeHeader.PayloadBytes);
+  const requestIndex = Atomics.load(header, SyncBridgeHeader.RequestIndex);
   if (
     !Number.isSafeInteger(sequence) ||
     sequence <= 0 ||
@@ -111,10 +120,11 @@ export const readSyncBridgeRequest = (
       kind !== SyncBridgeRequestKind.ModuleLoad) ||
     nameBytes < 0 ||
     payloadBytes < 0 ||
+    !Number.isSafeInteger(requestIndex) ||
+    requestIndex <= 0 ||
     nameBytes + payloadBytes > bytes.length ||
     Atomics.load(header, SyncBridgeHeader.Success) !== 0 ||
-    Atomics.load(header, SyncBridgeHeader.ReservedOne) !== 0 ||
-    Atomics.load(header, SyncBridgeHeader.ReservedTwo) !== 0
+    Atomics.load(header, SyncBridgeHeader.Reserved) !== 0
   ) {
     throw new TypeError('Invalid synchronous bridge request header.');
   }
@@ -124,6 +134,7 @@ export const readSyncBridgeRequest = (
     payload: decoder.decode(
       bytes.subarray(nameBytes, nameBytes + payloadBytes),
     ),
+    requestIndex,
     sequence,
   };
 };
@@ -143,8 +154,8 @@ export const writeSyncBridgeResponse = (
   Atomics.store(header, SyncBridgeHeader.NameBytes, 0);
   Atomics.store(header, SyncBridgeHeader.PayloadBytes, encoded.byteLength);
   Atomics.store(header, SyncBridgeHeader.Success, response.success ? 1 : 0);
-  Atomics.store(header, SyncBridgeHeader.ReservedOne, 0);
-  Atomics.store(header, SyncBridgeHeader.ReservedTwo, 0);
+  Atomics.store(header, SyncBridgeHeader.RequestIndex, 0);
+  Atomics.store(header, SyncBridgeHeader.Reserved, 0);
 };
 
 export const readSyncBridgeResponse = (
@@ -162,8 +173,8 @@ export const readSyncBridgeResponse = (
     payloadBytes <= 0 ||
     payloadBytes > bytes.length ||
     (success !== 0 && success !== 1) ||
-    Atomics.load(header, SyncBridgeHeader.ReservedOne) !== 0 ||
-    Atomics.load(header, SyncBridgeHeader.ReservedTwo) !== 0
+    Atomics.load(header, SyncBridgeHeader.RequestIndex) !== 0 ||
+    Atomics.load(header, SyncBridgeHeader.Reserved) !== 0
   ) {
     throw new TypeError('Invalid synchronous bridge response header.');
   }
