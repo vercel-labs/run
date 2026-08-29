@@ -99,6 +99,11 @@ callback returns a promise. The worker waits while the host callback runs. Pass
 `getHostFunctionContext().abortSignal` to filesystem, network, or other
 cancellable work so timeouts and caller cancellation can stop it.
 
-Module-backed runs cannot create or resume continuations. Do not combine
-`moduleLoader` with `continuation`; an interruption reached during module
-evaluation fails instead of minting a continuation.
+Module-backed runs can create and resume continuations when `moduleLoader`
+provides a non-empty, stable `identity`. Normalize and load outcomes are stored
+in the continuation ledger and replayed without calling the loader again. Calls
+reached after the recorded frontier use the configured loader normally.
+
+The loader identity is authenticated as part of continuation scope. Change it
+whenever resolution rules, module contents, or other loader configuration
+changes incompatibly; a mismatched identity rejects replay before evaluation.

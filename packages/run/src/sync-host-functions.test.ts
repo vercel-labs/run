@@ -316,33 +316,36 @@ describe('synchronous host functions', () => {
     );
   });
 
-  it('rejects synchronous side effects during continuation replay', async () => {
+  it('replays synchronous outcomes without repeating side effects', async () => {
     const secret = 'r'.repeat(32);
-    let sideEffect = false;
+    const sideEffects: string[] = [];
     const createReplayRunner = () =>
       createRunner({
         continuationSecret: secret,
         syncHostFunctions: {
           effects: {
-            write() {
-              sideEffect = true;
+            write(label: string) {
+              sideEffects.push(label);
+              return sideEffects.length;
             },
           },
         },
       });
     const source = `
-      const shouldWrite = await tools.pause();
-      if (shouldWrite) effects.write();
-      return 'done';
+      const first = effects.write('first');
+      const firstResolution = await tools.pause('first');
+      const second = effects.write('second');
+      const secondResolution = await tools.pause('second');
+      return [first, firstResolution, second, secondResolution];
     `;
-    const pause = () => {
+    const pause = (label: string) => {
       const context = getHostFunctionContext();
       if (context.resume !== undefined) {
         return context.resume.resolution;
       }
-      return context.interrupt('pause');
+      return context.interrupt(label);
     };
-    const interrupted = await createReplayRunner().run({
+    const first = await createReplayRunner().run({
       hostFunctions: {
         tools: {
           pause,
@@ -350,12 +353,72 @@ describe('synchronous host functions', () => {
       },
       source,
     });
-    if (interrupted.status !== 'interrupted') {
+    if (first.status !== 'interrupted') {
       throw new Error('Expected the run to be interrupted.');
     }
+    expect(sideEffects).toEqual(['first']);
+
+    const second = await createReplayRunner().run({
+      continuation: first.continuation,
+      hostFunctions: { tools: { pause } },
+      resolutions: [
+        {
+          interruptionId: first.interruptions[0]?.id ?? '',
+          value: 'approved-first',
+        },
+      ],
+      source,
+    });
+    if (second.status !== 'interrupted') {
+      throw new Error('Expected the resumed run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['first', 'second']);
 
     await expect(
       createReplayRunner().run({
+        continuation: second.continuation,
+        hostFunctions: { tools: { pause } },
+        resolutions: [
+          {
+            interruptionId: second.interruptions[0]?.id ?? '',
+            value: 'approved-second',
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      value: [1, 'approved-first', 2, 'approved-second'],
+    });
+    expect(sideEffects).toEqual(['first', 'second']);
+  });
+
+  it('waits for a racing synchronous call before minting its ledger', async () => {
+    let sideEffects = 0;
+    const runner = createRunner({
+      continuationSecret: 'q'.repeat(32),
+      limits: { timeoutMs: 3000 },
+      syncHostFunctions: {
+        effects: { write: () => (sideEffects += 1) },
+      },
+    });
+
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const source =
+      'const pending = tools.pause(); effects.write(); await pending;';
+    const interrupted = await runner.run({
+      hostFunctions: { tools: { pause } },
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+    expect(sideEffects).toBe(1);
+    await expect(
+      runner.run({
         continuation: interrupted.continuation,
         hostFunctions: { tools: { pause } },
         resolutions: [
@@ -366,32 +429,8 @@ describe('synchronous host functions', () => {
         ],
         source,
       }),
-    ).rejects.toThrow('forbidden during continuation replay');
-    expect(sideEffect).toBe(false);
-  });
-
-  it('never mints a continuation after a racing synchronous call', async () => {
-    let sideEffects = 0;
-    const runner = createRunner({
-      continuationSecret: 'q'.repeat(32),
-      limits: { timeoutMs: 3000 },
-      syncHostFunctions: {
-        effects: { write: () => (sideEffects += 1) },
-      },
-    });
-
-    await expect(
-      runner.run({
-        hostFunctions: {
-          tools: {
-            pause: () => getHostFunctionContext().interrupt('pause'),
-          },
-        },
-        source:
-          'const pending = tools.pause(); effects.write(); await pending;',
-      }),
-    ).rejects.toThrow(/continuation|synchronous bridge/iu);
-    expect(sideEffects).toBeLessThanOrEqual(1);
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(sideEffects).toBe(1);
   });
 });
 
@@ -456,21 +495,75 @@ describe('native module loading', () => {
     expect(seen).toEqual(['ab:dynamic:42']);
   });
 
-  it('does not allow module-backed runs to create continuations', async () => {
+  it('replays module loading without invoking the loader again', async () => {
     const runner = createRunner({ continuationSecret: 'x'.repeat(32) });
+    let loads = 0;
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const moduleLoader = {
+      identity: 'modules-v1',
+      load() {
+        loads += 1;
+        return 'export const value = 1;';
+      },
+    };
+    const source = "import './dependency.js'; await tools.pause();";
+    const interrupted = await runner.run({
+      hostFunctions: { tools: { pause } },
+      moduleLoader,
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the module run to be interrupted.');
+    }
+    expect(loads).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        moduleLoader: { ...moduleLoader, identity: 'modules-v2' },
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).rejects.toThrow(/continuation|scope/iu);
+    expect(loads).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        moduleLoader,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(loads).toBe(1);
+  });
+
+  it('requires a stable module-loader identity for continuations', async () => {
+    const runner = createRunner({ continuationSecret: 'i'.repeat(32) });
     await expect(
       runner.run({
         hostFunctions: {
           tools: {
-            pause() {
-              getHostFunctionContext().interrupt('pause');
-            },
+            pause: () => getHostFunctionContext().interrupt('pause'),
           },
         },
         moduleLoader: { load: () => 'export {};' },
         source: 'await tools.pause();',
       }),
-    ).rejects.toThrow('cannot create a continuation');
+    ).rejects.toThrow('non-empty identity');
   });
 
   it('redacts module loader errors from guest code', async () => {
