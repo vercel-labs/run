@@ -496,7 +496,12 @@ describe('synchronous host functions', () => {
 
     await expect(
       runner.run({
-        source: 'try { effects.fail(); } catch {}',
+        hostFunctions: {
+          tools: {
+            pause: () => getHostFunctionContext().interrupt('pause'),
+          },
+        },
+        source: 'try { effects.fail(); } catch {} await tools.pause();',
       }),
     ).rejects.toThrow(
       'Synchronous host bridge error exceeds the 32 byte size limit.',
