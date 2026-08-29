@@ -5,6 +5,7 @@
     "overview",
     "sandbox",
     "host-functions",
+    "modules",
     "serialization",
     "interruptions"
   ]

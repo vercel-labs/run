@@ -4,9 +4,17 @@ interface PromiseWithResolvers<T> {
   resolve: (value: T | PromiseLike<T>) => void;
 }
 
-interface PromiseConstructorWithResolvers extends PromiseConstructor {
-  withResolvers<T>(): PromiseWithResolvers<T>;
-}
-
-export const createPromiseWithResolvers = <T>(): PromiseWithResolvers<T> =>
-  (Promise as PromiseConstructorWithResolvers).withResolvers<T>();
+export const createPromiseWithResolvers = <T>(): PromiseWithResolvers<T> => {
+  let resolveDeferred!: PromiseWithResolvers<T>['resolve'];
+  let rejectDeferred!: PromiseWithResolvers<T>['reject'];
+  // eslint-disable-next-line promise/avoid-new -- Node.js 20 lacks Promise.withResolvers.
+  const promise = new Promise<T>((resolve, reject) => {
+    resolveDeferred = resolve;
+    rejectDeferred = reject;
+  });
+  return {
+    promise,
+    reject: rejectDeferred,
+    resolve: resolveDeferred,
+  };
+};

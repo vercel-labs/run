@@ -86,6 +86,23 @@ describe('max workers', () => {
     }
   });
 
+  it('includes additional invocation memory in worker admission', () => {
+    const mib = 1024 * 1024;
+    vi.spyOn(process, 'availableMemory').mockReturnValue(160 * mib);
+
+    expect(
+      getMaxWorkers({
+        additionalMemoryBytes: 16 * mib,
+        memoryLimitBytes: 16 * mib,
+      }),
+    ).toBe(2);
+    const reservation = reserveWorkerMemory(16 * mib, 16 * mib);
+    expect(reservation).toBe(80 * mib);
+    if (reservation !== undefined) {
+      releaseWorkerMemory(reservation);
+    }
+  });
+
   it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
     'rejects invalid configured cap %s',
     value => {

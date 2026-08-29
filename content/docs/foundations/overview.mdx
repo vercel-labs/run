@@ -102,5 +102,7 @@ boundary.
 
 A call such as `users.find("user_123")` is called a **bridge request**. The
 guest sends the serialized arguments to the host, the host calls the host
-function, and the serialized outcome is returned to the guest. The host
-function may be synchronous or asynchronous.
+function, and the serialized outcome is returned to the guest. Ordinary host
+functions always appear asynchronous to guest code. A runner can separately
+configure synchronous host functions for APIs that must return before the next
+guest statement executes.

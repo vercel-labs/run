@@ -1,0 +1,104 @@
+---
+title: Native modules
+description: Load static, cyclic, and dynamic ES modules inside the sandbox.
+---
+
+# Native modules
+
+Pass a `moduleLoader` to evaluate the entry source as an ES module and resolve
+its imports through host-controlled callbacks. QuickJS performs native module
+linking, so static imports, aliases, cycles, and dynamic `import()` use normal
+ES module semantics without rewriting source text.
+
+```ts
+import { createRunner } from 'run';
+
+const modules = new Map([['/values.js', 'export const value = 42;']]);
+
+const runner = createRunner({
+  syncHostFunctions: {
+    report: {
+      value: (value: number) => console.log(value),
+    },
+  },
+});
+
+const result = await runner.run({
+  source: `
+    import { value } from './values.js';
+    report.value(value);
+  `,
+  moduleLoader: {
+    identity: 'workspace-v1',
+    normalize(specifier) {
+      return specifier === './values.js' ? '/values.js' : specifier;
+    },
+    load(specifier) {
+      const source = modules.get(specifier);
+      if (source === undefined) throw new Error('Module not found');
+      return source;
+    },
+  },
+});
+```
+
+## Resolution
+
+`normalize(specifier, importer)` returns the canonical name used for module
+identity and caching. It receives the raw import specifier and the importing
+module name. If `normalize` is omitted, the raw specifier is used.
+
+`load(specifier)` receives a normalized name and returns its source text. Both
+callbacks may return strings directly or promises. They execute in the host and
+can call `getHostFunctionContext()` to obtain cancellation and request metadata.
+
+Treat guest-controlled specifiers as untrusted input. Restrict resolution to an
+allowed module graph, normalize paths before authorization, and prevent escapes
+from the intended root. Raw loader failures are redacted before they enter the
+sandbox, but the loader should still avoid placing secrets in returned source.
+
+## Results
+
+Entry modules execute for their side effects. A successfully evaluated
+module-backed run returns:
+
+```ts
+{ status: 'completed', value: undefined }
+```
+
+The module namespace is deliberately not serialized as the result. Modules may
+therefore export functions and cyclic namespaces without causing result
+serialization failures. Use a host function when the entry module needs to send
+a value to the host.
+
+## TypeScript
+
+Node uses its native type stripper when available, and Bun uses its native
+TypeScript transpiler. On Node 20, install the optional `typescript` peer
+dependency when the runtime must strip TypeScript syntax:
+
+```sh
+pnpm add typescript
+```
+
+Without the optional peer, Node 20 continues to support JavaScript and source
+that has already been type-stripped. Unsupported TypeScript syntax is reported
+as a guest syntax error.
+
+Type stripping is not type checking. Compile and validate authored modules
+before execution when type correctness matters.
+
+## Limits and cancellation
+
+Raw and transformed module source are bounded by `maxSourceBytes`. The
+JSON-encoded loader response is bounded by `maxHostFunctionOutputBytes`, and
+module resolution shares `maxBridgeRequests` with host-function calls.
+
+Module loading uses the synchronous bridge internally, even when a loader
+callback returns a promise. The worker waits while the host callback runs. Pass
+`getHostFunctionContext().abortSignal` to filesystem, network, or other
+cancellable work so timeouts and caller cancellation can stop it.
+
+Module-backed runs cannot create or resume continuations. Do not combine
+`moduleLoader` with `continuation`; an interruption reached during module
+evaluation fails instead of minting a continuation.

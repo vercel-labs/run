@@ -5,7 +5,8 @@ description: API Reference for getHostFunctionContext.
 
 # `getHostFunctionContext()`
 
-Get the context for the currently executing host function.
+Get the context for the currently executing asynchronous or synchronous host
+function, or module-loader callback.
 
 ```ts
 import { getHostFunctionContext, run } from 'run';
@@ -44,7 +45,7 @@ import { getHostFunctionContext } from 'run';
   {
     "name": "context",
     "type": "HostFunctionContext",
-    "description": "The context for the active host function call.",
+    "description": "The context for the active host binding or module-loader call.",
     "properties": [
       {
         "type": "HostFunctionContext",
@@ -77,12 +78,12 @@ import { getHostFunctionContext } from 'run';
           {
             "name": "hostFunctionName",
             "type": "string",
-            "description": "The fully qualified host function path, for example tools.search."
+            "description": "The fully qualified callback path, for example tools.search or moduleLoader.load."
           },
           {
             "name": "interrupt",
             "type": "(payload: unknown) => never",
-            "description": "Interrupts the host function and suspends the run."
+            "description": "Interrupts an asynchronous host function and suspends the run. Synchronous bindings and module loaders cannot interrupt."
           },
           {
             "name": "resume",

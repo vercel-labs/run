@@ -13,9 +13,13 @@ permissions:
 
 jobs:
   quality:
-    name: Quality
+    name: Quality (Node.js ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [20.19, 22]
 
     steps:
       - name: Checkout
@@ -29,7 +33,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
@@ -49,4 +53,5 @@ jobs:
         run: pnpm test
 
       - name: Test Bun compatibility
+        if: matrix.node-version == 22
         run: pnpm --filter run test:bun

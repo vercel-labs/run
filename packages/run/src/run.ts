@@ -4,6 +4,7 @@ import { createSignedContinuationCodec } from './continuation-codec.js';
 import type {
   HostFunctionManifest,
   HostFunctions,
+  SyncHostFunctions,
   ContinuationCodec,
   RunInput,
   Runner,
@@ -191,6 +192,8 @@ export const createRunner = <TOKEN = string>(
           secret: configuredSecret,
         }) as ContinuationCodec<TOKEN>));
   const continuationAudience = options.continuationAudience ?? 'run';
+  const syncHostFunctions: SyncHostFunctions = options.syncHostFunctions ?? {};
+  const syncHostFunctionManifest = validateHostFunctions(syncHostFunctions);
   if (
     continuationAudience.length === 0 ||
     Buffer.byteLength(continuationAudience) > 512
@@ -205,6 +208,34 @@ export const createRunner = <TOKEN = string>(
     ): Promise<RunResult<OUTPUT, TOKEN>> {
       const hostFunctions = input.hostFunctions ?? {};
       const hostFunctionManifest = validateHostFunctions(hostFunctions);
+      for (const namespace of syncHostFunctionManifest.keys()) {
+        if (hostFunctionManifest.has(namespace)) {
+          throw new TypeError(
+            `Host function namespace "${namespace}" cannot be both asynchronous and synchronous.`,
+          );
+        }
+      }
+      if (
+        input.moduleLoader !== undefined &&
+        (typeof input.moduleLoader !== 'object' ||
+          input.moduleLoader === null ||
+          typeof input.moduleLoader.load !== 'function' ||
+          (input.moduleLoader.normalize !== undefined &&
+            typeof input.moduleLoader.normalize !== 'function') ||
+          (input.moduleLoader.identity !== undefined &&
+            (typeof input.moduleLoader.identity !== 'string' ||
+              Buffer.byteLength(input.moduleLoader.identity) > 512)))
+      ) {
+        throw new TypeError('Invalid moduleLoader configuration.');
+      }
+      if (
+        input.moduleLoader !== undefined &&
+        input.continuation !== undefined
+      ) {
+        throw new TypeError(
+          'Continuations cannot be resumed with a module loader configured.',
+        );
+      }
       const value = await runManaged({
         ...input,
         continuationAudience,
@@ -215,6 +246,8 @@ export const createRunner = <TOKEN = string>(
           ...options.limits,
           ...input.limits,
         },
+        syncHostFunctionManifest,
+        syncHostFunctions,
       });
       return value as RunResult<OUTPUT, TOKEN>;
     },

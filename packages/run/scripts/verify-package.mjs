@@ -35,7 +35,11 @@ try {
     ],
     { env: commandEnvironment, maxBuffer: 10 * 1024 * 1024 },
   );
-  const [packed] = JSON.parse(stdout);
+  const jsonStart = stdout.indexOf('[\n');
+  if (jsonStart === -1) {
+    throw new Error(`npm pack did not return a JSON manifest:\n${stdout}`);
+  }
+  const [packed] = JSON.parse(stdout.slice(jsonStart));
   if (packed.size > 650_000 || packed.unpackedSize > 2_100_000) {
     throw new Error(
       `Package size budget exceeded: ${packed.size} packed, ${packed.unpackedSize} unpacked.`,

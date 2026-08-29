@@ -20,19 +20,19 @@ and a coding agent rarely want the same budget.
 
 ## Defaults
 
-| Limit                           |    Default | Bounds                                    |
-| ------------------------------- | ---------: | ----------------------------------------- |
-| `timeoutMs`                     | 30 seconds | The complete invocation                   |
-| `memoryLimitBytes`              |     64 MiB | QuickJS memory                            |
-| `maxStackSizeBytes`             |      2 MiB | QuickJS stack                             |
-| `maxSourceBytes`                |    256 KiB | UTF-8 source                              |
-| `maxResultBytes`                |      1 MiB | Serialized result data                    |
-| `maxConsoleOutputBytes`         |     64 KiB | Guest console output                      |
-| `maxHostFunctionArgumentsBytes` |      1 MiB | Serialized arguments for one call         |
-| `maxHostFunctionOutputBytes`    |      4 MiB | Serialized output or interruption payload |
-| `maxBridgeRequests`             |        256 | Host function calls in one invocation     |
-| `maxInFlightBridgeRequests`     |         32 | Host function calls active at once        |
-| `maxContinuationBytes`          |     32 MiB | Serialized continuation state             |
+| Limit                           |    Default | Bounds                              |
+| ------------------------------- | ---------: | ----------------------------------- |
+| `timeoutMs`                     | 30 seconds | The complete invocation             |
+| `memoryLimitBytes`              |     64 MiB | QuickJS and sync-bridge admission   |
+| `maxStackSizeBytes`             |      2 MiB | QuickJS stack                       |
+| `maxSourceBytes`                |    256 KiB | Entry and loaded module source      |
+| `maxResultBytes`                |      1 MiB | Serialized result data              |
+| `maxConsoleOutputBytes`         |     64 KiB | Guest console output                |
+| `maxHostFunctionArgumentsBytes` |      1 MiB | Serialized arguments for one call   |
+| `maxHostFunctionOutputBytes`    |      4 MiB | Serialized binding or loader output |
+| `maxBridgeRequests`             |        256 | Binding and module requests         |
+| `maxInFlightBridgeRequests`     |         32 | Host function calls active at once  |
+| `maxContinuationBytes`          |     32 MiB | Serialized continuation state       |
 
 Every configured value must be a positive integer.
 
@@ -112,15 +112,27 @@ Source, argument, output, result, and continuation limits are measured after
 their relevant UTF-8 encoding or serialization step. A JavaScript object that
 appears small can have a much larger serialized representation.
 
+For modules, `maxSourceBytes` applies both before and after type stripping, and
+`maxHostFunctionOutputBytes` applies to the JSON-encoded loader response written
+to the bridge. Escapes such as quotes and backslashes can make that encoded
+response larger than the source text.
+
 Memory and worker concurrency should be planned together. Raising
 `memoryLimitBytes` increases the maximum memory available to every active
 worker, which may reduce the number of invocations a process can safely run at
 once.
 
-`maxBridgeRequests` controls total host interaction, while
+Runs without synchronous bindings or a module loader do not allocate a
+synchronous bridge. When needed, the bridge is included in process memory
+admission, must fit within `memoryLimitBytes`, and has a hard 64 MiB capacity.
+
+`maxBridgeRequests` controls total asynchronous bindings, synchronous bindings,
+and module-loader interaction, while
 `maxInFlightBridgeRequests` controls parallel host interaction. Lowering the
 in-flight limit can protect a database or external service even when the total
-number of host function calls remains unchanged.
+number of asynchronous host function calls remains unchanged. Synchronous and
+module requests are serialized separately and do not count toward the in-flight
+limit.
 
 ## Failures
 

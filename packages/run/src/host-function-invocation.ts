@@ -26,7 +26,7 @@ const throwIfAborted = (abortSignal: AbortSignal): void => {
   }
 };
 
-const raceAgainstAbort = async <T>(
+export const raceAgainstAbort = async <T>(
   operation: Promise<T>,
   abortSignal: AbortSignal,
 ): Promise<T> => {

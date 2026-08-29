@@ -205,6 +205,9 @@ export const serializeBridgeErrorForGuest = (
   if (RunError.isInstance(error)) {
     return compactError({
       code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
+      ...(error instanceof RunSourceTooLargeError
+        ? { details: error.details }
+        : {}),
       message: boundedString(
         error.message,
         MAX_ERROR_MESSAGE_BYTES,

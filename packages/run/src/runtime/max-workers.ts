@@ -18,8 +18,11 @@ const availableMemory = (): number => {
   return Number.isFinite(bytes) && bytes > 0 ? bytes : 0;
 };
 
-const estimatedWorkerBytes = (memoryLimitBytes: number): number =>
-  memoryLimitBytes + DEFAULT_WORKER_OVERHEAD_BYTES;
+const estimatedWorkerBytes = (
+  memoryLimitBytes: number,
+  additionalMemoryBytes = 0,
+): number =>
+  memoryLimitBytes + DEFAULT_WORKER_OVERHEAD_BYTES + additionalMemoryBytes;
 
 /**
  * Sets the process-global maximum number of active run workers.
@@ -47,8 +50,10 @@ export const setMaxWorkers = (maxWorkers?: number): void => {
  * @internal
  */
 export const getMaxWorkers = ({
+  additionalMemoryBytes = 0,
   memoryLimitBytes,
 }: {
+  additionalMemoryBytes?: number;
   memoryLimitBytes: number;
 }): number => {
   if (configuredMaxWorkers !== undefined) {
@@ -56,7 +61,8 @@ export const getMaxWorkers = ({
   }
 
   const memoryBasedMaxWorkers = Math.floor(
-    availableMemory() / estimatedWorkerBytes(memoryLimitBytes),
+    availableMemory() /
+      estimatedWorkerBytes(memoryLimitBytes, additionalMemoryBytes),
   );
   return Math.max(1, Math.min(DEFAULT_MAX_WORKERS_CAP, memoryBasedMaxWorkers));
 };
@@ -71,12 +77,16 @@ export const getMaxWorkers = ({
  */
 export const reserveWorkerMemory = (
   memoryLimitBytes: number,
+  additionalMemoryBytes = 0,
 ): number | undefined => {
   if (configuredMaxWorkers !== undefined) {
     return 0;
   }
 
-  const reservationBytes = estimatedWorkerBytes(memoryLimitBytes);
+  const reservationBytes = estimatedWorkerBytes(
+    memoryLimitBytes,
+    additionalMemoryBytes,
+  );
   memoryBudgetBytes ??= Math.max(reservationBytes, availableMemory());
   if (reservedMemoryBytes + reservationBytes > memoryBudgetBytes) {
     return undefined;
