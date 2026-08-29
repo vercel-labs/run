@@ -41,6 +41,7 @@ const pendingBridgeRequests = new Map<
 >();
 let activeInvocationId: string | undefined;
 let aggregateBridgeRequestCounter = 0;
+let aggregateBridgeResponseCounter = 0;
 let bridgeRequestCounter = 0;
 let bridgeIdleGeneration = 0;
 let syncBridgeRequestCounter = 0;
@@ -103,6 +104,8 @@ async function handleMainMessage(value: unknown): Promise<void> {
       pending.registerTrustedError,
     );
     pendingBridgeRequests.delete(message.requestId);
+    aggregateBridgeResponseCounter += 1;
+    scheduleBridgeIdle(message.invocationId);
     return;
   }
 
@@ -119,6 +122,7 @@ async function handleMainMessage(value: unknown): Promise<void> {
 
     activeInvocationId = message.invocationId;
     aggregateBridgeRequestCounter = 0;
+    aggregateBridgeResponseCounter = 0;
     bridgeRequestCounter = 0;
     syncBridgeRequestCounter = 0;
     bridgeIdleGeneration += 1;
@@ -858,9 +862,29 @@ function requestSyncHost(
     throw new RunProtocolError('Synchronous bridge closed before responding.');
   }
   const response = readSyncBridgeResponse(syncBridge, syncBridgeRequestCounter);
+  aggregateBridgeResponseCounter += 1;
   Atomics.store(header, SyncBridgeHeader.State, SyncBridgeState.Idle);
   Atomics.notify(header, SyncBridgeHeader.State);
+  scheduleBridgeIdle(message.invocationId);
   return response;
+}
+
+function scheduleBridgeIdle(invocationId: string): void {
+  bridgeIdleGeneration += 1;
+  const idleGeneration = bridgeIdleGeneration;
+  setImmediate(() => {
+    if (
+      idleGeneration === bridgeIdleGeneration &&
+      activeInvocationId === invocationId
+    ) {
+      parentPort?.postMessage({
+        invocationId,
+        requestCount: aggregateBridgeRequestCounter,
+        responseCount: aggregateBridgeResponseCounter,
+        type: 'bridge-idle',
+      });
+    }
+  });
 }
 
 function requestHost(
@@ -889,17 +913,7 @@ function requestHost(
     type: 'host-function-request',
     ...payload,
   });
-  bridgeIdleGeneration += 1;
-  const idleGeneration = bridgeIdleGeneration;
-  setImmediate(() => {
-    if (idleGeneration === bridgeIdleGeneration) {
-      parentPort?.postMessage({
-        invocationId,
-        requestCount: bridgeRequestCounter,
-        type: 'bridge-idle',
-      });
-    }
-  });
+  scheduleBridgeIdle(invocationId);
   return deferred.handle;
 }
 

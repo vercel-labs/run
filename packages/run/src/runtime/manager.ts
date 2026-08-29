@@ -465,6 +465,7 @@ function startWorkerRun({
   abortSignal,
   resolutions,
   continuationCodec,
+  continuationEnabled,
   continuationState,
   normalizedOptions,
   timeoutErrorMs,
@@ -523,6 +524,8 @@ function startWorkerRun({
   let interruptedResultPending: RunInterruptedResult | undefined;
   let workerReady = false;
   let workerIdleRequestCount = 0;
+  let workerIdleResponseCount = 0;
+  let bridgeResponsesSent = 0;
   const seenWorkerRequestIds = new Set<string>();
   const arrivedBridgeRequestIndexes = new Set<number>();
   const bridgeRequestTurnWaiters = new Map<
@@ -813,13 +816,18 @@ function startWorkerRun({
     }
 
     if (message.type === 'bridge-idle') {
-      if (message.requestCount !== asyncBridgeRequests) {
+      if (
+        message.requestCount > totalBridgeRequests ||
+        message.responseCount > bridgeResponsesSent
+      ) {
         failTerminal(
           new RunProtocolError(
-            `Worker bridge-idle count mismatch: expected ${asyncBridgeRequests}, received ${message.requestCount}.`,
+            `Worker bridge-idle count mismatch: expected ${totalBridgeRequests} requests and ${bridgeResponsesSent} responses, received ${message.requestCount} requests and ${message.responseCount} responses.`,
             {
-              expectedRequestCount: asyncBridgeRequests,
+              expectedRequestCount: totalBridgeRequests,
+              expectedResponseCount: bridgeResponsesSent,
               receivedRequestCount: message.requestCount,
+              receivedResponseCount: message.responseCount,
             },
           ),
         );
@@ -828,6 +836,10 @@ function startWorkerRun({
       workerIdleRequestCount = Math.max(
         workerIdleRequestCount,
         message.requestCount,
+      );
+      workerIdleResponseCount = Math.max(
+        workerIdleResponseCount,
+        message.responseCount,
       );
       settleInterruptionsIfQuiescent();
       return;
@@ -1198,18 +1210,21 @@ function startWorkerRun({
               request.sequence,
               request.requestIndex,
             );
-            recordSyncBridgeResponse(entryIndex, request, response);
+            assertSyncBridgeResponseSize(response);
+            if (continuationEnabled || continuationState !== undefined) {
+              recordSyncBridgeResponse(entryIndex, request, response);
+            }
           } else {
             response = replaySyncBridgeResponse(request, replayEntry);
           }
         } finally {
           syncBridgeOperationInFlight = false;
-          settleInterruptionsIfQuiescent();
         }
         if (terminalReached) {
           return;
         }
         writeSyncBridgeResponse(bridge, response);
+        bridgeResponsesSent += 1;
         Atomics.store(
           bridgeHeader,
           SyncBridgeHeader.State,
@@ -1277,6 +1292,16 @@ function startWorkerRun({
           }
         : { ...common, error: response.error, status: 'rejected' },
     );
+  }
+
+  function assertSyncBridgeResponseSize(response: SyncBridgeResponse): void {
+    if (!response.success) {
+      assertJsonPayloadSize(
+        JSON.stringify(response.error),
+        normalizedOptions.maxHostFunctionOutputBytes,
+        'Synchronous host bridge error',
+      );
+    }
   }
 
   async function dispatchSyncBridgeRequest(
@@ -1442,7 +1467,8 @@ function startWorkerRun({
       pendingInterruptionIndexes.size > 0 &&
       inFlightBridgeRequests === 0 &&
       !syncBridgeOperationInFlight &&
-      workerIdleRequestCount >= asyncBridgeRequests
+      workerIdleRequestCount === totalBridgeRequests &&
+      workerIdleResponseCount === bridgeResponsesSent
     ) {
       runInBackground(settleInterruptions());
     }
@@ -1550,6 +1576,7 @@ function startWorkerRun({
       return;
     }
     try {
+      bridgeResponsesSent += 1;
       // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
       worker.postMessage(message);
     } catch (error) {

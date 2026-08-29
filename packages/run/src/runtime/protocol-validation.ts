@@ -113,11 +113,19 @@ const assertResult = (value: Record<string, unknown>): void => {
 };
 
 const assertBridgeIdle = (value: Record<string, unknown>): void => {
-  assertExactKeys(value, ['invocationId', 'requestCount', 'type']);
+  assertExactKeys(value, [
+    'invocationId',
+    'requestCount',
+    'responseCount',
+    'type',
+  ]);
   if (
     !isIdentifier(value.invocationId) ||
     !Number.isSafeInteger(value.requestCount) ||
-    (value.requestCount as number) < 0
+    (value.requestCount as number) < 0 ||
+    !Number.isSafeInteger(value.responseCount) ||
+    (value.responseCount as number) < 0 ||
+    (value.responseCount as number) > (value.requestCount as number)
   ) {
     throw invalidMessage('bridge-idle');
   }

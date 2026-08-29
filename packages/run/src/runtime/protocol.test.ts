@@ -86,7 +86,12 @@ describe('worker protocol hardening', () => {
     {},
     { type: 'unknown' },
     { extra: true, invocationId: 'run-1', type: 'ready' },
-    { invocationId: 'run-1', requestCount: -1, type: 'bridge-idle' },
+    {
+      invocationId: 'run-1',
+      requestCount: -1,
+      responseCount: 0,
+      type: 'bridge-idle',
+    },
     {
       hostFunctionName: '',
       inputJson: '[]',

@@ -200,7 +200,12 @@ describe('manager protocol state machine', () => {
     {
       message: /bridge-idle count mismatch/u,
       messages: (invocationId: string) => [
-        { invocationId, requestCount: 1, type: 'bridge-idle' },
+        {
+          invocationId,
+          requestCount: 1,
+          responseCount: 0,
+          type: 'bridge-idle',
+        },
       ],
       name: 'wrong idle count',
     },
@@ -292,6 +297,7 @@ describe('manager protocol state machine', () => {
             emit('message', {
               invocationId: message.invocationId,
               requestCount: 1,
+              responseCount: 0,
               type: 'bridge-idle',
             });
           });

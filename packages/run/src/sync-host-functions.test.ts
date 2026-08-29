@@ -393,13 +393,13 @@ describe('synchronous host functions', () => {
     expect(sideEffects).toEqual(['first', 'second']);
   });
 
-  it('waits for a racing synchronous call before minting its ledger', async () => {
-    let sideEffects = 0;
+  it('waits for racing synchronous calls before minting its ledger', async () => {
+    const sideEffects: string[] = [];
     const runner = createRunner({
       continuationSecret: 'q'.repeat(32),
       limits: { timeoutMs: 3000 },
       syncHostFunctions: {
-        effects: { write: () => (sideEffects += 1) },
+        effects: { write: (label: string) => sideEffects.push(label) },
       },
     });
 
@@ -408,7 +408,7 @@ describe('synchronous host functions', () => {
       return context.resume?.resolution ?? context.interrupt('pause');
     };
     const source =
-      'const pending = tools.pause(); effects.write(); await pending;';
+      "const pending = tools.pause(); effects.write('a'); effects.write('b'); await pending;";
     const interrupted = await runner.run({
       hostFunctions: { tools: { pause } },
       source,
@@ -416,7 +416,7 @@ describe('synchronous host functions', () => {
     if (interrupted.status !== 'interrupted') {
       throw new Error('Expected the run to be interrupted.');
     }
-    expect(sideEffects).toBe(1);
+    expect(sideEffects).toEqual(['a', 'b']);
     await expect(
       runner.run({
         continuation: interrupted.continuation,
@@ -430,7 +430,105 @@ describe('synchronous host functions', () => {
         source,
       }),
     ).resolves.toEqual({ status: 'completed', value: undefined });
-    expect(sideEffects).toBe(1);
+    expect(sideEffects).toEqual(['a', 'b']);
+  });
+
+  it('observes post-response synchronous calls before minting', async () => {
+    const sideEffects: string[] = [];
+    const runner = createRunner({
+      continuationSecret: 'w'.repeat(32),
+      limits: { timeoutMs: 3000 },
+      syncHostFunctions: {
+        effects: { write: (label: string) => sideEffects.push(label) },
+      },
+    });
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const source = `
+      const pending = tools.pause();
+      const value = await tools.fetch();
+      effects.write(value + '-a');
+      effects.write(value + '-b');
+      await pending;
+    `;
+    const hostFunctions = {
+      tools: {
+        fetch: () => 'fetched',
+        pause,
+      },
+    };
+    const interrupted = await runner.run({ hostFunctions, source });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['fetched-a', 'fetched-b']);
+
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(sideEffects).toEqual(['fetched-a', 'fetched-b']);
+  });
+
+  it('bounds rejected synchronous outcomes before recording them', async () => {
+    const runner = createRunner({
+      continuationSecret: 'e'.repeat(32),
+      limits: { maxHostFunctionOutputBytes: 32 },
+      syncHostFunctions: {
+        effects: {
+          fail() {
+            throw new Error('failure');
+          },
+        },
+      },
+    });
+
+    await expect(
+      runner.run({
+        source: 'try { effects.fail(); } catch {}',
+      }),
+    ).rejects.toThrow(
+      'Synchronous host bridge error exceeds the 32 byte size limit.',
+    );
+  });
+
+  it('does not retain a continuation ledger when signing is disabled', async () => {
+    const previous = process.env.RUN_CONTINUATION_SECRET;
+    delete process.env.RUN_CONTINUATION_SECRET;
+    try {
+      const runner = createRunner({
+        limits: {
+          maxContinuationBytes: 128,
+          maxHostFunctionOutputBytes: 1024,
+        },
+        syncHostFunctions: {
+          values: { read: () => 'x'.repeat(256) },
+        },
+      });
+
+      await expect(
+        runner.run({
+          source: 'return values.read().length + values.read().length;',
+        }),
+      ).resolves.toEqual({ status: 'completed', value: 512 });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.RUN_CONTINUATION_SECRET;
+      } else {
+        process.env.RUN_CONTINUATION_SECRET = previous;
+      }
+    }
   });
 });
 

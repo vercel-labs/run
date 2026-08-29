@@ -268,6 +268,7 @@ export interface InternalRunInput extends RunInput<unknown> {
   syncHostFunctionManifest: HostFunctionManifest;
   limits: RunLimits;
   continuationCodec: ContinuationCodec;
+  continuationEnabled: boolean;
   continuationAudience: string;
 }
 

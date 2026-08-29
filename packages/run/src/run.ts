@@ -242,6 +242,9 @@ export const createRunner = <TOKEN = string>(
         ...input,
         continuationAudience,
         continuationCodec,
+        continuationEnabled:
+          options.continuationCodec !== undefined ||
+          configuredSecret !== undefined,
         hostFunctionManifest,
         hostFunctions,
         limits: {
