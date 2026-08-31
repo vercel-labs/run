@@ -53,6 +53,13 @@ Start with the [introduction](content/docs/introduction/index.mdx), then the
 [foundations](content/docs/foundations/overview.mdx) and the
 [API reference](content/docs/reference/index.mdx).
 
+## Development
+
+`pnpm check` runs formatting, static analysis, and the fail-closed banned-pattern
+security scan. A local `@banned-pattern-ignore` is accepted only when it states
+a concrete safety reason and suppresses an actual finding; stale suppressions
+fail the scan.
+
 ## License
 
 [Apache 2.0](LICENSE)

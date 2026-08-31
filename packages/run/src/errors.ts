@@ -74,9 +74,18 @@ const sanitizeDetails = (value: unknown): unknown => {
   }
 };
 
-const safeErrorProperty = (error: Error, property: string): unknown => {
+const safeErrorProperty = (
+  error: Error,
+  property: 'code' | 'details' | 'stack',
+): unknown => {
   try {
-    return (error as unknown as Record<string, unknown>)[property];
+    if (property === 'code') {
+      return Reflect.get(error, 'code');
+    }
+    if (property === 'details') {
+      return Reflect.get(error, 'details');
+    }
+    return error.stack;
   } catch {
     return undefined;
   }
@@ -203,11 +212,8 @@ export const serializeBridgeErrorForGuest = (
   context: 'hostFunction' | 'bridge',
 ): SerializableError => {
   if (RunError.isInstance(error)) {
-    return compactError({
+    const serialized = compactError({
       code: boundedString(error.code, MAX_ERROR_CODE_BYTES, 'RUN_ERROR'),
-      ...(error instanceof RunSourceTooLargeError
-        ? { details: error.details }
-        : {}),
       message: boundedString(
         error.message,
         MAX_ERROR_MESSAGE_BYTES,
@@ -215,6 +221,10 @@ export const serializeBridgeErrorForGuest = (
       ),
       name: boundedString(error.name, MAX_ERROR_NAME_BYTES, 'RunError'),
     });
+    if (error instanceof RunSourceTooLargeError) {
+      serialized.details = error.details;
+    }
+    return serialized;
   }
 
   const fallback =

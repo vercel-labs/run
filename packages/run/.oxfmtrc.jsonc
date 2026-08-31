@@ -4,7 +4,7 @@
   "bracketSameLine": false,
   "bracketSpacing": true,
   "endOfLine": "lf",
-  "ignorePatterns": ["dist/**"],
+  "ignorePatterns": ["dist/**", "scripts/check-banned-patterns.js"],
   "jsxSingleQuote": false,
   "printWidth": 80,
   "quoteProps": "as-needed",

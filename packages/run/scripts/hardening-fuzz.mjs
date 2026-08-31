@@ -146,9 +146,13 @@ for (let iteration = 0; iteration < iterations; iteration += 1) {
   if (next() % 2 === 0) {
     const keys = Object.keys(protocolMutation);
     const removedKey = keys[next() % keys.length];
-    protocolMutation = Object.fromEntries(
-      Object.entries(protocolMutation).filter(([key]) => key !== removedKey),
+    const retainedEntries = Object.entries(protocolMutation).filter(
+      ([key]) => key !== removedKey,
     );
+    protocolMutation = Object.create(null);
+    for (const [key, value] of retainedEntries) {
+      protocolMutation[key] = value;
+    }
   } else {
     protocolMutation[`unexpected-${next()}`] = true;
   }
@@ -204,7 +208,7 @@ function generatedValue(depth) {
   if (choice === 5) {
     return Array.from({ length: next() % 4 }, () => generatedValue(depth + 1));
   }
-  const result = {};
+  const result = Object.create(null);
   for (let index = 0; index < next() % 5; index += 1) {
     result[`key-${next() % 12}`] = generatedValue(depth + 1);
   }

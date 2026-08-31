@@ -1004,31 +1004,30 @@ function startWorkerRun({
         }
       }
 
+      const hostFunctionContext: HostFunctionContext = {
+        abortSignal: invocationAbortController.signal,
+        hostFunctionName: message.hostFunctionName,
+        interrupt,
+        invocationId,
+        logicalRunId,
+        requestId: message.requestId,
+        requestIndex,
+      };
+      if (replayEntry?.status === 'interrupted') {
+        hostFunctionContext.resume = {
+          interruptionId: replayEntry.interruptionId,
+          payload: parseJsonPayload(
+            replayEntry.payloadJson,
+            `Interruption "${replayEntry.interruptionId}" payload`,
+          ),
+          resolution: parseJsonPayload(
+            resolutionMap.get(replayEntry.interruptionId) as string,
+            `Resolution "${replayEntry.interruptionId}"`,
+          ),
+        };
+      }
       const outcome = await invokeHostFunction({
-        context: {
-          abortSignal: invocationAbortController.signal,
-          hostFunctionName: message.hostFunctionName,
-          interrupt,
-          invocationId,
-          logicalRunId,
-          requestId: message.requestId,
-          requestIndex,
-          ...(replayEntry?.status === 'interrupted'
-            ? {
-                resume: {
-                  interruptionId: replayEntry.interruptionId,
-                  payload: parseJsonPayload(
-                    replayEntry.payloadJson,
-                    `Interruption "${replayEntry.interruptionId}" payload`,
-                  ),
-                  resolution: parseJsonPayload(
-                    resolutionMap.get(replayEntry.interruptionId) as string,
-                    `Resolution "${replayEntry.interruptionId}"`,
-                  ),
-                },
-              }
-            : {}),
-        } satisfies HostFunctionContext,
+        context: hostFunctionContext,
         hostFunctionManifest,
         hostFunctionName: message.hostFunctionName,
         hostFunctions,

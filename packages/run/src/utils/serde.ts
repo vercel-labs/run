@@ -30,13 +30,7 @@ const runReducers = {
     ) {
       return false;
     }
-    return [
-      prototype === null,
-      Object.keys(value).map(key => [
-        key,
-        (value as Record<string, unknown>)[key],
-      ]),
-    ];
+    return [prototype === null, Object.entries(value)];
   },
 };
 
@@ -77,6 +71,7 @@ const reviveOwnProtoObject = (value: unknown): object => {
       throw new TypeError('Serialized object entry is malformed.');
     }
     seen.add(entry[0]);
+    // @banned-pattern-ignore: decoded key is validated and defineProperty preserves own __proto__ data safely
     Object.defineProperty(result, entry[0], {
       configurable: true,
       enumerable: true,
