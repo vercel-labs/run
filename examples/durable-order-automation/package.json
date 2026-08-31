@@ -1,0 +1,27 @@
+{
+  "name": "@run/durable-order-automation-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev",
+    "test": "vitest --run",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "4.13.5",
+    "nitro": "3.0.260610-beta",
+    "rollup": "4.61.1",
+    "run": "workspace:*",
+    "workflow": "4.8.5"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "typescript": "5.8.3",
+    "vite": "7.3.6",
+    "vitest": "4.1.6"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
