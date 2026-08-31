@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Durable order automation</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/">Run × Workflow</a>
+      <span class="badge">Local example</span>
+    </header>
+
+    <main>
+      <section class="intro">
+        <p class="eyebrow">DURABLE DYNAMIC CODE</p>
+        <h1>Order automation</h1>
+        <p>
+          Run untrusted source in a sandbox, pause before a refund, and resume
+          it after an authorized decision.
+        </p>
+      </section>
+
+      <div class="grid">
+        <section class="panel" aria-labelledby="source-heading">
+          <div class="panel-heading">
+            <div>
+              <h2 id="source-heading">Automation source</h2>
+              <p>Executed inside the Run sandbox.</p>
+            </div>
+          </div>
+          <label class="sr-only" for="source">Automation source</label>
+          <textarea id="source" spellcheck="false"></textarea>
+          <div class="actions">
+            <button id="run" class="primary">Run automation</button>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="status-heading">
+          <div class="panel-heading">
+            <div>
+              <h2 id="status-heading">Run status</h2>
+              <p id="run-id">Not started</p>
+            </div>
+            <span id="status" class="status idle">Idle</span>
+          </div>
+
+          <div id="empty-state" class="empty-state">
+            Start the automation to see its durable lifecycle.
+          </div>
+          <div id="approval" hidden></div>
+          <pre id="result" hidden></pre>
+
+          <ol id="timeline" class="timeline" aria-label="Automation timeline">
+            <li data-event="started">Workflow started</li>
+            <li data-event="sandbox">Dynamic source entered the sandbox</li>
+            <li data-event="approval">Protected action requested approval</li>
+            <li data-event="resumed">Run continuation resumed</li>
+            <li data-event="completed">Automation completed</li>
+          </ol>
+        </section>
+      </div>
+    </main>
+
+    <div id="message" class="message" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

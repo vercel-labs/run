@@ -1,4 +1,10 @@
 {
   "title": "Advanced",
-  "pages": ["cancellation", "limits", "concurrency", "continuations"]
+  "pages": [
+    "cancellation",
+    "limits",
+    "concurrency",
+    "continuations",
+    "durable-workflows"
+  ]
 }

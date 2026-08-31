@@ -1,0 +1,5 @@
+/.swc
+/.output
+/.workflow-data
+/.workflow-vitest
+.env
