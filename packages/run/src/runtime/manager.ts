@@ -75,6 +75,7 @@ import {
   waitAsyncForSyncBridgeChange,
   writeSyncBridgeResponse,
 } from './sync-bridge-protocol.js';
+import type { SyncBridgeResponse } from './sync-bridge-protocol.js';
 
 interface PooledWorker {
   worker: Worker;
@@ -93,6 +94,25 @@ const getSyncBridgeHostFunctionName = (
   }
   return 'moduleLoader.load';
 };
+
+const getSyncBridgeLedgerKind = (
+  kind: SyncBridgeRequestKind,
+): 'sync-host' | 'module-normalize' | 'module-load' => {
+  if (kind === SyncBridgeRequestKind.HostFunction) {
+    return 'sync-host';
+  }
+  if (kind === SyncBridgeRequestKind.ModuleNormalize) {
+    return 'module-normalize';
+  }
+  return 'module-load';
+};
+
+type AsyncLedgerEntry = Exclude<RunLedgerEntry, { bridgeKind: string }>;
+
+const getLedgerSettlementOrder = (entry: RunLedgerEntry): number =>
+  'bridgeKind' in entry || entry.status === 'interrupted'
+    ? 0
+    : entry.settledOrder;
 
 interface ManagedWorkerRun {
   result: Promise<RunResult>;
@@ -445,6 +465,7 @@ function startWorkerRun({
   abortSignal,
   resolutions,
   continuationCodec,
+  continuationEnabled,
   continuationState,
   normalizedOptions,
   timeoutErrorMs,
@@ -503,6 +524,8 @@ function startWorkerRun({
   let interruptedResultPending: RunInterruptedResult | undefined;
   let workerReady = false;
   let workerIdleRequestCount = 0;
+  let workerIdleResponseCount = 0;
+  let bridgeResponsesSent = 0;
   const seenWorkerRequestIds = new Set<string>();
   const arrivedBridgeRequestIndexes = new Set<number>();
   const bridgeRequestTurnWaiters = new Map<
@@ -520,9 +543,10 @@ function startWorkerRun({
   let nextSettlementOrder = 0;
   for (const entry of ledger) {
     ledgerBytes += ledgerEntryBytes(entry);
-    if (entry.status !== 'interrupted') {
-      nextSettlementOrder = Math.max(nextSettlementOrder, entry.settledOrder);
-    }
+    nextSettlementOrder = Math.max(
+      nextSettlementOrder,
+      getLedgerSettlementOrder(entry),
+    );
   }
   let nextResponseOrder = 1;
   const queuedBridgeResponses = new Map<number, WorkerBridgeResponse>();
@@ -792,13 +816,18 @@ function startWorkerRun({
     }
 
     if (message.type === 'bridge-idle') {
-      if (message.requestCount !== asyncBridgeRequests) {
+      if (
+        message.requestCount > totalBridgeRequests ||
+        message.responseCount > bridgeResponsesSent
+      ) {
         failTerminal(
           new RunProtocolError(
-            `Worker bridge-idle count mismatch: expected ${asyncBridgeRequests}, received ${message.requestCount}.`,
+            `Worker bridge-idle count mismatch: expected ${totalBridgeRequests} requests and ${bridgeResponsesSent} responses, received ${message.requestCount} requests and ${message.responseCount} responses.`,
             {
-              expectedRequestCount: asyncBridgeRequests,
+              expectedRequestCount: totalBridgeRequests,
+              expectedResponseCount: bridgeResponsesSent,
               receivedRequestCount: message.requestCount,
+              receivedResponseCount: message.responseCount,
             },
           ),
         );
@@ -808,13 +837,16 @@ function startWorkerRun({
         workerIdleRequestCount,
         message.requestCount,
       );
+      workerIdleResponseCount = Math.max(
+        workerIdleResponseCount,
+        message.responseCount,
+      );
       settleInterruptionsIfQuiescent();
       return;
     }
 
-    const bridgeIndex = markWorkerRequest(message);
-    if (bridgeIndex !== undefined) {
-      runInBackground(handleHostFunctionRequest(message, bridgeIndex));
+    if (markWorkerRequest(message)) {
+      runInBackground(handleHostFunctionRequest(message));
     }
   });
 
@@ -886,11 +918,9 @@ function startWorkerRun({
 
   return { result };
 
-  function markWorkerRequest(
-    message: WorkerHostFunctionRequest,
-  ): { bridgeIndex: number } | undefined {
+  function markWorkerRequest(message: WorkerHostFunctionRequest): boolean {
     if (terminalReached) {
-      return undefined;
+      return false;
     }
     const expectedRequestId = `${invocationId}:bridge-${asyncBridgeRequests + 1}`;
     if (message.requestId !== expectedRequestId) {
@@ -900,7 +930,7 @@ function startWorkerRun({
           { expectedRequestId, invocationId, requestId: message.requestId },
         ),
       );
-      return undefined;
+      return false;
     }
     if (seenWorkerRequestIds.has(message.requestId)) {
       failTerminal(
@@ -909,21 +939,19 @@ function startWorkerRun({
           { invocationId, requestId: message.requestId },
         ),
       );
-      return undefined;
+      return false;
     }
     seenWorkerRequestIds.add(message.requestId);
 
     asyncBridgeRequests += 1;
-    return { bridgeIndex: asyncBridgeRequests };
+    return true;
   }
 
   async function handleHostFunctionRequest(
     message: WorkerHostFunctionRequest,
-    indexes: { bridgeIndex: number },
   ): Promise<void> {
-    const { bridgeIndex } = indexes;
     const { requestIndex } = message;
-    const entryIndex = bridgeIndex - 1;
+    const entryIndex = requestIndex - 1;
     const replayEntry = ledger[entryIndex];
     if (!(await admitBridgeRequest(requestIndex))) {
       return;
@@ -971,7 +999,6 @@ function startWorkerRun({
           return;
         }
         if (!resolutionMap.has(replayEntry.interruptionId)) {
-          assertCanCreateContinuation();
           pendingInterruptionIndexes.add(entryIndex);
           return;
         }
@@ -1011,11 +1038,10 @@ function startWorkerRun({
           normalizedOptions.maxHostFunctionOutputBytes,
       });
       if (outcome.status === 'interrupted') {
-        assertCanCreateContinuation();
         const interruptionId =
           replayEntry?.status === 'interrupted'
             ? replayEntry.interruptionId
-            : `interrupt-${bridgeIndex}`;
+            : `interrupt-${requestIndex}`;
         setLedgerEntry(entryIndex, {
           bindingName: message.hostFunctionName,
           inputJson: message.inputJson,
@@ -1036,7 +1062,10 @@ function startWorkerRun({
         valueJson: outcome.valueJson,
       });
       const fulfilledEntry = ledger[entryIndex];
-      if (fulfilledEntry?.status !== 'fulfilled') {
+      if (
+        fulfilledEntry?.status !== 'fulfilled' ||
+        'bridgeKind' in fulfilledEntry
+      ) {
         throw new RunProtocolError('Fulfilled ledger entry was not recorded.');
       }
       queueBridgeResponse(fulfilledEntry.settledOrder, {
@@ -1085,7 +1114,7 @@ function startWorkerRun({
       return;
     }
     const rejectedEntry = ledger[entryIndex];
-    if (rejectedEntry?.status !== 'rejected') {
+    if (rejectedEntry?.status !== 'rejected' || 'bridgeKind' in rejectedEntry) {
       failTerminal(
         new RunProtocolError('Rejected ledger entry was not recorded.'),
       );
@@ -1102,13 +1131,18 @@ function startWorkerRun({
   }
 
   function assertCanCreateContinuation(): void {
+    if (syncBridgeOperationInFlight) {
+      throw new RunProtocolError(
+        'A run cannot create a continuation while a synchronous bridge operation is in flight.',
+      );
+    }
     if (
-      moduleLoader !== undefined ||
-      syncBridgeRequests > 0 ||
-      syncBridgeOperationInFlight
+      moduleLoader !== undefined &&
+      (moduleLoader.identity === undefined ||
+        moduleLoader.identity.length === 0)
     ) {
       throw new RunProtocolError(
-        'A run cannot create a continuation after using synchronous host functions or module loading.',
+        'A module loader must have a non-empty identity to create a continuation.',
       );
     }
   }
@@ -1154,20 +1188,13 @@ function startWorkerRun({
         if (!(await admitBridgeRequest(request.requestIndex))) {
           return;
         }
-        if (continuationState !== undefined) {
-          throw new RunProtocolError(
-            'Synchronous bridge requests are forbidden during continuation replay.',
-          );
-        }
-        if (
-          pendingInterruptionIndexes.size > 0 ||
-          suspensionSettling ||
-          interruptedResultPending !== undefined
-        ) {
+        if (suspensionSettling || interruptedResultPending !== undefined) {
           throw new RunProtocolError(
             'Synchronous bridge requests are forbidden while creating a continuation.',
           );
         }
+        const entryIndex = request.requestIndex - 1;
+        const replayEntry = ledger[entryIndex];
         syncBridgeRequests += 1;
         syncBridgeOperationInFlight = true;
         if (!releaseBridgeRequestTurn(request.requestIndex)) {
@@ -1175,21 +1202,29 @@ function startWorkerRun({
         }
         let response;
         try {
-          response = await dispatchSyncBridgeRequest(
-            request.kind,
-            request.name,
-            request.payload,
-            request.sequence,
-            request.requestIndex,
-          );
+          if (replayEntry === undefined) {
+            response = await dispatchSyncBridgeRequest(
+              request.kind,
+              request.name,
+              request.payload,
+              request.sequence,
+              request.requestIndex,
+            );
+            assertSyncBridgeResponseSize(response);
+            if (continuationEnabled || continuationState !== undefined) {
+              recordSyncBridgeResponse(entryIndex, request, response);
+            }
+          } else {
+            response = replaySyncBridgeResponse(request, replayEntry);
+          }
         } finally {
           syncBridgeOperationInFlight = false;
-          settleInterruptionsIfQuiescent();
         }
         if (terminalReached) {
           return;
         }
         writeSyncBridgeResponse(bridge, response);
+        bridgeResponsesSent += 1;
         Atomics.store(
           bridgeHeader,
           SyncBridgeHeader.State,
@@ -1208,6 +1243,63 @@ function startWorkerRun({
           : new RunProtocolError('Synchronous bridge protocol failed.', {
               cause: error instanceof Error ? error.message : String(error),
             }),
+      );
+    }
+  }
+
+  function replaySyncBridgeResponse(
+    request: ReturnType<typeof readSyncBridgeRequest>,
+    entry: RunLedgerEntry,
+  ): SyncBridgeResponse {
+    const bridgeKind = getSyncBridgeLedgerKind(request.kind);
+    const bindingName = getSyncBridgeHostFunctionName(
+      request.kind,
+      request.name,
+    );
+    if (
+      !('bridgeKind' in entry) ||
+      entry.bridgeKind !== bridgeKind ||
+      entry.bindingName !== bindingName ||
+      entry.inputJson !== request.payload
+    ) {
+      throw new RunProtocolError(
+        'Continuation replay diverged from the recorded synchronous bridge ledger.',
+        { requestIndex: request.requestIndex },
+      );
+    }
+    return entry.status === 'fulfilled'
+      ? { payload: entry.valueJson, sequence: request.sequence, success: true }
+      : { error: entry.error, sequence: request.sequence, success: false };
+  }
+
+  function recordSyncBridgeResponse(
+    entryIndex: number,
+    request: ReturnType<typeof readSyncBridgeRequest>,
+    response: SyncBridgeResponse,
+  ): void {
+    const common = {
+      bindingName: getSyncBridgeHostFunctionName(request.kind, request.name),
+      bridgeKind: getSyncBridgeLedgerKind(request.kind),
+      inputJson: request.payload,
+    } as const;
+    setLedgerEntry(
+      entryIndex,
+      response.success
+        ? {
+            ...common,
+            status: 'fulfilled',
+            valueJson: response.payload,
+          }
+        : { ...common, error: response.error, status: 'rejected' },
+    );
+  }
+
+  function assertSyncBridgeResponseSize(response: SyncBridgeResponse): void {
+    if (!response.success) {
+      assertJsonPayloadSize(
+        JSON.stringify(response.error),
+        normalizedOptions.maxHostFunctionOutputBytes,
+        'Synchronous host bridge error',
       );
     }
   }
@@ -1375,7 +1467,8 @@ function startWorkerRun({
       pendingInterruptionIndexes.size > 0 &&
       inFlightBridgeRequests === 0 &&
       !syncBridgeOperationInFlight &&
-      workerIdleRequestCount >= asyncBridgeRequests
+      workerIdleRequestCount === totalBridgeRequests &&
+      workerIdleResponseCount === bridgeResponsesSent
     ) {
       runInBackground(settleInterruptions());
     }
@@ -1384,8 +1477,9 @@ function startWorkerRun({
   function assertReplayMatches(
     entry: RunLedgerEntry,
     message: WorkerHostFunctionRequest,
-  ): void {
+  ): asserts entry is AsyncLedgerEntry {
     if (
+      'bridgeKind' in entry ||
       entry.bindingName !== message.hostFunctionName ||
       entry.inputJson !== message.inputJson
     ) {
@@ -1482,6 +1576,7 @@ function startWorkerRun({
       return;
     }
     try {
+      bridgeResponsesSent += 1;
       // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
       worker.postMessage(message);
     } catch (error) {
@@ -1513,7 +1608,7 @@ function startWorkerRun({
     }
     if (
       continuationState !== undefined &&
-      asyncBridgeRequests < continuationState.ledger.length
+      totalBridgeRequests < continuationState.ledger.length
     ) {
       failTerminal(
         new RunProtocolError(
@@ -1614,6 +1709,9 @@ function createContinuationScopeHash(
           ...(syncHostFunctionManifest.length === 0
             ? {}
             : { syncBindingManifest: syncHostFunctionManifest }),
+          ...(input.moduleLoader === undefined
+            ? {}
+            : { moduleLoaderIdentity: input.moduleLoader.identity }),
           // Keep the existing key so continuations whose transform was an
           // identity remain valid across this change. The original source is
           // stable across hosts and is also exact-matched during validation.

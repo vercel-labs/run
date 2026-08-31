@@ -50,7 +50,7 @@ export type SyncHostFunctions = HostFunctions;
 
 /** Native ES module resolver used by QuickJS. */
 export interface RunModuleLoader {
-  /** Stable identity used for diagnostics and future continuation scoping. */
+  /** Stable identity authenticated by continuations that use this loader. */
   identity?: string;
   /** Resolve a raw specifier relative to its importing module. */
   normalize?(specifier: string, importer: string): string | Promise<string>;
@@ -237,6 +237,20 @@ export type RunLedgerEntry =
       status: 'interrupted';
       interruptionId: string;
       payloadJson: string;
+    }
+  | {
+      bridgeKind: 'sync-host' | 'module-normalize' | 'module-load';
+      bindingName: string;
+      inputJson: string;
+      status: 'fulfilled';
+      valueJson: string;
+    }
+  | {
+      bridgeKind: 'sync-host' | 'module-normalize' | 'module-load';
+      bindingName: string;
+      inputJson: string;
+      status: 'rejected';
+      error: SerializableError;
     };
 
 /** Configured JavaScript runner. */
@@ -254,6 +268,7 @@ export interface InternalRunInput extends RunInput<unknown> {
   syncHostFunctionManifest: HostFunctionManifest;
   limits: RunLimits;
   continuationCodec: ContinuationCodec;
+  continuationEnabled: boolean;
   continuationAudience: string;
 }
 

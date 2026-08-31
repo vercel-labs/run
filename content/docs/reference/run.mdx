@@ -89,7 +89,7 @@ import { run } from 'run';
     "name": "moduleLoader",
     "type": "RunModuleLoader",
     "isOptional": true,
-    "description": "A host-controlled native ES module loader. Its presence evaluates source as a module; completed module-backed runs have value undefined and cannot create or resume continuations.",
+    "description": "A host-controlled native ES module loader. Its presence evaluates source as a module; completed module-backed runs have value undefined. A non-empty stable identity is required to create or resume continuations.",
     "properties": [
       {
         "type": "RunModuleLoader",
@@ -98,7 +98,7 @@ import { run } from 'run';
             "name": "identity",
             "type": "string",
             "isOptional": true,
-            "description": "A stable loader identity, limited to 512 bytes."
+            "description": "A stable loader identity authenticated by continuations, limited to 512 bytes and required to create or resume one."
           },
           {
             "name": "normalize",

@@ -63,6 +63,62 @@ const expectInvalid = (value: unknown): void => {
 };
 
 describe('continuation state validation hardening', () => {
+  it('validates mixed synchronous, module, and asynchronous ledger entries', () => {
+    const state = validState();
+    state.ledger = [
+      {
+        bindingName: 'effects.write',
+        bridgeKind: 'sync-host',
+        inputJson: '[[1],"value"]',
+        status: 'fulfilled',
+        valueJson: '[1]',
+      },
+      {
+        bindingName: 'moduleLoader.normalize',
+        bridgeKind: 'module-normalize',
+        inputJson: '["./value.js","<entry>"]',
+        status: 'fulfilled',
+        valueJson: '"/value.js"',
+      },
+      {
+        bindingName: 'moduleLoader.load',
+        bridgeKind: 'module-load',
+        inputJson: '["/value.js"]',
+        status: 'fulfilled',
+        valueJson: '"export const value = 1;"',
+      },
+      {
+        bindingName: 'tools.pause',
+        inputJson: '[[]]',
+        interruptionId: 'interrupt-4',
+        payloadJson: '["pause"]',
+        status: 'interrupted',
+      },
+    ];
+    expect(() =>
+      assertContinuationState(state, source, scopeHash, normalizeOptions()),
+    ).not.toThrow();
+
+    const malformed = structuredClone(state) as unknown as {
+      ledger: Record<string, unknown>[];
+    };
+    requireEntry(malformed.ledger, 1).inputJson = '["missing-importer"]';
+    expectInvalid(malformed);
+
+    const oversized = structuredClone(state) as unknown as {
+      ledger: Record<string, unknown>[];
+    };
+    requireEntry(oversized.ledger, 2).valueJson = JSON.stringify(
+      'x'.repeat(33),
+    );
+    expect(() =>
+      assertContinuationState(oversized, source, scopeHash, {
+        ...normalizeOptions(),
+        maxSourceBytes: 32,
+      }),
+    ).toThrowError(expect.objectContaining({ code: 'RUN_PROTOCOL_ERROR' }));
+  });
+
   it('accepts only the exact versioned state shape', () => {
     expect(() =>
       assertContinuationState(

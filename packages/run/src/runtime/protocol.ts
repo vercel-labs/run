@@ -67,6 +67,7 @@ export interface WorkerBridgeIdleMessage {
   type: 'bridge-idle';
   invocationId: string;
   requestCount: number;
+  responseCount: number;
 }
 
 export type WorkerToMainMessage =

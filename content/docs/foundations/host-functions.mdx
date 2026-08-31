@@ -131,10 +131,11 @@ bindings or runs that use a module loader. Its allocation is included in memory
 admission and capped at 64 MiB. `SharedArrayBuffer` and `Atomics` remain
 unavailable to guest code.
 
-A run cannot create a continuation after using a synchronous binding, and
-synchronous calls are forbidden during continuation replay. The synchronous
-binding-name manifest is part of continuation scope, so changing it invalidates
-an existing continuation before replay.
+Synchronous outcomes are recorded in the continuation ledger. Replay returns a
+recorded value or throws the recorded error without invoking the binding again;
+calls first reached after the recorded frontier dispatch normally. The
+synchronous binding-name manifest is part of continuation scope, so changing it
+invalidates an existing continuation before replay.
 
 ## Context
 

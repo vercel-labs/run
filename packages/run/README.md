@@ -152,9 +152,9 @@ await runner.run({
 
 `normalize` and `load` may be synchronous or asynchronous. Their results are
 bounded by the host-function bridge limits, and `SharedArrayBuffer` and
-`Atomics` remain unavailable to guest JavaScript. Module-backed runs cannot
-create or resume continuations. Loader failures are redacted before entering the
-sandbox.
+`Atomics` remain unavailable to guest JavaScript. Module-backed runs can create
+and resume continuations when the loader has a non-empty stable `identity`.
+Loader failures are redacted before entering the sandbox.
 
 Entry modules execute for their side effects and a completed module-backed run
 has `value: undefined`; the module namespace is not serialized as the run
@@ -347,14 +347,16 @@ verifying old tokens.
 ### Replay behavior
 
 A continuation contains a replay ledger. On resume, completed and rejected
-host functions are read from that ledger instead of being invoked again. The
-runtime replays the program and reinvokes only interrupted host functions that
-now have a resolution.
+asynchronous host functions, synchronous host functions, and module-loader
+operations are read from that ledger instead of being invoked again. The
+runtime reinvokes only interrupted host functions that now have a resolution;
+operations first reached after the recorded frontier dispatch normally.
 
-Replay verifies the source, host-function-name manifest, and complete
-serialized argument list for every host function call. Guest `Date`,
-`Date.now()`, and `Math.random()` remain deterministic across replay.
-Divergence is rejected before a mismatched host function executes.
+Replay verifies the source, asynchronous and synchronous host-function-name
+manifests, module-loader identity, and complete serialized argument list for
+every bridge call. Guest `Date`, `Date.now()`, and `Math.random()` remain
+deterministic across replay. Divergence is rejected before a mismatched
+integration executes.
 
 An interrupted host function itself is reinvoked. Call `interrupt()` before
 doing non-idempotent work. For writes that may be retried, use
@@ -400,10 +402,10 @@ array.
 
 ### Scope and authorization
 
-Signed continuations are bound to the runner audience, transformed source,
-host-function-name manifest, and `continuationContext`. For tenant-, user-, or
-policy-scoped execution, provide authenticated context on both the initial run
-and every resume:
+Signed continuations are bound to the runner audience, source, asynchronous and
+synchronous host-function-name manifests, module-loader identity, and
+`continuationContext`. For tenant-, user-, or policy-scoped execution, provide
+authenticated context on both the initial run and every resume:
 
 ```ts
 await runner.run({

@@ -316,33 +316,36 @@ describe('synchronous host functions', () => {
     );
   });
 
-  it('rejects synchronous side effects during continuation replay', async () => {
+  it('replays synchronous outcomes without repeating side effects', async () => {
     const secret = 'r'.repeat(32);
-    let sideEffect = false;
+    const sideEffects: string[] = [];
     const createReplayRunner = () =>
       createRunner({
         continuationSecret: secret,
         syncHostFunctions: {
           effects: {
-            write() {
-              sideEffect = true;
+            write(label: string) {
+              sideEffects.push(label);
+              return sideEffects.length;
             },
           },
         },
       });
     const source = `
-      const shouldWrite = await tools.pause();
-      if (shouldWrite) effects.write();
-      return 'done';
+      const first = effects.write('first');
+      const firstResolution = await tools.pause('first');
+      const second = effects.write('second');
+      const secondResolution = await tools.pause('second');
+      return [first, firstResolution, second, secondResolution];
     `;
-    const pause = () => {
+    const pause = (label: string) => {
       const context = getHostFunctionContext();
       if (context.resume !== undefined) {
         return context.resume.resolution;
       }
-      return context.interrupt('pause');
+      return context.interrupt(label);
     };
-    const interrupted = await createReplayRunner().run({
+    const first = await createReplayRunner().run({
       hostFunctions: {
         tools: {
           pause,
@@ -350,12 +353,72 @@ describe('synchronous host functions', () => {
       },
       source,
     });
-    if (interrupted.status !== 'interrupted') {
+    if (first.status !== 'interrupted') {
       throw new Error('Expected the run to be interrupted.');
     }
+    expect(sideEffects).toEqual(['first']);
+
+    const second = await createReplayRunner().run({
+      continuation: first.continuation,
+      hostFunctions: { tools: { pause } },
+      resolutions: [
+        {
+          interruptionId: first.interruptions[0]?.id ?? '',
+          value: 'approved-first',
+        },
+      ],
+      source,
+    });
+    if (second.status !== 'interrupted') {
+      throw new Error('Expected the resumed run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['first', 'second']);
 
     await expect(
       createReplayRunner().run({
+        continuation: second.continuation,
+        hostFunctions: { tools: { pause } },
+        resolutions: [
+          {
+            interruptionId: second.interruptions[0]?.id ?? '',
+            value: 'approved-second',
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      value: [1, 'approved-first', 2, 'approved-second'],
+    });
+    expect(sideEffects).toEqual(['first', 'second']);
+  });
+
+  it('waits for racing synchronous calls before minting its ledger', async () => {
+    const sideEffects: string[] = [];
+    const runner = createRunner({
+      continuationSecret: 'q'.repeat(32),
+      limits: { timeoutMs: 3000 },
+      syncHostFunctions: {
+        effects: { write: (label: string) => sideEffects.push(label) },
+      },
+    });
+
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const source =
+      "const pending = tools.pause(); effects.write('a'); effects.write('b'); await pending;";
+    const interrupted = await runner.run({
+      hostFunctions: { tools: { pause } },
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['a', 'b']);
+    await expect(
+      runner.run({
         continuation: interrupted.continuation,
         hostFunctions: { tools: { pause } },
         resolutions: [
@@ -366,17 +429,68 @@ describe('synchronous host functions', () => {
         ],
         source,
       }),
-    ).rejects.toThrow('forbidden during continuation replay');
-    expect(sideEffect).toBe(false);
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(sideEffects).toEqual(['a', 'b']);
   });
 
-  it('never mints a continuation after a racing synchronous call', async () => {
-    let sideEffects = 0;
+  it('observes post-response synchronous calls before minting', async () => {
+    const sideEffects: string[] = [];
     const runner = createRunner({
-      continuationSecret: 'q'.repeat(32),
+      continuationSecret: 'w'.repeat(32),
       limits: { timeoutMs: 3000 },
       syncHostFunctions: {
-        effects: { write: () => (sideEffects += 1) },
+        effects: { write: (label: string) => sideEffects.push(label) },
+      },
+    });
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const source = `
+      const pending = tools.pause();
+      const value = await tools.fetch();
+      effects.write(value + '-a');
+      effects.write(value + '-b');
+      await pending;
+    `;
+    const hostFunctions = {
+      tools: {
+        fetch: () => 'fetched',
+        pause,
+      },
+    };
+    const interrupted = await runner.run({ hostFunctions, source });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the run to be interrupted.');
+    }
+    expect(sideEffects).toEqual(['fetched-a', 'fetched-b']);
+
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(sideEffects).toEqual(['fetched-a', 'fetched-b']);
+  });
+
+  it('bounds rejected synchronous outcomes before recording them', async () => {
+    const runner = createRunner({
+      continuationSecret: 'e'.repeat(32),
+      limits: { maxHostFunctionOutputBytes: 32 },
+      syncHostFunctions: {
+        effects: {
+          fail() {
+            throw new Error('failure');
+          },
+        },
       },
     });
 
@@ -387,11 +501,39 @@ describe('synchronous host functions', () => {
             pause: () => getHostFunctionContext().interrupt('pause'),
           },
         },
-        source:
-          'const pending = tools.pause(); effects.write(); await pending;',
+        source: 'try { effects.fail(); } catch {} await tools.pause();',
       }),
-    ).rejects.toThrow(/continuation|synchronous bridge/iu);
-    expect(sideEffects).toBeLessThanOrEqual(1);
+    ).rejects.toThrow(
+      'Synchronous host bridge error exceeds the 32 byte size limit.',
+    );
+  });
+
+  it('does not retain a continuation ledger when signing is disabled', async () => {
+    const previous = process.env.RUN_CONTINUATION_SECRET;
+    delete process.env.RUN_CONTINUATION_SECRET;
+    try {
+      const runner = createRunner({
+        limits: {
+          maxContinuationBytes: 128,
+          maxHostFunctionOutputBytes: 1024,
+        },
+        syncHostFunctions: {
+          values: { read: () => 'x'.repeat(256) },
+        },
+      });
+
+      await expect(
+        runner.run({
+          source: 'return values.read().length + values.read().length;',
+        }),
+      ).resolves.toEqual({ status: 'completed', value: 512 });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.RUN_CONTINUATION_SECRET;
+      } else {
+        process.env.RUN_CONTINUATION_SECRET = previous;
+      }
+    }
   });
 });
 
@@ -456,21 +598,75 @@ describe('native module loading', () => {
     expect(seen).toEqual(['ab:dynamic:42']);
   });
 
-  it('does not allow module-backed runs to create continuations', async () => {
+  it('replays module loading without invoking the loader again', async () => {
     const runner = createRunner({ continuationSecret: 'x'.repeat(32) });
+    let loads = 0;
+    const pause = () => {
+      const context = getHostFunctionContext();
+      return context.resume?.resolution ?? context.interrupt('pause');
+    };
+    const moduleLoader = {
+      identity: 'modules-v1',
+      load() {
+        loads += 1;
+        return 'export const value = 1;';
+      },
+    };
+    const source = "import './dependency.js'; await tools.pause();";
+    const interrupted = await runner.run({
+      hostFunctions: { tools: { pause } },
+      moduleLoader,
+      source,
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the module run to be interrupted.');
+    }
+    expect(loads).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        moduleLoader: { ...moduleLoader, identity: 'modules-v2' },
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).rejects.toThrow(/continuation|scope/iu);
+    expect(loads).toBe(1);
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions: { tools: { pause } },
+        moduleLoader,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(loads).toBe(1);
+  });
+
+  it('requires a stable module-loader identity for continuations', async () => {
+    const runner = createRunner({ continuationSecret: 'i'.repeat(32) });
     await expect(
       runner.run({
         hostFunctions: {
           tools: {
-            pause() {
-              getHostFunctionContext().interrupt('pause');
-            },
+            pause: () => getHostFunctionContext().interrupt('pause'),
           },
         },
         moduleLoader: { load: () => 'export {};' },
         source: 'await tools.pause();',
       }),
-    ).rejects.toThrow('cannot create a continuation');
+    ).rejects.toThrow('non-empty identity');
   });
 
   it('redacts module loader errors from guest code', async () => {
