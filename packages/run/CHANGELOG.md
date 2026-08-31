@@ -1,5 +1,11 @@
 # run
 
+## 2.1.2
+
+### Patch Changes
+
+- b3b7be5: fix(run): keep an error listener on pooled idle workers
+
 ## 2.1.1
 
 ### Patch Changes
