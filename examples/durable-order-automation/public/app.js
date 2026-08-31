@@ -136,7 +136,7 @@ const renderState = state => {
       renderedApprovalKey = approvalKey;
       renderApproval(state);
     }
-    return;
+    return true;
   }
 
   renderedApprovalKey = null;
@@ -147,34 +147,36 @@ const renderState = state => {
     setTimeline('started', 'sandbox', 'approval', 'resumed', 'completed');
     result.hidden = false;
     result.textContent = JSON.stringify(state.result, null, 2);
-    window.clearTimeout(pollTimer);
-    return;
+    return false;
   }
   if (state.status === 'failed' || state.status === 'cancelled') {
     setStatus('failed', state.status);
     result.hidden = false;
     result.textContent = 'The durable workflow did not complete.';
-    window.clearTimeout(pollTimer);
-    return;
+    return false;
   }
 
   setStatus('running', 'Running');
   setTimeline('started', 'sandbox');
+  return true;
 };
 
 const poll = async () => {
   window.clearTimeout(pollTimer);
   if (!current) return;
+  let shouldContinuePolling = true;
   try {
     const state = await request(
       `/api/automations/${current.automationId}?runId=${encodeURIComponent(current.runId)}`,
       { headers: { 'x-demo-role': 'tenant-user' } },
     );
-    renderState(state);
+    shouldContinuePolling = renderState(state);
   } catch (error) {
     showMessage(error.message);
   }
-  pollTimer = window.setTimeout(poll, 1000);
+  if (shouldContinuePolling) {
+    pollTimer = window.setTimeout(poll, 1000);
+  }
 };
 
 runButton.addEventListener('click', async () => {

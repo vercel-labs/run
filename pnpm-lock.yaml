@@ -34,8 +34,8 @@ importers:
   examples/durable-order-automation:
     dependencies:
       hono:
-        specifier: 4.11.9
-        version: 4.11.9
+        specifier: 4.12.4
+        version: 4.12.4
       nitro:
         specifier: 3.0.260610-beta
         version: 3.0.260610-beta(@vercel/functions@3.9.5(@aws-sdk/credential-provider-web-identity@3.972.49))(@vercel/queue@0.3.1)(chokidar@5.0.0)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(lru-cache@11.5.2)(rollup@4.61.1)(vite@7.3.6(@types/node@22.19.19)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.5)(yaml@2.9.0))
@@ -4995,8 +4995,8 @@ packages:
   hls.js@1.6.17:
     resolution: {integrity: sha512-NUplVGVuc1hSPwdB/9/cbRkUmLrYi75/hqiXKdA+l300pJNxDu96R7jRb2imDzWJqIUF4I5ThmAdp9GvOCXsuQ==}
 
-  hono@4.11.9:
-    resolution: {integrity: sha512-Eaw2YTGM6WOxA6CXbckaEvslr2Ne4NFsKrvc0v97JD5awbmeBLO5w9Ho9L9kmKonrwF9RJlW6BxT1PVv/agBHQ==}
+  hono@4.12.4:
+    resolution: {integrity: sha512-ooiZW1Xy8rQ4oELQ++otI2T9DsKpV0M6c6cO6JGx4RTfav9poFFLlet9UMXHZnoM1yG0HWGlQLswBGX3RZmHtg==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.1:
@@ -12410,7 +12410,7 @@ snapshots:
 
   hls.js@1.6.17: {}
 
-  hono@4.11.9: {}
+  hono@4.12.4: {}
 
   hookable@6.1.1: {}
 
