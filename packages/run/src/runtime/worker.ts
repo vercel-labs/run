@@ -1,3 +1,4 @@
+// @banned-pattern-ignore: audited worker bootstrap writes only budgeted output to inherited stdout/stderr descriptors
 import { writeSync } from 'node:fs';
 import { formatWithOptions } from 'node:util';
 import { parentPort } from 'node:worker_threads';
@@ -189,7 +190,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let interruptChecks = 0;
   let cancelled = false;
   let executionTimedOut = false;
-  const context = await createQuickJSContext({
+  const quickJSOptions: Parameters<typeof createQuickJSContext>[0] = {
     interruptHandler: () => {
       interruptChecks += 1;
       const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
@@ -198,16 +199,15 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     },
     maxStackSizeBytes: message.options.maxStackSizeBytes,
     memoryLimitBytes: message.options.memoryLimitBytes,
-    ...(message.moduleLoader
-      ? {
-          moduleLoader: {
-            load: name => requestSyncModuleLoad(message, name),
-            normalize: (baseName, specifier) =>
-              requestSyncModuleNormalize(message, specifier, baseName),
-          },
-        }
-      : {}),
-  });
+  };
+  if (message.moduleLoader) {
+    quickJSOptions.moduleLoader = {
+      load: name => requestSyncModuleLoad(message, name),
+      normalize: (baseName, specifier) =>
+        requestSyncModuleNormalize(message, specifier, baseName),
+    };
+  }
+  const context = await createQuickJSContext(quickJSOptions);
   let bridgeFunctions:
     | {
         invokeHostFunction: JSValueHandle;
@@ -813,6 +813,7 @@ function throwModuleBridgeError(
     trustedError.message = error.message;
     activeCancellation?.fail(trustedError);
   }
+  // @banned-pattern-ignore: bridge response message was already redacted and bounded by the manager
   throw new Error(error.message);
 }
 
@@ -1174,10 +1175,12 @@ function dumpQuickJSErrorHandle(
       continue;
     }
     try {
-      Object.defineProperty(dumped, property, {
-        enumerable: true,
-        value: context.dump(descriptor.value),
-      });
+      const value = context.dump(descriptor.value);
+      if (property === 'code') {
+        Object.defineProperty(dumped, 'code', { enumerable: true, value });
+      } else {
+        Object.defineProperty(dumped, 'details', { enumerable: true, value });
+      }
     } finally {
       descriptor.value.dispose();
     }

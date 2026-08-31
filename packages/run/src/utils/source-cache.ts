@@ -20,6 +20,7 @@ const bunTypeScriptTranspiler =
   bunRuntime === undefined
     ? undefined
     : new bunRuntime.Transpiler({ loader: 'ts' });
+// @banned-pattern-ignore: audited optional TypeScript peer loader resolves only the static "typescript" specifier
 const require = nodeModule.createRequire(import.meta.url);
 let typeScriptRuntime: typeof ts | undefined;
 const transformedSourceCache = new Map<

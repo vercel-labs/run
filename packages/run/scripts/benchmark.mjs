@@ -9,7 +9,7 @@ const budgets = {
   tenHostFunctionRoundTripsP99Ms: 100,
   warmRunP99Ms: 75,
 };
-const results = {};
+const results = Object.create(null);
 const continuationRunner = createRunner({
   continuationSecret: 'run-benchmark-continuation-secret',
 });

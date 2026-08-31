@@ -104,8 +104,10 @@ const assertEnumerableProperties = (
   value: object,
   label: (name: string) => string,
 ): void => {
-  for (const name of Object.getOwnPropertyNames(value)) {
-    if (Object.getOwnPropertyDescriptor(value, name)?.enumerable !== true) {
+  for (const [name, descriptor] of Object.entries(
+    Object.getOwnPropertyDescriptors(value),
+  )) {
+    if (descriptor.enumerable !== true) {
       throw new TypeError(`${label(name)} must be enumerable.`);
     }
   }
@@ -192,7 +194,8 @@ export const createRunner = <TOKEN = string>(
           secret: configuredSecret,
         }) as ContinuationCodec<TOKEN>));
   const continuationAudience = options.continuationAudience ?? 'run';
-  const syncHostFunctions: SyncHostFunctions = options.syncHostFunctions ?? {};
+  const syncHostFunctions: SyncHostFunctions =
+    options.syncHostFunctions ?? Object.create(null);
   const syncHostFunctionManifest = validateHostFunctions(syncHostFunctions);
   if (
     continuationAudience.length === 0 ||
@@ -206,7 +209,7 @@ export const createRunner = <TOKEN = string>(
     async run<OUTPUT = unknown>(
       input: RunInput<TOKEN>,
     ): Promise<RunResult<OUTPUT, TOKEN>> {
-      const hostFunctions = input.hostFunctions ?? {};
+      const hostFunctions = input.hostFunctions ?? Object.create(null);
       const hostFunctionManifest = validateHostFunctions(hostFunctions);
       for (const namespace of syncHostFunctionManifest.keys()) {
         if (hostFunctionManifest.has(namespace)) {

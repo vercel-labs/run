@@ -31,7 +31,7 @@
   "scripts": {
     "build": "pnpm clean && tsup --tsconfig tsconfig.build.json && node scripts/embed-inline-worker.mjs",
     "build:watch": "node scripts/build-watch.mjs",
-    "check": "ultracite check",
+    "check": "pnpm lint:banned && ultracite check",
     "clean": "del-cli dist *.tsbuildinfo",
     "fix": "ultracite fix",
     "type-check": "tsc -p tsconfig.build.json --noEmit && tsc -p src/tsconfig.json",
@@ -42,6 +42,7 @@
     "test:node": "vitest --config vitest.node.config.js --run",
     "hardening:fuzz": "pnpm build && node scripts/hardening-fuzz.mjs",
     "hardening:soak": "pnpm build && node --expose-gc scripts/hardening-soak.mjs",
+    "lint:banned": "node scripts/check-banned-patterns.js",
     "benchmark": "pnpm build && node scripts/benchmark.mjs",
     "verify:dependencies": "node scripts/verify-dependencies.mjs",
     "verify:embedded-worker": "node scripts/verify-embedded-worker.mjs",

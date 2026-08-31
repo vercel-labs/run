@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "extends": ["./node_modules/ultracite/config/oxlint/core/.oxlintrc.json"],
-  "ignorePatterns": ["dist/**"],
+  "ignorePatterns": ["dist/**", "scripts/check-banned-patterns.js"],
   "rules": {
     "func-style": "off"
   },

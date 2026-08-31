@@ -90,6 +90,7 @@ const HARDENING_SOURCE = `
     try { delete globalThis[name]; } catch {}
   }
 
+  // @banned-pattern-ignore: intentional QuickJS guest hardening disables eval rather than host globals
   Object.defineProperty(globalThis, 'eval', {
     value: undefined,
     writable: false,
@@ -117,6 +118,7 @@ const HARDENING_SOURCE = `
       configurable: false,
     });
   }
+  // @banned-pattern-ignore: intentional QuickJS guest hardening replaces the Function constructor
   Object.defineProperty(globalThis, 'Function', {
     value: BlockedFunction,
     writable: false,
@@ -173,6 +175,7 @@ const HARDENING_SOURCE = `
   ]) {
     if (g[name] !== undefined) {
       try {
+        // @banned-pattern-ignore: name comes only from the fixed intrinsic list above
         Object.defineProperty(g, name, {
           value: g[name],
           writable: false,
@@ -433,6 +436,7 @@ const HOST_FUNCTIONS_PROXY_SOURCE = `
 
   for (var i = 0; i < hostFunctionNamespaces.length; i++) {
     var namespace = hostFunctionNamespaces[i];
+    // @banned-pattern-ignore: namespace is host-validated as a safe non-reserved identifier
     Object.defineProperty(globalThis, namespace, {
       value: makeProxy([namespace]),
       writable: false,
@@ -495,6 +499,7 @@ const SYNC_HOST_FUNCTIONS_PROXY_SOURCE = `
 
   for (var i = 0; i < syncHostFunctionNamespaces.length; i++) {
     var namespace = syncHostFunctionNamespaces[i];
+    // @banned-pattern-ignore: namespace is host-validated as a safe non-reserved identifier
     Object.defineProperty(globalThis, namespace, {
       value: makeProxy([namespace]),
       writable: false,
