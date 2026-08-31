@@ -6,7 +6,7 @@ export interface AutomationScope {
 }
 
 export interface AutomationInput {
-  automationId: string;
+  automationKey: string;
   approvalHookToken: string;
   source: string;
   scope: AutomationScope;
@@ -46,7 +46,7 @@ export type RunRoundOutcome =
 
 export interface ApprovalHookMetadata {
   kind: 'order-approval';
-  automationId: string;
+  automationKey: string;
   tenantId: string;
   round: number;
   requests: ApprovalRequest[];
@@ -96,7 +96,7 @@ export const isApprovalHookMetadata = (
   const candidate = value as Partial<ApprovalHookMetadata>;
   return (
     candidate.kind === 'order-approval' &&
-    typeof candidate.automationId === 'string' &&
+    typeof candidate.automationKey === 'string' &&
     typeof candidate.tenantId === 'string' &&
     typeof candidate.round === 'number' &&
     Array.isArray(candidate.requests)

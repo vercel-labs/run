@@ -55,7 +55,7 @@ export const getAutomation = async (
     const metadata: unknown = hook.metadata;
     if (
       !isApprovalHookMetadata(metadata) ||
-      metadata.automationId !== automationKey ||
+      metadata.automationKey !== automationKey ||
       metadata.tenantId !== actor.tenantId ||
       hook.runId !== runId
     ) {

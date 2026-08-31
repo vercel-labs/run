@@ -1,4 +1,4 @@
-import { createHook, type HookOptions } from 'workflow';
+import { createHook, getWorkflowMetadata, type HookOptions } from 'workflow';
 import {
   createRunResolutions,
   type ApprovalBatch,
@@ -14,6 +14,7 @@ export async function orderAutomationWorkflow(
 ): Promise<RunRoundOutcome> {
   'use workflow';
 
+  const { workflowRunId } = getWorkflowMetadata();
   let outcome = await runAutomationRound({
     source: input.source,
     scope: input.scope,
@@ -23,7 +24,7 @@ export async function orderAutomationWorkflow(
   while (outcome.status === 'interrupted') {
     const metadata: ApprovalHookMetadata = {
       kind: 'order-approval',
-      automationId: input.automationId,
+      automationKey: input.automationKey,
       tenantId: input.scope.tenantId,
       round,
       requests: outcome.interruptions,
@@ -34,7 +35,7 @@ export async function orderAutomationWorkflow(
       metadata: metadata as unknown as HookOptions['metadata'],
     });
 
-    await publishApprovalRequest(metadata, approval.token);
+    await publishApprovalRequest(metadata, approval.token, workflowRunId);
     const decision = await approval;
 
     outcome = await runAutomationRound({

@@ -30,7 +30,7 @@ export const startAutomation = async (request: Request): Promise<Response> => {
   const automationKey = createAutomationKey();
   const run = await start(orderAutomationWorkflow, [
     {
-      automationId: automationKey,
+      automationKey,
       approvalHookToken: createApprovalHookToken(automationKey),
       source: body.source,
       scope: {

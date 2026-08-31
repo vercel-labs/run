@@ -52,7 +52,7 @@ export const submitDecision = async (
 
   if (
     !isApprovalHookMetadata(metadata) ||
-    metadata.automationId !== automationKey ||
+    metadata.automationKey !== automationKey ||
     metadata.tenantId !== actor.tenantId ||
     hook.runId !== runId
   ) {
