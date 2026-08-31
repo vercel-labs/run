@@ -1,5 +1,12 @@
 # run
 
+## 2.1.1
+
+### Patch Changes
+
+- 3a2f001: Add a fail-closed banned-pattern security check and update unsafe object, error, bridge, and worker patterns to conform.
+- 9d787ca: Generalize continuation replay ledgers to record synchronous host functions and native module-loader operations, allowing runs that use either capability to create and resume continuations without repeating recorded side effects.
+
 ## 2.1.0
 
 ### Minor Changes
