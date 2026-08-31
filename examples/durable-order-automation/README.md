@@ -5,8 +5,9 @@ SDK for sandboxed dynamic code. The program reads an order, interrupts before a
 refund, waits for an authorized decision, and resumes from a Run continuation.
 
 The UI and stores are intentionally small. `x-demo-role` is a local stand-in for
-session authentication, and the order store is process memory. Replace both
-adapters in a real application.
+session authentication. The order adapter uses an atomic local JSON file so its
+idempotency records survive the restart exercise; replace both adapters with
+real authentication and a transactional database in production.
 
 ## Run it
 
@@ -25,6 +26,7 @@ then approve or reject its refund request.
 The terminal prints the approval payload and hook token to make the protocol
 visible. Both the Workflow hook token and Run continuation are sensitive bearer
 values; production applications should keep them server-side and out of logs.
+The example's signed Run continuations expire after 30 days.
 
 ## Test durability
 

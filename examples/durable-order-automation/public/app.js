@@ -152,7 +152,9 @@ const renderState = state => {
   if (state.status === 'failed' || state.status === 'cancelled') {
     setStatus('failed', state.status);
     result.hidden = false;
-    result.textContent = 'The durable workflow did not complete.';
+    result.textContent = state.error
+      ? `${state.error.code}: ${state.error.message}`
+      : 'The durable workflow did not complete.';
     return false;
   }
 

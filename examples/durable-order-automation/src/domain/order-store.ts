@@ -1,3 +1,6 @@
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { dirname, resolve } from 'node:path';
+
 export interface Order {
   id: string;
   tenantId: string;
@@ -13,94 +16,124 @@ interface RefundInput {
 }
 
 interface StoreState {
-  orders: Map<string, Order>;
-  refunds: Map<string, { refundId: string }>;
+  orders: Order[];
+  refunds: Record<string, { refundId: string }>;
   reads: number;
   refundAttempts: number;
 }
 
 const createState = (): StoreState => ({
-  orders: new Map([
-    [
-      'order_123',
-      {
-        id: 'order_123',
-        tenantId: 'tenant_demo',
-        total: 125,
-        refunded: 0,
-      },
-    ],
-    [
-      'order_456',
-      {
-        id: 'order_456',
-        tenantId: 'tenant_demo',
-        total: 80,
-        refunded: 0,
-      },
-    ],
-  ]),
-  refunds: new Map(),
+  orders: [
+    {
+      id: 'order_123',
+      tenantId: 'tenant_demo',
+      total: 125,
+      refunded: 0,
+    },
+    {
+      id: 'order_456',
+      tenantId: 'tenant_demo',
+      total: 80,
+      refunded: 0,
+    },
+  ],
+  refunds: {},
   reads: 0,
   refundAttempts: 0,
 });
 
-const stateKey = Symbol.for('run.example.order-store');
-const globals = globalThis as typeof globalThis & {
-  [stateKey]?: StoreState;
+const getStorePath = (): string =>
+  process.env.ORDER_STORE_PATH ??
+  resolve(process.cwd(), '.workflow-data', 'order-store.json');
+
+const readState = async (): Promise<StoreState> => {
+  try {
+    return JSON.parse(await readFile(getStorePath(), 'utf8')) as StoreState;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT')
+      return createState();
+    throw error;
+  }
 };
 
-const getState = (): StoreState => {
-  globals[stateKey] ??= createState();
-  return globals[stateKey];
+const writeState = async (state: StoreState): Promise<void> => {
+  const path = getStorePath();
+  const temporaryPath = `${path}.${process.pid}.tmp`;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(temporaryPath, JSON.stringify(state, null, 2));
+  await rename(temporaryPath, path);
+};
+
+let pendingOperation = Promise.resolve();
+const exclusive = <T>(operation: () => Promise<T>): Promise<T> => {
+  const result = pendingOperation.then(operation, operation);
+  pendingOperation = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
 };
 
 export const orderStore = {
   async getForTenant(tenantId: string, orderId: string): Promise<Order> {
-    const state = getState();
-    const order = state.orders.get(orderId);
-    if (!order || order.tenantId !== tenantId) {
-      throw new Error(`Order "${orderId}" was not found.`);
-    }
-    state.reads += 1;
-    console.log(`[orders.get] ${orderId}`);
-    return { ...order };
+    return await exclusive(async () => {
+      const state = await readState();
+      const order = state.orders.find(candidate => candidate.id === orderId);
+      if (!order || order.tenantId !== tenantId) {
+        throw new Error(`Order "${orderId}" was not found.`);
+      }
+      state.reads += 1;
+      await writeState(state);
+      console.log(`[orders.get] ${orderId}`);
+      return { ...order };
+    });
   },
 
   async refundOnce(input: RefundInput) {
-    const state = getState();
-    state.refundAttempts += 1;
-    const existing = state.refunds.get(input.idempotencyKey);
-    if (existing) {
-      return { approved: true, refunded: true, ...existing };
-    }
+    return await exclusive(async () => {
+      const state = await readState();
+      state.refundAttempts += 1;
+      const existing = state.refunds[input.idempotencyKey];
+      if (existing) {
+        await writeState(state);
+        return { approved: true, refunded: true, ...existing };
+      }
 
-    const order = state.orders.get(input.orderId);
-    if (!order || order.tenantId !== input.tenantId) {
-      throw new Error(`Order "${input.orderId}" was not found.`);
-    }
-    if (input.amount <= 0 || input.amount > order.total - order.refunded) {
-      throw new Error('Refund amount is invalid.');
-    }
+      const order = state.orders.find(
+        candidate => candidate.id === input.orderId,
+      );
+      if (!order || order.tenantId !== input.tenantId) {
+        throw new Error(`Order "${input.orderId}" was not found.`);
+      }
+      if (input.amount > order.total - order.refunded) {
+        throw new Error('Refund amount is invalid.');
+      }
 
-    const refund = { refundId: `refund_${state.refunds.size + 1}` };
-    order.refunded += input.amount;
-    state.refunds.set(input.idempotencyKey, refund);
-    console.log(`[orders.refund] ${input.orderId} $${input.amount}`);
-    return { approved: true, refunded: true, ...refund };
+      const refund = {
+        refundId: `refund_${Object.keys(state.refunds).length + 1}`,
+      };
+      order.refunded += input.amount;
+      state.refunds[input.idempotencyKey] = refund;
+
+      // The demo's side effect and idempotency key commit in one atomic rename.
+      // A production adapter should use one database transaction instead.
+      await writeState(state);
+      console.log(`[orders.refund] ${input.orderId} $${input.amount}`);
+      return { approved: true, refunded: true, ...refund };
+    });
   },
 
-  stats() {
-    const state = getState();
+  async stats() {
+    const state = await exclusive(readState);
     return {
       reads: state.reads,
       refundAttempts: state.refundAttempts,
-      refunds: state.refunds.size,
-      orders: [...state.orders.values()].map(order => ({ ...order })),
+      refunds: Object.keys(state.refunds).length,
+      orders: state.orders.map(order => ({ ...order })),
     };
   },
 
-  reset(): void {
-    globals[stateKey] = createState();
+  async reset(): Promise<void> {
+    await exclusive(async () => await writeState(createState()));
   },
 };

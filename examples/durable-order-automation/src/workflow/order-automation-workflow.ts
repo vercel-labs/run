@@ -1,6 +1,5 @@
 import { createHook, type HookOptions } from 'workflow';
 import {
-  approvalHookToken,
   createRunResolutions,
   type ApprovalBatch,
   type ApprovalHookMetadata,
@@ -31,7 +30,7 @@ export async function orderAutomationWorkflow(
     };
 
     using approval = createHook<ApprovalBatch>({
-      token: approvalHookToken(input.automationId),
+      token: input.approvalHookToken,
       metadata: metadata as unknown as HookOptions['metadata'],
     });
 

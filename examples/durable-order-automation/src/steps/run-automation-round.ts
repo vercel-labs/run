@@ -41,11 +41,7 @@ const parseApprovalRequest = (
   };
 };
 
-const retryableRunCodes = new Set([
-  'RUN_ABORTED',
-  'RUN_CONCURRENCY_LIMIT',
-  'RUN_HOST_FUNCTION_ERROR',
-]);
+const retryableRunCodes = new Set(['RUN_ABORTED', 'RUN_CONCURRENCY_LIMIT']);
 
 export async function runAutomationRound(
   input: RunAutomationRoundInput,
@@ -65,11 +61,24 @@ export async function runAutomationRound(
       return { status: 'completed', value: result.value };
     }
 
-    return {
-      status: 'interrupted',
-      continuation: result.continuation,
-      interruptions: result.interruptions.map(parseApprovalRequest),
-    };
+    try {
+      return {
+        status: 'interrupted',
+        continuation: result.continuation,
+        interruptions: result.interruptions.map(parseApprovalRequest),
+      };
+    } catch (error) {
+      return {
+        status: 'failed',
+        error: {
+          code: 'INVALID_APPROVAL_REQUEST',
+          message:
+            error instanceof Error
+              ? error.message
+              : 'Approval request is invalid.',
+        },
+      };
+    }
   } catch (error) {
     if (!RunError.isInstance(error) || retryableRunCodes.has(error.code)) {
       throw error;

@@ -23,11 +23,14 @@ app.post(
   async c => await submitDecision(c.req.raw, c.req.param('automationId')),
 );
 
-app.get('/api/orders/stats', c => c.json(orderStore.stats()));
+app.get('/api/orders/stats', async c => c.json(await orderStore.stats()));
 
 app.onError((error, c) => {
   if (error instanceof HttpError) {
-    return c.json({ error: error.message }, error.status as 400 | 403 | 404);
+    return c.json(
+      { error: error.message },
+      error.status as 400 | 403 | 404 | 413,
+    );
   }
   console.error(error);
   return c.json({ error: 'Internal server error.' }, 500);

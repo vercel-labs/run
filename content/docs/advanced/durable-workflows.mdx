@@ -44,7 +44,10 @@ identity such as a tenant and policy version.
 
 ```ts
 const runner = createRunner({
-  continuationSecret: process.env.RUN_CONTINUATION_SECRET!,
+  continuationCodec: createSignedContinuationCodec({
+    secret: process.env.RUN_CONTINUATION_SECRET!,
+    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+  }),
   continuationAudience: 'durable-order-automation-v1',
 });
 
@@ -71,6 +74,8 @@ const hostFunctions = {
 ```
 
 Arguments and results crossing the sandbox boundary must be serializable.
+Validate host-function arguments at runtime because they come from untrusted
+JavaScript; TypeScript annotations do not enforce guest values.
 
 ## Interrupt before the protected operation
 
@@ -124,8 +129,9 @@ export async function runAutomationRound(input: RunRoundInput) {
 }
 ```
 
-Let retryable infrastructure and host-function failures throw so Workflow can
-retry the step. Serialize only failures the application considers terminal.
+Let explicitly retryable infrastructure failures throw so Workflow can retry
+the step. Treat deterministic sandbox, validation, and domain failures as
+terminal serializable outcomes; do not retry every host-function error.
 
 ## Wait with an authenticated hook
 
@@ -133,7 +139,7 @@ Create a hook in the workflow and publish its request from a step:
 
 ```ts
 using approval = createHook<ApprovalBatch>({
-  token: `order-approval:${automationId}`,
+  token: serverGeneratedHookToken,
   metadata: { tenantId, round, requests: outcome.interruptions },
 });
 

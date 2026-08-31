@@ -7,6 +7,7 @@ export interface AutomationScope {
 
 export interface AutomationInput {
   automationId: string;
+  approvalHookToken: string;
   source: string;
   scope: AutomationScope;
 }
@@ -50,9 +51,6 @@ export interface ApprovalHookMetadata {
   round: number;
   requests: ApprovalRequest[];
 }
-
-export const approvalHookToken = (automationId: string): string =>
-  `order-approval:${automationId}`;
 
 export const createRunResolutions = (
   requests: ApprovalRequest[],

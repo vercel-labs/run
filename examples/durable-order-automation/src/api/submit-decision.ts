@@ -1,12 +1,16 @@
 import { getHookByToken, resumeHook } from 'workflow/api';
 import {
-  approvalHookToken,
+  createApprovalHookToken,
+  requireAutomationOwner,
+} from './automation-identity.js';
+import {
   createRunResolutions,
   isApprovalHookMetadata,
   type ApprovalBatch,
   type ApprovalDecision,
 } from '../domain/types.js';
 import { HttpError, requireActor } from './auth.js';
+import { readBoundedJson } from './read-bounded-json.js';
 
 const parseDecisions = (value: unknown): ApprovalDecision[] => {
   if (!Array.isArray(value))
@@ -34,15 +38,23 @@ export const submitDecision = async (
   automationId: string,
 ): Promise<Response> => {
   const actor = requireActor(request, 'approver');
-  const body = (await request.json()) as { decisions?: unknown };
-  const token = approvalHookToken(automationId);
+  const { automationKey, runId } = requireAutomationOwner(
+    automationId,
+    actor.tenantId,
+  );
+  const body = await readBoundedJson<{ decisions?: unknown }>(
+    request,
+    64 * 1024,
+  );
+  const token = createApprovalHookToken(automationKey);
   const hook = await getHookByToken(token);
   const metadata: unknown = hook.metadata;
 
   if (
     !isApprovalHookMetadata(metadata) ||
-    metadata.automationId !== automationId ||
-    metadata.tenantId !== actor.tenantId
+    metadata.automationId !== automationKey ||
+    metadata.tenantId !== actor.tenantId ||
+    hook.runId !== runId
   ) {
     throw new HttpError(403, 'You cannot approve this automation.');
   }

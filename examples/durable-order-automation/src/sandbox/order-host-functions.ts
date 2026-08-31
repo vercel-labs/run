@@ -28,10 +28,25 @@ export const createOrderHostFunctions = (
   scope: AutomationScope,
 ): HostFunctions => ({
   orders: {
-    get: async (orderId: string) =>
-      await orderStore.getForTenant(scope.tenantId, orderId),
+    get: async (orderId: string) => {
+      if (typeof orderId !== 'string' || orderId.length === 0) {
+        throw new TypeError('orderId must be a non-empty string.');
+      }
+      return await orderStore.getForTenant(scope.tenantId, orderId);
+    },
 
     refund: async (orderId: string, amount: number) => {
+      if (typeof orderId !== 'string' || orderId.length === 0) {
+        throw new TypeError('orderId must be a non-empty string.');
+      }
+      if (
+        typeof amount !== 'number' ||
+        !Number.isFinite(amount) ||
+        amount <= 0
+      ) {
+        throw new TypeError('amount must be a positive finite number.');
+      }
+
       const context = getHostFunctionContext();
 
       // Interrupt before the protected side effect. Do not catch this signal.

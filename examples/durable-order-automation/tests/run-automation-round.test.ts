@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { resolve } from 'node:path';
 import { orderStore } from '../src/domain/order-store.js';
 import { createRunResolutions } from '../src/domain/types.js';
 import { runAutomationRound } from '../src/steps/run-automation-round.js';
@@ -16,10 +17,15 @@ const approve = (interruptionId: string, approved = true) => [
 ];
 
 describe('runAutomationRound', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     process.env.RUN_CONTINUATION_SECRET =
       'test-secret-that-is-at-least-32-bytes-long';
-    orderStore.reset();
+    process.env.ORDER_STORE_PATH = resolve(
+      process.cwd(),
+      '.workflow-data',
+      'order-store.test.json',
+    );
+    await orderStore.reset();
   });
 
   it('completes source that needs no approval', async () => {
@@ -37,7 +43,10 @@ describe('runAutomationRound', () => {
     `;
     const interrupted = await runAutomationRound({ source, scope });
     expect(interrupted.status).toBe('interrupted');
-    expect(orderStore.stats()).toMatchObject({ reads: 1, refunds: 0 });
+    await expect(orderStore.stats()).resolves.toMatchObject({
+      reads: 1,
+      refunds: 0,
+    });
     if (interrupted.status !== 'interrupted') return;
 
     const completed = await runAutomationRound({
@@ -48,7 +57,10 @@ describe('runAutomationRound', () => {
     });
 
     expect(completed.status).toBe('completed');
-    expect(orderStore.stats()).toMatchObject({ reads: 1, refunds: 1 });
+    await expect(orderStore.stats()).resolves.toMatchObject({
+      reads: 1,
+      refunds: 1,
+    });
   });
 
   it('does not refund after rejection', async () => {
@@ -68,7 +80,7 @@ describe('runAutomationRound', () => {
       status: 'completed',
       value: { approved: false, refunded: false },
     });
-    expect(orderStore.stats().refunds).toBe(0);
+    expect((await orderStore.stats()).refunds).toBe(0);
   });
 
   it('handles a later interruption round', async () => {
@@ -94,7 +106,7 @@ describe('runAutomationRound', () => {
       resolutions: approve(second.interruptions[0]!.id),
     });
     expect(completed.status).toBe('completed');
-    expect(orderStore.stats().refunds).toBe(2);
+    expect((await orderStore.stats()).refunds).toBe(2);
   });
 
   it('returns all parallel interruptions as one batch', async () => {
@@ -110,7 +122,7 @@ describe('runAutomationRound', () => {
     expect(outcome.status).toBe('interrupted');
     if (outcome.status !== 'interrupted') return;
     expect(outcome.interruptions).toHaveLength(2);
-    expect(orderStore.stats().refunds).toBe(0);
+    expect((await orderStore.stats()).refunds).toBe(0);
   });
 
   it('fails safely when continuation scope changes', async () => {
@@ -125,6 +137,57 @@ describe('runAutomationRound', () => {
       resolutions: approve(interrupted.interruptions[0]!.id),
     });
     expect(failed.status).toBe('failed');
+  });
+
+  it('returns guest argument errors without retrying the step', async () => {
+    await expect(
+      runAutomationRound({
+        source: 'return await orders.refund({}, "25");',
+        scope,
+      }),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      error: { code: 'RUN_HOST_FUNCTION_ERROR' },
+    });
+  });
+
+  it('treats deterministic host failures as terminal', async () => {
+    await expect(
+      runAutomationRound({
+        source: 'return await orders.get("missing_order");',
+        scope,
+      }),
+    ).resolves.toMatchObject({
+      status: 'failed',
+      error: { code: 'RUN_HOST_FUNCTION_ERROR' },
+    });
+  });
+
+  it('persists the refund idempotency key with the side effect', async () => {
+    const source = 'return await orders.refund("order_123", 25);';
+    const interrupted = await runAutomationRound({ source, scope });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected interruption.');
+    }
+    const resolutions = approve(interrupted.interruptions[0]!.id);
+
+    await runAutomationRound({
+      source,
+      scope,
+      continuation: interrupted.continuation,
+      resolutions,
+    });
+    await runAutomationRound({
+      source,
+      scope,
+      continuation: interrupted.continuation,
+      resolutions,
+    });
+
+    await expect(orderStore.stats()).resolves.toMatchObject({
+      refundAttempts: 2,
+      refunds: 1,
+    });
   });
 });
 
