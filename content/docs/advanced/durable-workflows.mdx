@@ -5,82 +5,92 @@ description: Run dynamic code durably with Workflow SDK steps, hooks, and Run co
 
 # Durable dynamic workflows
 
-Dynamic source may need to wait for approval, survive a restart, or retry host
-work. Run provides the sandbox and continuation replay; the Workflow SDK
-provides durable orchestration, persisted steps, hooks, and retries.
+Run can pause sandboxed code and continue it later. The Workflow SDK makes that
+pause durable, so the code can wait for approval without keeping a server or
+function alive.
 
-The complete runnable application is in
+This guide follows the refund flow in
 [`examples/durable-order-automation`](https://github.com/vercel-labs/run/tree/main/examples/durable-order-automation).
+The application runs user-provided order automation, pauses before issuing a
+refund, and waits for an approver.
 
-## Divide the responsibilities
+## How it works
 
-Keep the trusted and untrusted layers separate:
+- Workflow starts Run.
+- Sandboxed code requests a refund.
+- Run pauses and returns a continuation.
+- Workflow waits for approval.
+- Approval resumes the workflow.
+- Workflow passes the decision and continuation back to Run.
+- Run continues and performs the refund.
 
-```text
-Workflow function -> Run step -> sandboxed source -> host function
-       ^                                              |
-       |---------- approval hook <- interrupt --------|
-```
+There are two layers of durability:
 
-- A `"use workflow"` function coordinates steps and waits.
-- A `"use step"` function has Node.js or Bun access and invokes Run.
-- Dynamic source has only the host functions explicitly exposed to it.
-- Authentication and authorization happen before `resumeHook()`.
+- **Workflow** saves step results and the pending approval hook. It can stop
+  running while it waits and replay the workflow after the hook is resumed.
+- **Run** returns a continuation when sandboxed code is interrupted. On resume,
+  it starts the source again and reuses host-call results recorded in that
+  continuation.
 
-Workflow and Run both replay, at different layers. Workflow reuses persisted
-step results. Run re-executes source and reuses recorded host-function results.
+After a restart, Workflow restores the orchestration and Run restores the
+sandbox's progress. Together, they avoid repeating completed work or losing the
+pending refund.
 
-## Install and configure
-
-Install both SDKs and configure your framework's Workflow integration:
+## 1. Configure
 
 ```sh
 pnpm add run workflow
 export RUN_CONTINUATION_SECRET="$(openssl rand -base64 32)"
 ```
 
-Use a stable continuation audience and scope each invocation to application
-identity such as a tenant and policy version.
+The example creates the runner inside the step that uses it:
 
 ```ts
-const runner = createRunner({
-  continuationCodec: createSignedContinuationCodec({
-    secret: process.env.RUN_CONTINUATION_SECRET!,
-    maxAgeMs: 30 * 24 * 60 * 60 * 1000,
-  }),
-  continuationAudience: 'durable-order-automation-v1',
-});
-
-const scope = { tenantId, policyVersion: 'refund-policy-v1' };
-```
-
-The source, host-function names, audience, and continuation context must remain
-the same when a continuation is resumed.
-
-## Define narrow host capabilities
-
-Keep database and payment clients in trusted host code. Expose domain actions
-instead of a generic database or HTTP function.
-
-```ts
-const hostFunctions = {
-  orders: {
-    get: (orderId: string) => orderStore.getForTenant(tenantId, orderId),
-    refund: async (orderId: string, amount: number) => {
-      // protected operation shown below
+export const createOrderRunner = () =>
+  createRunner({
+    continuationAudience: 'durable-order-automation-v1',
+    continuationCodec: createSignedContinuationCodec({
+      secret: process.env.RUN_CONTINUATION_SECRET!,
+      maxAgeMs: 30 * 24 * 60 * 60 * 1000,
+    }),
+    limits: {
+      timeoutMs: 10_000,
+      memoryLimitBytes: 32 * 1024 * 1024,
     },
-  },
-};
+  });
 ```
 
-Arguments and results crossing the sandbox boundary must be serializable.
-Validate host-function arguments at runtime because they come from untrusted
-JavaScript; TypeScript annotations do not enforce guest values.
+Keep the secret and audience stable for the lifetime of a continuation. The
+source, host-function names, and continuation context must also be the same
+when the run resumes.
 
-## Interrupt before the protected operation
+## 2. Expose host functions
 
-Call `interrupt()` before a non-idempotent side effect. Do not catch its
-internal signal inside the host function.
+The dynamic source can only call functions the application exposes. In this
+example, it can read an order and request a refund:
+
+```ts
+const order = await orders.get('order_123');
+
+if (order.total > 100) {
+  const refund = await orders.refund(order.id, 25);
+
+  if (!refund.approved) {
+    return { status: 'refund_rejected', orderId: order.id };
+  }
+}
+
+return { status: 'complete', orderId: order.id };
+```
+
+Database access stays in trusted host code. Validate every argument at this
+boundary: sandboxed JavaScript is not constrained by TypeScript types, and
+arguments and return values must be serializable.
+
+## 3. Pause before refunding
+
+The `orders.refund` host function interrupts the run before it changes
+anything:
 
 ```ts
 const context = getHostFunctionContext();
@@ -88,134 +98,183 @@ const context = getHostFunctionContext();
 if (context.resume === undefined) {
   context.interrupt({
     kind: 'refund-approval',
+    action: 'refund',
     orderId,
     amount,
   });
 }
 
-if (context.resume.resolution.approved !== true) {
+const resume = context.resume;
+if (resume === undefined) {
+  throw new Error('Refund host function resumed without a resolution.');
+}
+
+const resolution = parseRefundResolution(resume.resolution);
+if (!resolution.approved) {
   return { approved: false, refunded: false };
 }
 
 return orderStore.refundOnce({
+  tenantId: scope.tenantId,
   orderId,
   amount,
-  idempotencyKey: [context.logicalRunId, context.resume.interruptionId].join(
-    ':',
-  ),
+  idempotencyKey: [context.logicalRunId, resume.interruptionId].join(':'),
 });
 ```
 
-Workflow steps may retry, so external writes still need stable idempotency.
+`interrupt()` returns a signed continuation to the caller. That continuation
+contains Run's replay state, including completed host calls, but the refund has
+not happened yet. Do not catch the internal interrupt signal in the host
+function.
 
-## Execute Run inside a durable step
+The stable idempotency key is still important. Workflow steps can retry after a
+worker failure, including a failure that happens after an external service
+accepts a write.
 
-Runner instances and host functions are not serializable. Construct them inside
-an explicit step and return only a completed, interrupted, or failed outcome.
-Use one step for initial and resumed rounds so continuation invariants do not
-drift between two implementations.
+## 4. Run a durable step
 
 ```ts
-export async function runAutomationRound(input: RunRoundInput) {
+export async function runAutomationRound(input: RunAutomationRoundInput) {
   'use step';
 
-  return createOrderRunner().run({
-    source: input.source,
-    hostFunctions: createOrderHostFunctions(input.scope),
-    continuationContext: input.scope,
-    continuation: input.continuation,
-    resolutions: input.resolutions,
-  });
+  try {
+    const result = await createOrderRunner().run({
+      source: input.source,
+      hostFunctions: createOrderHostFunctions(input.scope),
+      continuationContext: input.scope,
+      continuation: input.continuation,
+      resolutions: input.resolutions,
+    });
+
+    if (result.status === 'completed') {
+      return { status: 'completed', value: result.value };
+    }
+
+    return {
+      status: 'interrupted',
+      continuation: result.continuation,
+      interruptions: result.interruptions.map(parseApprovalRequest),
+    };
+  } catch (error) {
+    if (!RunError.isInstance(error) || retryableRunCodes.has(error.code)) {
+      throw error;
+    }
+    return {
+      status: 'failed',
+      error: { code: error.code, message: error.message },
+    };
+  }
 }
 ```
 
-Let explicitly retryable infrastructure failures throw so Workflow can retry
-the step. Treat deterministic sandbox, validation, and domain failures as
-terminal serializable outcomes; do not retry every host-function error.
+Runner instances and host functions are not serializable, so they are created
+inside the step. The step returns plain data that Workflow can persist.
 
-## Wait with an authenticated hook
+In the complete example, retryable infrastructure errors are thrown so Workflow
+can retry the step. Sandbox errors and invalid approval requests are returned
+as terminal failures.
 
-Create a hook in the workflow and publish its request from a step:
+## 5. Wait for approval
+
+The workflow runs a round, creates a hook when Run is interrupted, and waits:
 
 ```ts
-using approval = createHook<ApprovalBatch>({
-  token: serverGeneratedHookToken,
-  metadata: { tenantId, round, requests: outcome.interruptions },
+let outcome = await runAutomationRound({
+  source: input.source,
+  scope: input.scope,
 });
 
-await publishApprovalRequest(metadata, approval.token);
-const decision = await approval;
-```
-
-The notification step is where a real application would write an approval row
-and send an email or inbox notification.
-
-Resume the hook only from an authenticated server handler. Verify that the
-actor can approve the tenant and every requested action before calling
-`resumeHook()`.
-
-```ts
-const actor = await requireApprover(request);
-const hook = await getHookByToken(token);
-authorizeApproval(actor, hook.metadata);
-await resumeHook(token, decisionBatch);
-```
-
-## Resume every interruption in the batch
-
-An interrupted result may contain several interruptions. Supply exactly one
-resolution for every interruption in the batch:
-
-```ts
-const resolutions = interruptions.map(interruption => ({
-  interruptionId: interruption.id,
-  value: decisions.get(interruption.id),
-}));
-```
-
-Reject missing, duplicate, and unknown interruption IDs before resuming.
-
-## Loop for later approval rounds
-
-Resumption may reach another protected operation. Keep the lifecycle in a
-workflow loop:
-
-```ts
-let outcome = await runAutomationRound({ source, scope });
-
 while (outcome.status === 'interrupted') {
-  const decision = await waitForApproval(outcome.interruptions);
+  const metadata: ApprovalHookMetadata = {
+    kind: 'order-approval',
+    automationKey: input.automationKey,
+    tenantId: input.scope.tenantId,
+    round,
+    requests: outcome.interruptions,
+  };
+
+  using approval = createHook<ApprovalBatch>({
+    token: input.approvalHookToken,
+    metadata: metadata as unknown as HookOptions['metadata'],
+  });
+
+  await publishApprovalRequest(metadata, approval.token, workflowRunId);
+  const decision = await approval;
+
   outcome = await runAutomationRound({
-    source,
-    scope,
+    source: input.source,
+    scope: input.scope,
     continuation: outcome.continuation,
     resolutions: createRunResolutions(outcome.interruptions, decision),
   });
+  round += 1;
 }
-
-return outcome;
 ```
 
-Previously completed host calls are served from the Run continuation ledger
-instead of being executed again.
+At `await approval`, the workflow is suspended. There is no process waiting in
+memory. The Workflow service stores the hook and the results of completed
+steps, including the interrupted outcome and its Run continuation.
 
-## Protect tokens and replay state
+The loop matters because the resumed source may reach another protected
+operation and need another approval.
 
-Run continuations and Workflow hook tokens are bearer values. Keep them behind
-access controls, transmit them over authenticated channels, and do not log or
-send them to unrelated users. Signed Run continuations protect integrity but do
-not encrypt their contents.
+## 6. Resume securely
 
-For production systems, consider a storage-backed continuation codec for
-host-controlled replay state and at-most-once consumption. Set token expiry,
-rotate signing keys, and keep sensitive values out of source, arguments,
-payloads, and continuation context.
+The example's approval endpoint checks the actor and the hook metadata before
+resuming the workflow:
 
-## When to use this pattern
+```ts
+const actor = requireActor(request, 'approver');
+const { automationKey, runId } = requireAutomationOwner(
+  automationId,
+  actor.tenantId,
+);
+const token = createApprovalHookToken(automationKey);
+const hook = await getHookByToken(token);
+const metadata: unknown = hook.metadata;
 
-Use this integration when dynamic JavaScript or TypeScript needs durable waits,
-human decisions, or retryable orchestration with a narrow application
-capability surface.
+if (
+  !isApprovalHookMetadata(metadata) ||
+  metadata.automationKey !== automationKey ||
+  metadata.tenantId !== actor.tenantId ||
+  hook.runId !== runId
+) {
+  throw new HttpError(403, 'You cannot approve this automation.');
+}
+
+const batch = {
+  decisions: parseDecisions(body.decisions),
+  decidedBy: actor.userId,
+};
+
+createRunResolutions(metadata.requests, batch);
+await resumeHook(token, batch);
+```
+
+An interrupted run can contain more than one interruption. The example rejects
+missing, duplicate, and unknown interruption IDs before it calls `resumeHook()`.
+
+Once the hook is resumed, Workflow replays the workflow function. Completed
+steps return their saved results. The next `runAutomationRound` receives the
+continuation and approval resolutions. Run starts the source again, serves the
+earlier `orders.get` result from its continuation ledger, and resumes
+`orders.refund` with the decision. Only then can the refund run.
+
+## Protect replay state
+
+Run continuations and Workflow hook tokens are bearer values. Store and send
+them only through authenticated paths, and do not log them in production.
+Signed continuations prevent tampering; they do not encrypt their contents.
+
+For more control over replay data and one-time consumption, use a storage-backed
+continuation codec. Set an expiry, rotate signing keys, and avoid putting
+sensitive data in source, arguments, interruption payloads, or continuation
+context.
+
+## When to use it
+
+Use this setup when sandboxed JavaScript or TypeScript needs to wait for a human
+decision or take part in a workflow that may retry or restart.
 
 Use Run alone for short sandboxed computations that do not need durable waits.
 Use a full isolated environment instead when code needs an operating system,
