@@ -4,12 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Durable order automation</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <script>
+      (() => {
+        const systemTheme = window.matchMedia("(prefers-color-scheme: dark)")
+          .matches
+          ? "dark"
+          : "light";
+        try {
+          const savedTheme = window.localStorage.getItem(
+            "durable-order-theme",
+          );
+          document.documentElement.dataset.theme =
+            savedTheme === "dark" || savedTheme === "light"
+              ? savedTheme
+              : systemTheme;
+        } catch {
+          document.documentElement.dataset.theme = systemTheme;
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/styles.css?v=theme-toggle" />
   </head>
   <body>
     <header>
       <a class="brand" href="/">Run × Workflow</a>
-      <span class="badge">Local example</span>
+      <div class="header-actions">
+        <span class="badge">Local example</span>
+        <button
+          id="theme-toggle"
+          class="theme-toggle"
+          type="button"
+          aria-pressed="false"
+        >
+          Dark theme
+        </button>
+      </div>
     </header>
 
     <main>
@@ -64,6 +93,6 @@
     </main>
 
     <div id="message" class="message" role="status" aria-live="polite"></div>
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=theme-toggle"></script>
   </body>
 </html>
