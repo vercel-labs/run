@@ -99,6 +99,9 @@ export interface RunnerOptions<TOKEN = string> {
   continuationAudience?: string;
 }
 
+/** How the entry source is evaluated. */
+export type RunSourceType = 'function-body' | 'module';
+
 /** Input accepted by `run` and `Runner.run`. */
 export interface RunInput<TOKEN = unknown> {
   /**
@@ -108,10 +111,17 @@ export interface RunInput<TOKEN = unknown> {
    * Top-level `await` and `return` are supported.
    */
   source: string;
+  /**
+   * Entry-source evaluation mode. A function body supports top-level `await`
+   * and `return`; a module supports static imports and has no return value.
+   * Defaults to `module` when `moduleLoader` is present and `function-body`
+   * otherwise.
+   */
+  sourceType?: RunSourceType;
   hostFunctions?: HostFunctions;
   /**
-   * Optional native ES module loader. Its presence evaluates source as ESM;
-   * entry-module evaluation completes with an undefined run value.
+   * Optional native ES module loader. It enables native dynamic imports in a
+   * function body and static and dynamic imports in a module.
    */
   moduleLoader?: RunModuleLoader;
   abortSignal?: AbortSignal;

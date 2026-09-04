@@ -11,6 +11,7 @@ export interface WorkerRunMessage {
   hostFunctionNamespaces: string[];
   syncHostFunctionNamespaces: string[];
   moduleLoader: boolean;
+  sourceType: 'function-body' | 'module';
   syncBridge: SharedArrayBuffer | undefined;
   determinism: RunDeterminismState;
   options: Pick<

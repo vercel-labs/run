@@ -66,7 +66,13 @@ import type {
           {
             "name": "source",
             "type": "string",
-            "description": "JavaScript or type-stripped TypeScript source, evaluated as a function body by default or as ESM when moduleLoader is present."
+            "description": "JavaScript or type-stripped TypeScript source. Its evaluation mode is selected by sourceType, with backward-compatible defaults based on whether moduleLoader is present."
+          },
+          {
+            "name": "sourceType",
+            "type": "'function-body' | 'module'",
+            "isOptional": true,
+            "description": "How to evaluate the entry source. Defaults to module when moduleLoader is present and function-body otherwise."
           },
           {
             "name": "hostFunctions",
@@ -78,7 +84,7 @@ import type {
             "name": "moduleLoader",
             "type": "RunModuleLoader",
             "isOptional": true,
-            "description": "A host-controlled native ES module loader. Its presence evaluates source as ESM."
+            "description": "A host-controlled native ES module loader for dynamic imports from function bodies and static or dynamic imports from modules."
           },
           {
             "name": "abortSignal",

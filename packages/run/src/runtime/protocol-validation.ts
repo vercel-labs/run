@@ -206,6 +206,9 @@ const hasValidSyncBridgeConfiguration = (
     value.syncHostFunctionNamespaces.length === 0 ||
     value.syncBridge !== undefined);
 
+const hasValidSourceType = (value: unknown): boolean =>
+  value === 'function-body' || value === 'module';
+
 export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
   if (!isRecord(value) || typeof value.type !== 'string') {
     throw invalidMessage('main-to-worker');
@@ -218,6 +221,7 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
       'moduleLoader',
       'options',
       'source',
+      'sourceType',
       'syncBridge',
       'syncHostFunctionNamespaces',
       'type',
@@ -234,6 +238,7 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
       new Set(value.syncHostFunctionNamespaces).size !==
         value.syncHostFunctionNamespaces.length ||
       typeof value.moduleLoader !== 'boolean' ||
+      !hasValidSourceType(value.sourceType) ||
       !hasValidSyncBridgeConfiguration(value) ||
       !isDeterminism(value.determinism) ||
       !isRunOptions(value.options)

@@ -406,9 +406,12 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
   activeInvocations += 1;
   try {
     assertSourceSize(input.source, normalizedOptions.maxSourceBytes);
+    const sourceType =
+      input.sourceType ??
+      (input.moduleLoader === undefined ? 'function-body' : 'module');
     const transformedSource = transformSource(
       input.source,
-      input.moduleLoader !== undefined,
+      sourceType === 'module',
     );
     assertSourceSize(transformedSource, normalizedOptions.maxSourceBytes);
     const scopeHash = createContinuationScopeHash(input, normalizedOptions);
@@ -443,6 +446,7 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
       resolutions: normalizedResolutions,
       scopeHash,
       source: transformedSource,
+      sourceType,
       timeoutErrorMs: normalizedOptions.timeoutMs,
     });
     return await run.result;
@@ -456,6 +460,7 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
 
 function startWorkerRun({
   source,
+  sourceType,
   originalSource,
   hostFunctions,
   hostFunctionManifest,
@@ -474,6 +479,7 @@ function startWorkerRun({
   deadlineMs,
 }: InternalRunInput & {
   originalSource: string;
+  sourceType: 'function-body' | 'module';
   continuationState?: RunContinuationState;
   normalizedOptions: NormalizedRunOptions;
   timeoutErrorMs: number;
@@ -898,6 +904,7 @@ function startWorkerRun({
       timeoutMs: timeoutErrorMs,
     },
     source,
+    sourceType,
     syncBridge,
     syncHostFunctionNamespaces: [...syncHostFunctionManifest.keys()],
     type: 'run',
@@ -1711,6 +1718,11 @@ function createContinuationScopeHash(
           ...(input.moduleLoader === undefined
             ? {}
             : { moduleLoaderIdentity: input.moduleLoader.identity }),
+          ...(input.sourceType === undefined ||
+          input.sourceType ===
+            (input.moduleLoader === undefined ? 'function-body' : 'module')
+            ? {}
+            : { sourceType: input.sourceType }),
           // Keep the existing key so continuations whose transform was an
           // identity remain valid across this change. The original source is
           // stable across hosts and is also exact-matched during validation.

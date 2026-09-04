@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { getHostFunctionContext, run } from './index.js';
 
 describe('run configuration', () => {
+  it('rejects an invalid source type', async () => {
+    await expect(
+      run({ source: 'return 1;', sourceType: 'script' as never }),
+    ).rejects.toThrow('Invalid sourceType configuration.');
+  });
+
   it('observes a continuation secret configured after first use', async () => {
     const previous = process.env.RUN_CONTINUATION_SECRET;
     delete process.env.RUN_CONTINUATION_SECRET;

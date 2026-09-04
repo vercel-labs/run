@@ -39,6 +39,7 @@ export type {
   RunLedgerEntry,
   RunLimits,
   RunResolution,
+  RunSourceType,
   Runner,
   RunnerOptions,
   RunResult,
