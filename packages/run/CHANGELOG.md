@@ -1,5 +1,11 @@
 # run
 
+## 2.1.3
+
+### Patch Changes
+
+- aeb4ce0: Allow a module loader to serve dynamic imports without forcing entry source to be evaluated as an ES module.
+
 ## 2.1.2
 
 ### Patch Changes
