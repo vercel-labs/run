@@ -388,7 +388,7 @@ async function evaluateUserSource(
   serializeJsonPayload: JSValueHandle,
   getTrustedErrorCode: JSValueHandle,
 ): Promise<string> {
-  if (message.moduleLoader) {
+  if (message.sourceType === 'module') {
     let modulePromise: JSValueHandle;
     try {
       modulePromise = context.evalCode(

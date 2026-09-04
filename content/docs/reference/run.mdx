@@ -53,7 +53,13 @@ import { run } from 'run';
   {
     "name": "source",
     "type": "string",
-    "description": "JavaScript or type-stripped TypeScript source. Without moduleLoader it is an async function body with top-level await and return; with moduleLoader it is an ES module."
+    "description": "JavaScript or type-stripped TypeScript source. Its evaluation mode is selected by sourceType, with backward-compatible defaults based on whether moduleLoader is present."
+  },
+  {
+    "name": "sourceType",
+    "type": "'function-body' | 'module'",
+    "isOptional": true,
+    "description": "How to evaluate the entry source. Function-body source supports top-level await and return. Module source supports static imports and completes with value undefined. Defaults to module when moduleLoader is present and function-body otherwise."
   },
   {
     "name": "hostFunctions",
@@ -89,7 +95,7 @@ import { run } from 'run';
     "name": "moduleLoader",
     "type": "RunModuleLoader",
     "isOptional": true,
-    "description": "A host-controlled native ES module loader. Its presence evaluates source as a module; completed module-backed runs have value undefined. A non-empty stable identity is required to create or resume continuations.",
+    "description": "A host-controlled native ES module loader. It enables dynamic imports from function-body source and static and dynamic imports from module source. A non-empty stable identity is required to create or resume continuations.",
     "properties": [
       {
         "type": "RunModuleLoader",

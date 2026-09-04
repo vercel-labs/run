@@ -132,8 +132,9 @@ loader, is included in invocation memory admission, and is capped at 64 MiB.
 
 ### Native ES modules
 
-Passing `moduleLoader` evaluates `source` as an ES module and enables static,
-cyclic, and dynamic imports through QuickJS's native module loader:
+Passing `moduleLoader` enables native module resolution. For compatibility,
+its presence evaluates `source` as an ES module unless `sourceType` is set
+explicitly. Module source supports static, cyclic, and dynamic imports:
 
 ```ts
 await runner.run({
@@ -150,16 +151,33 @@ await runner.run({
 });
 ```
 
+Set `sourceType: 'function-body'` to retain top-level `await`, `return`, and a
+serialized run value while enabling native dynamic imports:
+
+```ts
+const result = await runner.run({
+  source: `
+    const { value } = await import('./value.js');
+    return value;
+  `,
+  sourceType: 'function-body',
+  moduleLoader,
+});
+```
+
+Set `sourceType: 'module'` to evaluate an entry module even when it has no
+imports and no module loader. Entry modules execute for their side effects and
+a completed module run has `value: undefined`; the module namespace is not
+serialized as the run result.
+
 `normalize` and `load` may be synchronous or asynchronous. Their results are
 bounded by the host-function bridge limits, and `SharedArrayBuffer` and
 `Atomics` remain unavailable to guest JavaScript. Module-backed runs can create
 and resume continuations when the loader has a non-empty stable `identity`.
 Loader failures are redacted before entering the sandbox.
 
-Entry modules execute for their side effects and a completed module-backed run
-has `value: undefined`; the module namespace is not serialized as the run
-result. This allows modules to export functions and cyclic namespaces without
-turning those exports into result-serialization failures.
+This allows modules to export functions and cyclic namespaces without turning
+those exports into result-serialization failures.
 
 Native Node type stripping is used when the runtime provides it, and Bun uses
 its native TypeScript transpiler. On Node 20, install the optional `typescript`

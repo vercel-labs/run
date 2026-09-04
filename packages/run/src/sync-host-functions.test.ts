@@ -538,6 +538,37 @@ describe('synchronous host functions', () => {
 });
 
 describe('native module loading', () => {
+  it('loads dynamic imports from function-body source', async () => {
+    const runner = createRunner();
+
+    await expect(
+      runner.run({
+        moduleLoader: {
+          load(specifier) {
+            if (specifier === '/value.js') {
+              return "export const value = 'loaded';";
+            }
+            throw new Error('not found');
+          },
+        },
+        source: `
+          const module = await import('/value.js');
+          return module.value;
+        `,
+        sourceType: 'function-body',
+      }),
+    ).resolves.toEqual({ status: 'completed', value: 'loaded' });
+  });
+
+  it('evaluates explicit module source without requiring a loader', async () => {
+    await expect(
+      createRunner().run({
+        source: 'export const value = 1;',
+        sourceType: 'module',
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+  });
+
   it('loads static, aliased, cyclic, and dynamic ESM', async () => {
     const seen: string[] = [];
     const modules = new Map<string, string>([
@@ -667,6 +698,42 @@ describe('native module loading', () => {
         source: 'await tools.pause();',
       }),
     ).rejects.toThrow('non-empty identity');
+  });
+
+  it('binds non-default source type to the continuation scope', async () => {
+    const runner = createRunner({ continuationSecret: 's'.repeat(32) });
+    const pause = () =>
+      getHostFunctionContext().resume?.resolution ??
+      getHostFunctionContext().interrupt('pause');
+    const input = {
+      hostFunctions: { tools: { pause } },
+      moduleLoader: {
+        identity: 'scope-loader',
+        load: () => 'export {};',
+      },
+      source: 'return await tools.pause();',
+    } as const;
+    const interrupted = await runner.run({
+      ...input,
+      sourceType: 'function-body',
+    });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected the function-body run to be interrupted.');
+    }
+
+    await expect(
+      runner.run({
+        ...input,
+        continuation: interrupted.continuation,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        sourceType: 'module',
+      }),
+    ).rejects.toThrow(/continuation|scope/iu);
   });
 
   it('redacts module loader errors from guest code', async () => {

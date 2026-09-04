@@ -26,6 +26,7 @@ const createRunMessage = (invocationId: string) => ({
   moduleLoader: false,
   options: WORKER_OPTIONS,
   source: 'return await tools.echo({ value: 1 });',
+  sourceType: 'function-body',
   syncBridge: undefined,
   syncHostFunctionNamespaces: [],
   type: 'run',

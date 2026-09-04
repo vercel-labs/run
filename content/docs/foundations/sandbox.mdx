@@ -39,9 +39,11 @@ const result = await run({
 - TypeScript annotations are stripped before execution when the runtime has a
   native stripper. Node 20 uses the optional `typescript` peer dependency as a
   fallback. Nothing is type-checked.
-- Default function-body source cannot import modules. Passing a `moduleLoader`
-  evaluates source as an ES module and enables static and dynamic imports
-  through host-controlled resolution.
+- A `moduleLoader` enables dynamic imports through host-controlled resolution.
+  Set `sourceType: 'function-body'` to keep top-level `await` and `return`, or
+  `sourceType: 'module'` to enable static imports. For compatibility, omitting
+  `sourceType` selects module mode when a loader is present and function-body
+  mode otherwise.
 - The sandbox does not provide Node.js globals such as `process`, `require`,
   `module`, or `Buffer`. It also does not provide browser networking APIs such
   as `fetch`, `WebSocket`, or `XMLHttpRequest`.

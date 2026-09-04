@@ -26,6 +26,7 @@ const createRunMessage = (
     timeoutMs: 1000,
   },
   source,
+  sourceType: 'function-body',
   syncBridge: new SharedArrayBuffer(1024),
   syncHostFunctionNamespaces: [],
   type: 'run',

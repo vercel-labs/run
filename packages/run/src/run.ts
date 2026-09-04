@@ -12,6 +12,11 @@ import type {
   RunResult,
 } from './types.js';
 
+const isRunSourceType = (
+  value: unknown,
+): value is NonNullable<RunInput['sourceType']> =>
+  value === 'function-body' || value === 'module';
+
 function missingContinuationCodec<TOKEN>(): ContinuationCodec<TOKEN> {
   const message =
     'Continuation signing is not configured. Set RUN_CONTINUATION_SECRET or pass continuationSecret or continuationCodec to createRunner().';
@@ -217,6 +222,12 @@ export const createRunner = <TOKEN = string>(
             `Host function namespace "${namespace}" cannot be both asynchronous and synchronous.`,
           );
         }
+      }
+      if (
+        input.sourceType !== undefined &&
+        !isRunSourceType(input.sourceType)
+      ) {
+        throw new TypeError('Invalid sourceType configuration.');
       }
       if (
         input.moduleLoader !== undefined &&
