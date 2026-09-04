@@ -6,10 +6,41 @@ const emptyState = document.querySelector('#empty-state');
 const approval = document.querySelector('#approval');
 const result = document.querySelector('#result');
 const message = document.querySelector('#message');
+const themeToggle = document.querySelector('#theme-toggle');
 
 let current = null;
 let pollTimer;
 let renderedApprovalKey = null;
+
+const setTheme = (theme, persist = false) => {
+  const isDark = theme === 'dark';
+  document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  themeToggle.setAttribute('aria-pressed', String(isDark));
+  themeToggle.setAttribute(
+    'aria-label',
+    `Switch to ${isDark ? 'light' : 'dark'} theme`,
+  );
+  themeToggle.textContent = `${isDark ? 'Light' : 'Dark'} theme`;
+
+  if (persist) {
+    try {
+      window.localStorage.setItem(
+        'durable-order-theme',
+        isDark ? 'dark' : 'light',
+      );
+    } catch {
+      // The selected theme still applies when storage is unavailable.
+    }
+  }
+};
+
+setTheme(document.documentElement.dataset.theme);
+themeToggle.addEventListener('click', () => {
+  setTheme(
+    document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark',
+    true,
+  );
+});
 
 const setTimeline = (...complete) => {
   for (const item of document.querySelectorAll('.timeline li')) {
