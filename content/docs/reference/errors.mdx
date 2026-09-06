@@ -19,6 +19,18 @@ try {
 }
 ```
 
+## Guest source failures
+
+Uncaught guest evaluation failures, including syntax errors and thrown values,
+use `RUN_USER_SOURCE_ERROR`. This identifies where the error came from; it does
+not guarantee that retrying will succeed or fail. Inspect the source, inputs,
+and resource limits before choosing a retry policy.
+
+Run replaces guest-authored `code` properties with `RUN_USER_SOURCE_ERROR`,
+including custom codes and attempts to imitate runtime errors. Trusted errors
+from host functions retain their codes, and actual timeouts remain `RUN_TIMEOUT`.
+Generic `RUN_ERROR` remains a fallback and does not identify a source failure.
+
 ## Import
 
 ```ts

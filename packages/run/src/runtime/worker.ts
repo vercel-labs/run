@@ -51,6 +51,7 @@ let activeCancellation:
   | {
       invocationId: string;
       cancel: () => void;
+      isCancelled: () => boolean;
       fail: (error: unknown) => void;
     }
   | undefined;
@@ -95,6 +96,10 @@ async function handleMainMessage(value: unknown): Promise<void> {
           requestId: message.requestId,
         },
       );
+    }
+
+    if (activeCancellation?.isCancelled()) {
+      return;
     }
 
     resolveBridgeResponse(
@@ -226,22 +231,13 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   activeCancellation = {
     cancel: () => {
       cancelled = true;
-      rejectPendingBridgeRequests(
-        context,
-        message.invocationId,
-        'Worker execution cancelled by host',
-      );
     },
     fail: error => {
       executionFailure ??= { error };
       cancelled = true;
-      rejectPendingBridgeRequests(
-        context,
-        message.invocationId,
-        'Worker message processing failed',
-      );
     },
     invocationId: message.invocationId,
+    isCancelled: () => cancelled,
   };
   if (pendingInvocationFailure?.invocationId === message.invocationId) {
     activeCancellation.fail(pendingInvocationFailure.error);
@@ -279,6 +275,11 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       message,
       serializeJsonPayloadHandle,
       getTrustedErrorCodeHandle,
+      () => {
+        if (cancelled) {
+          throw new Error('Worker execution cancelled by host');
+        }
+      },
     );
     const completedFailure = getExecutionFailure();
     if (completedFailure !== undefined) {
@@ -298,21 +299,12 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     if (activeCancellation?.invocationId === message.invocationId) {
       activeCancellation = undefined;
     }
-    if (!cancelled) {
-      rejectPendingBridgeRequests(
-        context,
-        message.invocationId,
-        'Worker execution finished before bridge response',
-      );
-    }
-    const pendingForInvocation = [...pendingBridgeRequests.entries()].filter(
-      ([, pending]) => pending.invocationId === message.invocationId,
-    );
-    await Promise.allSettled(
-      pendingForInvocation.map(([, pending]) => pending.deferred.settled),
-    );
-    for (const [requestId] of pendingForInvocation) {
-      pendingBridgeRequests.delete(requestId);
+    // Guest promises are discarded with the context; settling them would run
+    // catch/finally handlers during suspension and could prevent teardown.
+    for (const [requestId, pending] of pendingBridgeRequests) {
+      if (pending.invocationId === message.invocationId) {
+        pendingBridgeRequests.delete(requestId);
+      }
     }
     disposeHandle(bridgeFunctions?.invokeHostFunction);
     disposeHandle(bridgeFunctions?.invokeSyncHostFunction);
@@ -387,6 +379,7 @@ async function evaluateUserSource(
   message: WorkerRunMessage,
   serializeJsonPayload: JSValueHandle,
   getTrustedErrorCode: JSValueHandle,
+  assertActive: () => void,
 ): Promise<string> {
   if (message.sourceType === 'module') {
     let modulePromise: JSValueHandle;
@@ -399,7 +392,11 @@ async function evaluateUserSource(
     } catch (error) {
       throw toUserSourceError(dumpQuickJSError(context, error), message.source);
     }
-    const resolvedModule = await resolveQuickJSPromise(context, modulePromise);
+    const resolvedModule = await resolveQuickJSPromise(
+      context,
+      modulePromise,
+      assertActive,
+    );
     if (!modulePromise.disposed) {
       modulePromise.dispose();
     }
@@ -432,7 +429,11 @@ async function evaluateUserSource(
   }
 
   const promiseHandle = context.global.getProp('__runResult');
-  const resolvedResult = await resolveQuickJSPromise(context, promiseHandle);
+  const resolvedResult = await resolveQuickJSPromise(
+    context,
+    promiseHandle,
+    assertActive,
+  );
   if (!promiseHandle.disposed) {
     promiseHandle.dispose();
   }
@@ -463,26 +464,6 @@ async function evaluateUserSource(
     'JavaScript runtime result',
   );
   return valueJson;
-}
-
-function rejectPendingBridgeRequests(
-  context: QuickJS,
-  invocationId: string,
-  message: string,
-): void {
-  let rejected = false;
-  for (const pending of pendingBridgeRequests.values()) {
-    if (pending.invocationId !== invocationId) {
-      continue;
-    }
-    const error = context.newError(message);
-    pending.deferred.reject(error);
-    error.dispose();
-    rejected = true;
-  }
-  if (rejected) {
-    context.executePendingJobs();
-  }
 }
 
 async function createQuickJSContext(options: {
@@ -906,7 +887,6 @@ function requestHost(
     ...(registerTrustedError === undefined ? {} : { registerTrustedError }),
     ...(resetDateNow === undefined ? {} : { resetDateNow }),
   });
-  completeDeferredWhenSettled(context, deferred);
   parentPort?.postMessage({
     invocationId,
     requestId,
@@ -916,14 +896,6 @@ function requestHost(
   });
   scheduleBridgeIdle(invocationId);
   return deferred.handle;
-}
-
-async function completeDeferredWhenSettled(
-  context: QuickJS,
-  deferred: Deferred,
-): Promise<void> {
-  await deferred.settled;
-  context.executePendingJobs();
 }
 
 function resolveBridgeResponse(
@@ -1032,22 +1004,23 @@ function drainPendingJobs(context: QuickJS): void {
 async function resolveQuickJSPromise(
   context: QuickJS,
   promiseHandle: JSValueHandle,
+  assertActive: () => void,
 ) {
   const resolved = context.resolvePromise(promiseHandle);
   const notSettled = Symbol('not-settled');
   for (;;) {
+    assertActive();
     drainPendingJobs(context);
     const nextTurn = createPromiseWithResolvers<typeof notSettled>();
     setTimeout(() => nextTurn.resolve(notSettled), 0);
     const result = await Promise.race([resolved, nextTurn.promise]);
     if (result !== notSettled) {
+      assertActive();
       drainPendingJobs(context);
       return result;
     }
   }
 }
-
-const GUEST_ALLOWED_RUN_ERROR_CODES = new Set(['RUN_ERROR']);
 
 function toError(
   value: unknown,
@@ -1068,7 +1041,9 @@ function toError(
       details?: unknown;
     };
     const error = new Error(errorValue.message);
-    const errorCode = trustedCode ?? errorValue.code;
+    const errorCode =
+      trustedCode ??
+      (filterGuestCode ? 'RUN_USER_SOURCE_ERROR' : errorValue.code);
     const { name } = errorValue;
     if (typeof name === 'string') {
       error.name = name;
@@ -1079,14 +1054,7 @@ function toError(
     ) {
       error.stack = (value as { stack: string }).stack;
     }
-    if (
-      errorCode !== undefined &&
-      (!filterGuestCode ||
-        trustedCode !== undefined ||
-        typeof errorCode !== 'string' ||
-        !errorCode.startsWith('RUN_') ||
-        GUEST_ALLOWED_RUN_ERROR_CODES.has(errorCode))
-    ) {
+    if (errorCode !== undefined) {
       Object.defineProperty(error, 'code', {
         enumerable: true,
         value: errorCode,
@@ -1100,7 +1068,14 @@ function toError(
     }
     return error;
   }
-  return new Error(String(value));
+  const error = new Error(String(value));
+  if (filterGuestCode) {
+    Object.defineProperty(error, 'code', {
+      enumerable: true,
+      value: trustedCode ?? 'RUN_USER_SOURCE_ERROR',
+    });
+  }
+  return error;
 }
 
 function toUserSourceError(

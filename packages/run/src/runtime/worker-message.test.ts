@@ -135,3 +135,78 @@ it('reports message failures and ignores late messages without crashing', async 
     await worker.terminate();
   }
 });
+
+it('discards cancelled guest work and reuses the worker despite a late bridge response', async () => {
+  const worker =
+    (globalThis as { Bun?: unknown }).Bun === undefined
+      ? new Worker(
+          new URL(
+            `data:text/javascript;base64,${Buffer.from(INLINE_RUN_WORKER_SOURCE).toString('base64')}`,
+          ),
+          { execArgv: [] },
+        )
+      : new Worker(INLINE_RUN_WORKER_SOURCE, { eval: true, execArgv: [] });
+  const postToWorker = (message: MainToWorkerMessage): void => {
+    // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
+    worker.postMessage(message);
+  };
+  const completed = createPromiseWithResolvers<null>();
+  const results: unknown[] = [];
+  let requests = 0;
+  worker.on('error', completed.reject);
+  worker.on('message', (value: unknown) => {
+    const message = value as {
+      invocationId: string;
+      requestId: string;
+      type: string;
+    };
+    if (message.type === 'host-function-request') {
+      requests += 1;
+      postToWorker({ invocationId: message.invocationId, type: 'cancel' });
+      postToWorker({
+        dateNowMs: 1_700_000_000_002,
+        invocationId: message.invocationId,
+        requestId: message.requestId,
+        success: true,
+        type: 'bridge-response',
+        valueJson: '[null]',
+      });
+    }
+    if (message.type === 'result') {
+      results.push(value);
+    }
+    if (message.type === 'ready') {
+      if (message.invocationId === 'run-cancelled') {
+        postToWorker(createRunMessage('run-reused', 'return 42;'));
+      } else {
+        completed.resolve(null);
+      }
+    }
+  });
+  try {
+    postToWorker(
+      createRunMessage(
+        'run-cancelled',
+        `
+      try { await tools.pause(); }
+      finally {
+        for (let i = 0; i < 100000; i++) {}
+        await tools.cleanup();
+      }
+    `,
+      ),
+    );
+    await completed.promise;
+    expect(requests).toBe(1);
+    expect(results).toMatchObject([
+      {
+        error: { message: 'Worker execution cancelled by host' },
+        invocationId: 'run-cancelled',
+        success: false,
+      },
+      { invocationId: 'run-reused', success: true, valueJson: '[42]' },
+    ]);
+  } finally {
+    await worker.terminate();
+  }
+});

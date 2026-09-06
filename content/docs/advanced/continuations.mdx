@@ -15,6 +15,13 @@ An interruption does not leave a worker suspended. The invocation ends and
 returns a continuation token. When the host supplies that token and a
 resolution, `run` starts a new invocation and replays the source.
 
+Suspension is a host operation, not a rejected promise inside the guest. It
+discards the guest context without executing guest `catch` or `finally`
+handlers. On resume, those handlers follow normal JavaScript semantics as the
+source replays and the interrupted host call receives its resolution. Put
+cleanup for work owned by the host in the host function; guest `finally` is not
+a suspension or cancellation hook.
+
 Continuations do not turn `run` into a complete durable execution system. The
 host application remains responsible for storing tokens, collecting decisions,
 scheduling resumed work, authorizing callers, and handling retries.
