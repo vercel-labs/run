@@ -35,287 +35,368 @@ import { run } from 'run';
 
 ### Type Parameters
 
-```json
-[
-  {
-    "name": "OUTPUT",
-    "type": "unknown",
-    "isOptional": true,
-    "description": "The expected type of a successfully returned value. Default: unknown."
-  }
-]
-```
+<TypeTable
+  type={{
+    OUTPUT: {
+      type: 'unknown',
+      typeDescription: 'unknown',
+      required: false,
+      description:
+        'The expected type of a successfully returned value. Default: unknown.',
+    },
+  }}
+/>
 
 ### Parameters
 
-```json
-[
-  {
-    "name": "source",
-    "type": "string",
-    "description": "JavaScript or type-stripped TypeScript source. Its evaluation mode is selected by sourceType, with backward-compatible defaults based on whether moduleLoader is present."
-  },
-  {
-    "name": "sourceType",
-    "type": "'function-body' | 'module'",
-    "isOptional": true,
-    "description": "How to evaluate the entry source. Function-body source supports top-level await and return. Module source supports static imports and completes with value undefined. Defaults to module when moduleLoader is present and function-body otherwise."
-  },
-  {
-    "name": "hostFunctions",
-    "type": "HostFunctions",
-    "isOptional": true,
-    "description": "Host function groups installed as globals in the sandbox. Default: {}.",
-    "properties": [
-      {
-        "type": "HostFunctions",
-        "parameters": [
-          {
-            "name": "[groupName]",
-            "type": "HostFunctionGroup",
-            "description": "A named collection of host functions.",
-            "properties": [
-              {
-                "type": "HostFunctionGroup",
-                "parameters": [
-                  {
-                    "name": "[hostFunctionName]",
-                    "type": "(...args: unknown[]) => unknown | Promise<unknown>",
-                    "description": "A host function made available to sandboxed JavaScript."
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "moduleLoader",
-    "type": "RunModuleLoader",
-    "isOptional": true,
-    "description": "A host-controlled native ES module loader. It enables dynamic imports from function-body source and static and dynamic imports from module source. A non-empty stable identity is required to create or resume continuations.",
-    "properties": [
-      {
-        "type": "RunModuleLoader",
-        "parameters": [
-          {
-            "name": "identity",
-            "type": "string",
-            "isOptional": true,
-            "description": "A stable loader identity authenticated by continuations, limited to 512 bytes and required to create or resume one."
-          },
-          {
-            "name": "normalize",
-            "type": "(specifier: string, importer: string) => string | Promise<string>",
-            "isOptional": true,
-            "description": "Returns the canonical module name for a raw specifier and importer. The raw specifier is used when omitted."
-          },
-          {
-            "name": "load",
-            "type": "(specifier: string) => string | Promise<string>",
-            "description": "Returns source text for a normalized module name."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "abortSignal",
-    "type": "AbortSignal",
-    "isOptional": true,
-    "description": "An optional signal used to cancel the invocation."
-  },
-  {
-    "name": "limits",
-    "type": "RunLimits",
-    "isOptional": true,
-    "description": "Resource limits for this invocation.",
-    "properties": [
-      {
-        "type": "RunLimits",
-        "parameters": [
-          {
-            "name": "timeoutMs",
-            "type": "number",
-            "isOptional": true,
-            "description": "Invocation timeout in milliseconds. Default: 30000."
-          },
-          {
-            "name": "memoryLimitBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "QuickJS memory limit in bytes. Default: 67108864."
-          },
-          {
-            "name": "maxStackSizeBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "QuickJS stack limit in bytes. Default: 2097152."
-          },
-          {
-            "name": "maxResultBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized result size in bytes. Default: 1048576."
-          },
-          {
-            "name": "maxConsoleOutputBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum console output in bytes. Default: 65536."
-          },
-          {
-            "name": "maxSourceBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum source size in bytes. Default: 262144."
-          },
-          {
-            "name": "maxHostFunctionArgumentsBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized arguments for one host function request in bytes. Default: 1048576."
-          },
-          {
-            "name": "maxHostFunctionOutputBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized host function output or interruption payload in bytes. Default: 4194304."
-          },
-          {
-            "name": "maxBridgeRequests",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum bridge requests in one invocation. Default: 256."
-          },
-          {
-            "name": "maxInFlightBridgeRequests",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum bridge requests in flight at once. Default: 32."
-          },
-          {
-            "name": "maxContinuationBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized continuation state in bytes. Default: 33554432."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "continuation",
-    "type": "string",
-    "isOptional": true,
-    "description": "An opaque continuation token from an interrupted result."
-  },
-  {
-    "name": "resolutions",
-    "type": "RunResolution[]",
-    "isOptional": true,
-    "description": "Values that resolve every interruption in the supplied continuation.",
-    "properties": [
-      {
-        "type": "RunResolution",
-        "parameters": [
-          {
-            "name": "interruptionId",
-            "type": "string",
-            "description": "The ID of the interruption being resolved."
-          },
-          {
-            "name": "value",
-            "type": "unknown",
-            "description": "The application-defined resolution value."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "continuationContext",
-    "type": "unknown",
-    "isOptional": true,
-    "description": "Serializable tenant, principal, or policy context authenticated by a continuation and required unchanged when resumed."
-  }
-]
-```
+<TypeTable
+  type={{
+    source: {
+      type: 'string',
+      typeDescription: 'string',
+      required: true,
+      description:
+        'JavaScript or type-stripped TypeScript source. Its evaluation mode is selected by sourceType, with backward-compatible defaults based on whether moduleLoader is present.',
+    },
+    sourceType: {
+      type: "'function-body' | 'module'",
+      typeDescription: "'function-body' | 'module'",
+      required: false,
+      description:
+        'How to evaluate the entry source. Function-body source supports top-level await and return. Module source supports static imports and completes with value undefined. Defaults to module when moduleLoader is present and function-body otherwise.',
+    },
+    hostFunctions: {
+      type: 'HostFunctions',
+      typeDescription: 'HostFunctions',
+      required: false,
+      description: (
+        <>
+          <p>
+            {
+              'Host function groups installed as globals in the sandbox. Default: {}.'
+            }
+          </p>
+          <p>
+            <code>{'HostFunctions'}</code>
+          </p>
+          <TypeTable
+            type={{
+              '[groupName]': {
+                type: 'HostFunctionGroup',
+                typeDescription: 'HostFunctionGroup',
+                required: true,
+                description: (
+                  <>
+                    <p>{'A named collection of host functions.'}</p>
+                    <p>
+                      <code>{'HostFunctionGroup'}</code>
+                    </p>
+                    <TypeTable
+                      type={{
+                        '[hostFunctionName]': {
+                          type: '(...args: unknown[]) => unknown | Promise<unknown>',
+                          typeDescription:
+                            '(...args: unknown[]) => unknown | Promise<unknown>',
+                          required: true,
+                          description:
+                            'A host function made available to sandboxed JavaScript.',
+                        },
+                      }}
+                    />
+                  </>
+                ),
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    moduleLoader: {
+      type: 'RunModuleLoader',
+      typeDescription: 'RunModuleLoader',
+      required: false,
+      description: (
+        <>
+          <p>
+            {
+              'A host-controlled native ES module loader. It enables dynamic imports from function-body source and static and dynamic imports from module source. A non-empty stable identity is required to create or resume continuations.'
+            }
+          </p>
+          <p>
+            <code>{'RunModuleLoader'}</code>
+          </p>
+          <TypeTable
+            type={{
+              identity: {
+                type: 'string',
+                typeDescription: 'string',
+                required: false,
+                description:
+                  'A stable loader identity authenticated by continuations, limited to 512 bytes and required to create or resume one.',
+              },
+              normalize: {
+                type: '(specifier: string, importer: string) => string | Promise<string>',
+                typeDescription:
+                  '(specifier: string, importer: string) => string | Promise<string>',
+                required: false,
+                description:
+                  'Returns the canonical module name for a raw specifier and importer. The raw specifier is used when omitted.',
+              },
+              load: {
+                type: '(specifier: string) => string | Promise<string>',
+                typeDescription:
+                  '(specifier: string) => string | Promise<string>',
+                required: true,
+                description:
+                  'Returns source text for a normalized module name.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    abortSignal: {
+      type: 'AbortSignal',
+      typeDescription: 'AbortSignal',
+      required: false,
+      description: 'An optional signal used to cancel the invocation.',
+    },
+    limits: {
+      type: 'RunLimits',
+      typeDescription: 'RunLimits',
+      required: false,
+      description: (
+        <>
+          <p>{'Resource limits for this invocation.'}</p>
+          <p>
+            <code>{'RunLimits'}</code>
+          </p>
+          <TypeTable
+            type={{
+              timeoutMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Invocation timeout in milliseconds. Default: 30000.',
+              },
+              memoryLimitBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'QuickJS memory limit in bytes. Default: 67108864.',
+              },
+              maxStackSizeBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'QuickJS stack limit in bytes. Default: 2097152.',
+              },
+              maxResultBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized result size in bytes. Default: 1048576.',
+              },
+              maxConsoleOutputBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Maximum console output in bytes. Default: 65536.',
+              },
+              maxSourceBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Maximum source size in bytes. Default: 262144.',
+              },
+              maxHostFunctionArgumentsBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized arguments for one host function request in bytes. Default: 1048576.',
+              },
+              maxHostFunctionOutputBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized host function output or interruption payload in bytes. Default: 4194304.',
+              },
+              maxBridgeRequests: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum bridge requests in one invocation. Default: 256.',
+              },
+              maxInFlightBridgeRequests: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum bridge requests in flight at once. Default: 32.',
+              },
+              maxContinuationBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized continuation state in bytes. Default: 33554432.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    continuation: {
+      type: 'string',
+      typeDescription: 'string',
+      required: false,
+      description: 'An opaque continuation token from an interrupted result.',
+    },
+    resolutions: {
+      type: 'RunResolution[]',
+      typeDescription: 'RunResolution[]',
+      required: false,
+      description: (
+        <>
+          <p>
+            {
+              'Values that resolve every interruption in the supplied continuation.'
+            }
+          </p>
+          <p>
+            <code>{'RunResolution'}</code>
+          </p>
+          <TypeTable
+            type={{
+              interruptionId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The ID of the interruption being resolved.',
+              },
+              value: {
+                type: 'unknown',
+                typeDescription: 'unknown',
+                required: true,
+                description: 'The application-defined resolution value.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    continuationContext: {
+      type: 'unknown',
+      typeDescription: 'unknown',
+      required: false,
+      description:
+        'Serializable tenant, principal, or policy context authenticated by a continuation and required unchanged when resumed.',
+    },
+  }}
+/>
 
 ### Returns
 
-```json
-[
-  {
-    "name": "result",
-    "type": "Promise<RunCompletedResult<OUTPUT> | RunInterruptedResult<string>>",
-    "description": "The completed or interrupted run result.",
-    "properties": [
-      {
-        "type": "RunCompletedResult<OUTPUT>",
-        "parameters": [
-          {
-            "name": "status",
-            "type": "'completed'",
-            "description": "Indicates that execution completed."
-          },
-          {
-            "name": "value",
-            "type": "OUTPUT",
-            "description": "The value returned by the sandboxed source."
-          }
-        ]
-      },
-      {
-        "type": "RunInterruptedResult<string>",
-        "parameters": [
-          {
-            "name": "status",
-            "type": "'interrupted'",
-            "description": "Indicates that execution was interrupted."
-          },
-          {
-            "name": "interruptions",
-            "type": "RunInterruption[]",
-            "description": "The pending interruptions.",
-            "properties": [
-              {
-                "type": "RunInterruption",
-                "parameters": [
-                  {
-                    "name": "id",
-                    "type": "string",
-                    "description": "The unique interruption ID."
-                  },
-                  {
-                    "name": "hostFunctionName",
-                    "type": "string",
-                    "description": "The fully qualified host function path."
-                  },
-                  {
-                    "name": "arguments",
-                    "type": "unknown[]",
-                    "description": "The complete guest argument list."
-                  },
-                  {
-                    "name": "payload",
-                    "type": "unknown",
-                    "description": "The application-defined interruption payload."
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "name": "continuation",
-            "type": "string",
-            "description": "The opaque continuation token used to resume the run."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    result: {
+      type: 'Promise<RunCompletedResult<OUTPUT> | RunInterruptedResult<string>>',
+      typeDescription:
+        'Promise<RunCompletedResult<OUTPUT> | RunInterruptedResult<string>>',
+      required: true,
+      description: (
+        <>
+          <p>{'The completed or interrupted run result.'}</p>
+          <p>
+            <code>{'RunCompletedResult<OUTPUT>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              status: {
+                type: "'completed'",
+                typeDescription: "'completed'",
+                required: true,
+                description: 'Indicates that execution completed.',
+              },
+              value: {
+                type: 'OUTPUT',
+                typeDescription: 'OUTPUT',
+                required: true,
+                description: 'The value returned by the sandboxed source.',
+              },
+            }}
+          />
+          <p>
+            <code>{'RunInterruptedResult<string>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              status: {
+                type: "'interrupted'",
+                typeDescription: "'interrupted'",
+                required: true,
+                description: 'Indicates that execution was interrupted.',
+              },
+              interruptions: {
+                type: 'RunInterruption[]',
+                typeDescription: 'RunInterruption[]',
+                required: true,
+                description: (
+                  <>
+                    <p>{'The pending interruptions.'}</p>
+                    <p>
+                      <code>{'RunInterruption'}</code>
+                    </p>
+                    <TypeTable
+                      type={{
+                        id: {
+                          type: 'string',
+                          typeDescription: 'string',
+                          required: true,
+                          description: 'The unique interruption ID.',
+                        },
+                        hostFunctionName: {
+                          type: 'string',
+                          typeDescription: 'string',
+                          required: true,
+                          description:
+                            'The fully qualified host function path.',
+                        },
+                        arguments: {
+                          type: 'unknown[]',
+                          typeDescription: 'unknown[]',
+                          required: true,
+                          description: 'The complete guest argument list.',
+                        },
+                        payload: {
+                          type: 'unknown',
+                          typeDescription: 'unknown',
+                          required: true,
+                          description:
+                            'The application-defined interruption payload.',
+                        },
+                      }}
+                    />
+                  </>
+                ),
+              },
+              continuation: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The opaque continuation token used to resume the run.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>
