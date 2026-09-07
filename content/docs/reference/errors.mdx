@@ -39,231 +39,320 @@ import {
 
 ### Classes
 
-```json
-[
-  {
-    "name": "RunError",
-    "type": "Error",
-    "description": "The base class for errors raised by the JavaScript runtime.",
-    "properties": [
-      {
-        "type": "RunError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(message: string, code?: string, details?: unknown) => RunError",
-            "description": "Creates a RunError. The default code is 'RUN_ERROR'."
-          },
-          {
-            "name": "code",
-            "type": "string",
-            "description": "The stable machine-readable error code."
-          },
-          {
-            "name": "details",
-            "type": "unknown",
-            "isOptional": true,
-            "description": "Optional structured diagnostic details."
-          },
-          {
-            "name": "isInstance",
-            "type": "(error: unknown) => error is RunError",
-            "description": "Identifies RunError instances across duplicate package copies."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunAbortedError",
-    "type": "RunError",
-    "description": "Raised when the caller's abort signal aborts a run invocation.",
-    "properties": [
-      {
-        "type": "RunAbortedError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "() => RunAbortedError",
-            "description": "Creates a RunAbortedError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_ABORTED'",
-            "description": "The stable error code."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunHostFunctionError",
-    "type": "RunError",
-    "description": "The base class for failures caused by nested host function execution.",
-    "properties": [
-      {
-        "type": "RunHostFunctionError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(message: string, details?: unknown) => RunHostFunctionError",
-            "description": "Creates a RunHostFunctionError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_HOST_FUNCTION_ERROR'",
-            "description": "The stable error code."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunBridgeLimitError",
-    "type": "RunError",
-    "description": "Raised when sandboxed code exceeds bridge request limits.",
-    "properties": [
-      {
-        "type": "RunBridgeLimitError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(message: string, details?: unknown) => RunBridgeLimitError",
-            "description": "Creates a RunBridgeLimitError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_BRIDGE_LIMIT'",
-            "description": "The stable error code."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunConcurrencyError",
-    "type": "RunError",
-    "description": "Raised when the process-global worker cap has been reached.",
-    "properties": [
-      {
-        "type": "RunConcurrencyError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(maxWorkers: number) => RunConcurrencyError",
-            "description": "Creates a RunConcurrencyError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_CONCURRENCY_LIMIT'",
-            "description": "The stable error code."
-          },
-          {
-            "name": "details",
-            "type": "{ maxWorkers: number }",
-            "description": "The configured worker cap."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunDetachedBridgeRequestError",
-    "type": "RunError",
-    "description": "Raised when sandboxed code returns with detached host bridge work.",
-    "properties": [
-      {
-        "type": "RunDetachedBridgeRequestError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(message: string, details?: unknown) => RunDetachedBridgeRequestError",
-            "description": "Creates a RunDetachedBridgeRequestError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_DETACHED_BRIDGE_REQUEST'",
-            "description": "The stable error code."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunProtocolError",
-    "type": "RunError",
-    "description": "Raised when the main thread and worker protocol observes an invalid or mismatched message.",
-    "properties": [
-      {
-        "type": "RunProtocolError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(message: string, details?: unknown) => RunProtocolError",
-            "description": "Creates a RunProtocolError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_PROTOCOL_ERROR'",
-            "description": "The stable error code."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunSourceTooLargeError",
-    "type": "RunError",
-    "description": "Raised when source exceeds limits.maxSourceBytes.",
-    "properties": [
-      {
-        "type": "RunSourceTooLargeError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(bytes: number, maxBytes: number) => RunSourceTooLargeError",
-            "description": "Creates a RunSourceTooLargeError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_SOURCE_TOO_LARGE'",
-            "description": "The stable error code."
-          },
-          {
-            "name": "details",
-            "type": "{ bytes: number; maxBytes: number }",
-            "description": "The source size and configured limit."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunTimeoutError",
-    "type": "RunError",
-    "description": "Raised when a sandbox invocation exceeds its timeout.",
-    "properties": [
-      {
-        "type": "RunTimeoutError",
-        "parameters": [
-          {
-            "name": "constructor",
-            "type": "(timeoutMs: number) => RunTimeoutError",
-            "description": "Creates a RunTimeoutError."
-          },
-          {
-            "name": "code",
-            "type": "'RUN_TIMEOUT'",
-            "description": "The stable error code."
-          },
-          {
-            "name": "details",
-            "type": "{ timeoutMs: number }",
-            "description": "The configured timeout in milliseconds."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    RunError: {
+      type: 'Error',
+      typeDescription: 'Error',
+      required: true,
+      description: (
+        <>
+          <p>{'The base class for errors raised by the JavaScript runtime.'}</p>
+          <p>
+            <code>{'RunError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(message: string, code?: string, details?: unknown) => RunError',
+                typeDescription:
+                  '(message: string, code?: string, details?: unknown) => RunError',
+                required: true,
+                description:
+                  "Creates a RunError. The default code is 'RUN_ERROR'.",
+              },
+              code: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The stable machine-readable error code.',
+              },
+              details: {
+                type: 'unknown',
+                typeDescription: 'unknown',
+                required: false,
+                description: 'Optional structured diagnostic details.',
+              },
+              isInstance: {
+                type: '(error: unknown) => error is RunError',
+                typeDescription: '(error: unknown) => error is RunError',
+                required: true,
+                description:
+                  'Identifies RunError instances across duplicate package copies.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunAbortedError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>
+            {"Raised when the caller's abort signal aborts a run invocation."}
+          </p>
+          <p>
+            <code>{'RunAbortedError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '() => RunAbortedError',
+                typeDescription: '() => RunAbortedError',
+                required: true,
+                description: 'Creates a RunAbortedError.',
+              },
+              code: {
+                type: "'RUN_ABORTED'",
+                typeDescription: "'RUN_ABORTED'",
+                required: true,
+                description: 'The stable error code.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunHostFunctionError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>
+            {
+              'The base class for failures caused by nested host function execution.'
+            }
+          </p>
+          <p>
+            <code>{'RunHostFunctionError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(message: string, details?: unknown) => RunHostFunctionError',
+                typeDescription:
+                  '(message: string, details?: unknown) => RunHostFunctionError',
+                required: true,
+                description: 'Creates a RunHostFunctionError.',
+              },
+              code: {
+                type: "'RUN_HOST_FUNCTION_ERROR'",
+                typeDescription: "'RUN_HOST_FUNCTION_ERROR'",
+                required: true,
+                description: 'The stable error code.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunBridgeLimitError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>{'Raised when sandboxed code exceeds bridge request limits.'}</p>
+          <p>
+            <code>{'RunBridgeLimitError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(message: string, details?: unknown) => RunBridgeLimitError',
+                typeDescription:
+                  '(message: string, details?: unknown) => RunBridgeLimitError',
+                required: true,
+                description: 'Creates a RunBridgeLimitError.',
+              },
+              code: {
+                type: "'RUN_BRIDGE_LIMIT'",
+                typeDescription: "'RUN_BRIDGE_LIMIT'",
+                required: true,
+                description: 'The stable error code.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunConcurrencyError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>{'Raised when the process-global worker cap has been reached.'}</p>
+          <p>
+            <code>{'RunConcurrencyError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(maxWorkers: number) => RunConcurrencyError',
+                typeDescription: '(maxWorkers: number) => RunConcurrencyError',
+                required: true,
+                description: 'Creates a RunConcurrencyError.',
+              },
+              code: {
+                type: "'RUN_CONCURRENCY_LIMIT'",
+                typeDescription: "'RUN_CONCURRENCY_LIMIT'",
+                required: true,
+                description: 'The stable error code.',
+              },
+              details: {
+                type: '{ maxWorkers: number }',
+                typeDescription: '{ maxWorkers: number }',
+                required: true,
+                description: 'The configured worker cap.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunDetachedBridgeRequestError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>
+            {
+              'Raised when sandboxed code returns with detached host bridge work.'
+            }
+          </p>
+          <p>
+            <code>{'RunDetachedBridgeRequestError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(message: string, details?: unknown) => RunDetachedBridgeRequestError',
+                typeDescription:
+                  '(message: string, details?: unknown) => RunDetachedBridgeRequestError',
+                required: true,
+                description: 'Creates a RunDetachedBridgeRequestError.',
+              },
+              code: {
+                type: "'RUN_DETACHED_BRIDGE_REQUEST'",
+                typeDescription: "'RUN_DETACHED_BRIDGE_REQUEST'",
+                required: true,
+                description: 'The stable error code.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunProtocolError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>
+            {
+              'Raised when the main thread and worker protocol observes an invalid or mismatched message.'
+            }
+          </p>
+          <p>
+            <code>{'RunProtocolError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(message: string, details?: unknown) => RunProtocolError',
+                typeDescription:
+                  '(message: string, details?: unknown) => RunProtocolError',
+                required: true,
+                description: 'Creates a RunProtocolError.',
+              },
+              code: {
+                type: "'RUN_PROTOCOL_ERROR'",
+                typeDescription: "'RUN_PROTOCOL_ERROR'",
+                required: true,
+                description: 'The stable error code.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunSourceTooLargeError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>{'Raised when source exceeds limits.maxSourceBytes.'}</p>
+          <p>
+            <code>{'RunSourceTooLargeError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(bytes: number, maxBytes: number) => RunSourceTooLargeError',
+                typeDescription:
+                  '(bytes: number, maxBytes: number) => RunSourceTooLargeError',
+                required: true,
+                description: 'Creates a RunSourceTooLargeError.',
+              },
+              code: {
+                type: "'RUN_SOURCE_TOO_LARGE'",
+                typeDescription: "'RUN_SOURCE_TOO_LARGE'",
+                required: true,
+                description: 'The stable error code.',
+              },
+              details: {
+                type: '{ bytes: number; maxBytes: number }',
+                typeDescription: '{ bytes: number; maxBytes: number }',
+                required: true,
+                description: 'The source size and configured limit.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunTimeoutError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>{'Raised when a sandbox invocation exceeds its timeout.'}</p>
+          <p>
+            <code>{'RunTimeoutError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(timeoutMs: number) => RunTimeoutError',
+                typeDescription: '(timeoutMs: number) => RunTimeoutError',
+                required: true,
+                description: 'Creates a RunTimeoutError.',
+              },
+              code: {
+                type: "'RUN_TIMEOUT'",
+                typeDescription: "'RUN_TIMEOUT'",
+                required: true,
+                description: 'The stable error code.',
+              },
+              details: {
+                type: '{ timeoutMs: number }',
+                typeDescription: '{ timeoutMs: number }',
+                required: true,
+                description: 'The configured timeout in milliseconds.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>

@@ -35,176 +35,223 @@ import { createRunner } from 'run';
 
 ### Type Parameters
 
-```json
-[
-  {
-    "name": "TOKEN",
-    "type": "unknown",
-    "isOptional": true,
-    "description": "The token type produced and consumed by the continuation codec. Default: string."
-  }
-]
-```
+<TypeTable
+  type={{
+    TOKEN: {
+      type: 'unknown',
+      typeDescription: 'unknown',
+      required: false,
+      description:
+        'The token type produced and consumed by the continuation codec. Default: string.',
+    },
+  }}
+/>
 
 ### Parameters
 
-```json
-[
-  {
-    "name": "limits",
-    "type": "RunLimits",
-    "isOptional": true,
-    "description": "Shared resource limits. Per-run limits override these values.",
-    "properties": [
-      {
-        "type": "RunLimits",
-        "parameters": [
-          {
-            "name": "timeoutMs",
-            "type": "number",
-            "isOptional": true,
-            "description": "Invocation timeout in milliseconds. Default: 30000."
-          },
-          {
-            "name": "memoryLimitBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "QuickJS memory limit in bytes. Default: 67108864."
-          },
-          {
-            "name": "maxStackSizeBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "QuickJS stack limit in bytes. Default: 2097152."
-          },
-          {
-            "name": "maxResultBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized result size in bytes. Default: 1048576."
-          },
-          {
-            "name": "maxConsoleOutputBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum console output in bytes. Default: 65536."
-          },
-          {
-            "name": "maxSourceBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum source size in bytes. Default: 262144."
-          },
-          {
-            "name": "maxHostFunctionArgumentsBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized arguments for one host function request in bytes. Default: 1048576."
-          },
-          {
-            "name": "maxHostFunctionOutputBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized host function output or interruption payload in bytes. Default: 4194304."
-          },
-          {
-            "name": "maxBridgeRequests",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum bridge requests in one invocation. Default: 256."
-          },
-          {
-            "name": "maxInFlightBridgeRequests",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum bridge requests in flight at once. Default: 32."
-          },
-          {
-            "name": "maxContinuationBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Maximum serialized continuation state in bytes. Default: 33554432."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "syncHostFunctions",
-    "type": "SyncHostFunctions",
-    "isOptional": true,
-    "description": "Host function groups exposed with synchronous guest call semantics. Calls must settle to serializable values, cannot interrupt, and share maxBridgeRequests with asynchronous host functions. Default: {}.",
-    "properties": [
-      {
-        "type": "SyncHostFunctions",
-        "parameters": [
-          {
-            "name": "[groupName]",
-            "type": "HostFunctionGroup",
-            "description": "A synchronous binding namespace. It cannot overlap an asynchronous host-function namespace."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "continuationSecret",
-    "type": "string | Uint8Array",
-    "isOptional": true,
-    "description": "The HMAC key used by the default signed continuation codec. Must contain at least 32 bytes. Defaults to RUN_CONTINUATION_SECRET. Cannot be combined with continuationCodec."
-  },
-  {
-    "name": "continuationCodec",
-    "type": "ContinuationCodec<TOKEN>",
-    "isOptional": true,
-    "description": "A custom continuation encoder and decoder. Cannot be combined with continuationSecret.",
-    "properties": [
-      {
-        "type": "ContinuationCodec<TOKEN>",
-        "parameters": [
-          {
-            "name": "encode",
-            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>",
-            "description": "Encodes replay state into a continuation token."
-          },
-          {
-            "name": "decode",
-            "type": "(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
-            "description": "Decodes a continuation token into replay state."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "continuationAudience",
-    "type": "string",
-    "isOptional": true,
-    "description": "The authenticated application or endpoint audience for every continuation. Must contain between 1 and 512 bytes. Default: 'run'."
-  }
-]
-```
+<TypeTable
+  type={{
+    limits: {
+      type: 'RunLimits',
+      typeDescription: 'RunLimits',
+      required: false,
+      description: (
+        <>
+          <p>
+            {'Shared resource limits. Per-run limits override these values.'}
+          </p>
+          <p>
+            <code>{'RunLimits'}</code>
+          </p>
+          <TypeTable
+            type={{
+              timeoutMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Invocation timeout in milliseconds. Default: 30000.',
+              },
+              memoryLimitBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'QuickJS memory limit in bytes. Default: 67108864.',
+              },
+              maxStackSizeBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'QuickJS stack limit in bytes. Default: 2097152.',
+              },
+              maxResultBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized result size in bytes. Default: 1048576.',
+              },
+              maxConsoleOutputBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Maximum console output in bytes. Default: 65536.',
+              },
+              maxSourceBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Maximum source size in bytes. Default: 262144.',
+              },
+              maxHostFunctionArgumentsBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized arguments for one host function request in bytes. Default: 1048576.',
+              },
+              maxHostFunctionOutputBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized host function output or interruption payload in bytes. Default: 4194304.',
+              },
+              maxBridgeRequests: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum bridge requests in one invocation. Default: 256.',
+              },
+              maxInFlightBridgeRequests: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum bridge requests in flight at once. Default: 32.',
+              },
+              maxContinuationBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Maximum serialized continuation state in bytes. Default: 33554432.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    syncHostFunctions: {
+      type: 'SyncHostFunctions',
+      typeDescription: 'SyncHostFunctions',
+      required: false,
+      description: (
+        <>
+          <p>
+            {
+              'Host function groups exposed with synchronous guest call semantics. Calls must settle to serializable values, cannot interrupt, and share maxBridgeRequests with asynchronous host functions. Default: {}.'
+            }
+          </p>
+          <p>
+            <code>{'SyncHostFunctions'}</code>
+          </p>
+          <TypeTable
+            type={{
+              '[groupName]': {
+                type: 'HostFunctionGroup',
+                typeDescription: 'HostFunctionGroup',
+                required: true,
+                description:
+                  'A synchronous binding namespace. It cannot overlap an asynchronous host-function namespace.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    continuationSecret: {
+      type: 'string | Uint8Array',
+      typeDescription: 'string | Uint8Array',
+      required: false,
+      description:
+        'The HMAC key used by the default signed continuation codec. Must contain at least 32 bytes. Defaults to RUN_CONTINUATION_SECRET. Cannot be combined with continuationCodec.',
+    },
+    continuationCodec: {
+      type: 'ContinuationCodec<TOKEN>',
+      typeDescription: 'ContinuationCodec<TOKEN>',
+      required: false,
+      description: (
+        <>
+          <p>
+            {
+              'A custom continuation encoder and decoder. Cannot be combined with continuationSecret.'
+            }
+          </p>
+          <p>
+            <code>{'ContinuationCodec<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              encode: {
+                type: '(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>',
+                typeDescription:
+                  '(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>',
+                required: true,
+                description: 'Encodes replay state into a continuation token.',
+              },
+              decode: {
+                type: '(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>',
+                typeDescription:
+                  '(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>',
+                required: true,
+                description: 'Decodes a continuation token into replay state.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    continuationAudience: {
+      type: 'string',
+      typeDescription: 'string',
+      required: false,
+      description:
+        "The authenticated application or endpoint audience for every continuation. Must contain between 1 and 512 bytes. Default: 'run'.",
+    },
+  }}
+/>
 
 ### Returns
 
-```json
-[
-  {
-    "name": "runner",
-    "type": "Runner<TOKEN>",
-    "description": "A reusable configured runner.",
-    "properties": [
-      {
-        "type": "Runner<TOKEN>",
-        "parameters": [
-          {
-            "name": "run",
-            "type": "<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>",
-            "description": "Executes source in a fresh sandbox using the runner defaults."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    runner: {
+      type: 'Runner<TOKEN>',
+      typeDescription: 'Runner<TOKEN>',
+      required: true,
+      description: (
+        <>
+          <p>{'A reusable configured runner.'}</p>
+          <p>
+            <code>{'Runner<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              run: {
+                type: '<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>',
+                typeDescription:
+                  '<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>',
+                required: true,
+                description:
+                  'Executes source in a fresh sandbox using the runner defaults.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>

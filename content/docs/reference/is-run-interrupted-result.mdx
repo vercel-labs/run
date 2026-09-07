@@ -27,73 +27,94 @@ import { isRunInterruptedResult } from 'run';
 
 ### Parameters
 
-```json
-[
-  {
-    "name": "value",
-    "type": "unknown",
-    "description": "The value to inspect."
-  }
-]
-```
+<TypeTable
+  type={{
+    value: {
+      type: 'unknown',
+      typeDescription: 'unknown',
+      required: true,
+      description: 'The value to inspect.',
+    },
+  }}
+/>
 
 ### Returns
 
-```json
-[
-  {
-    "name": "isInterrupted",
-    "type": "value is RunInterruptedResult<unknown>",
-    "description": "Whether the value has the shape of an interrupted run result.",
-    "properties": [
-      {
-        "type": "RunInterruptedResult<unknown>",
-        "parameters": [
-          {
-            "name": "status",
-            "type": "'interrupted'",
-            "description": "Indicates that execution was interrupted."
-          },
-          {
-            "name": "interruptions",
-            "type": "RunInterruption[]",
-            "description": "The pending interruptions.",
-            "properties": [
-              {
-                "type": "RunInterruption",
-                "parameters": [
-                  {
-                    "name": "id",
-                    "type": "string",
-                    "description": "The unique interruption ID."
-                  },
-                  {
-                    "name": "hostFunctionName",
-                    "type": "string",
-                    "description": "The fully qualified host function path."
-                  },
-                  {
-                    "name": "arguments",
-                    "type": "unknown[]",
-                    "description": "The complete guest argument list."
-                  },
-                  {
-                    "name": "payload",
-                    "type": "unknown",
-                    "description": "The application-defined interruption payload."
-                  }
-                ]
-              }
-            ]
-          },
-          {
-            "name": "continuation",
-            "type": "unknown",
-            "description": "The opaque continuation token."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    isInterrupted: {
+      type: 'value is RunInterruptedResult<unknown>',
+      typeDescription: 'value is RunInterruptedResult<unknown>',
+      required: true,
+      description: (
+        <>
+          <p>
+            {'Whether the value has the shape of an interrupted run result.'}
+          </p>
+          <p>
+            <code>{'RunInterruptedResult<unknown>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              status: {
+                type: "'interrupted'",
+                typeDescription: "'interrupted'",
+                required: true,
+                description: 'Indicates that execution was interrupted.',
+              },
+              interruptions: {
+                type: 'RunInterruption[]',
+                typeDescription: 'RunInterruption[]',
+                required: true,
+                description: (
+                  <>
+                    <p>{'The pending interruptions.'}</p>
+                    <p>
+                      <code>{'RunInterruption'}</code>
+                    </p>
+                    <TypeTable
+                      type={{
+                        id: {
+                          type: 'string',
+                          typeDescription: 'string',
+                          required: true,
+                          description: 'The unique interruption ID.',
+                        },
+                        hostFunctionName: {
+                          type: 'string',
+                          typeDescription: 'string',
+                          required: true,
+                          description:
+                            'The fully qualified host function path.',
+                        },
+                        arguments: {
+                          type: 'unknown[]',
+                          typeDescription: 'unknown[]',
+                          required: true,
+                          description: 'The complete guest argument list.',
+                        },
+                        payload: {
+                          type: 'unknown',
+                          typeDescription: 'unknown',
+                          required: true,
+                          description:
+                            'The application-defined interruption payload.',
+                        },
+                      }}
+                    />
+                  </>
+                ),
+              },
+              continuation: {
+                type: 'unknown',
+                typeDescription: 'unknown',
+                required: true,
+                description: 'The opaque continuation token.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>

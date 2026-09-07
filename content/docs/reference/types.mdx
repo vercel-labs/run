@@ -53,765 +53,956 @@ import type {
 
 ### Execution Types
 
-```json
-[
-  {
-    "name": "RunInput<TOKEN = unknown>",
-    "type": "interface",
-    "description": "Input accepted by run and Runner.run.",
-    "properties": [
-      {
-        "type": "RunInput<TOKEN>",
-        "parameters": [
-          {
-            "name": "source",
-            "type": "string",
-            "description": "JavaScript or type-stripped TypeScript source. Its evaluation mode is selected by sourceType, with backward-compatible defaults based on whether moduleLoader is present."
-          },
-          {
-            "name": "sourceType",
-            "type": "'function-body' | 'module'",
-            "isOptional": true,
-            "description": "How to evaluate the entry source. Defaults to module when moduleLoader is present and function-body otherwise."
-          },
-          {
-            "name": "hostFunctions",
-            "type": "HostFunctions",
-            "isOptional": true,
-            "description": "Host function groups installed as guest globals."
-          },
-          {
-            "name": "moduleLoader",
-            "type": "RunModuleLoader",
-            "isOptional": true,
-            "description": "A host-controlled native ES module loader for dynamic imports from function bodies and static or dynamic imports from modules."
-          },
-          {
-            "name": "abortSignal",
-            "type": "AbortSignal",
-            "isOptional": true,
-            "description": "The signal used to cancel the invocation."
-          },
-          {
-            "name": "limits",
-            "type": "RunLimits",
-            "isOptional": true,
-            "description": "Per-run resource limits."
-          },
-          {
-            "name": "continuation",
-            "type": "TOKEN",
-            "isOptional": true,
-            "description": "An opaque continuation token."
-          },
-          {
-            "name": "resolutions",
-            "type": "RunResolution[]",
-            "isOptional": true,
-            "description": "Values that resolve pending interruptions."
-          },
-          {
-            "name": "continuationContext",
-            "type": "unknown",
-            "isOptional": true,
-            "description": "Serializable context authenticated by a continuation and required unchanged when resumed."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunResult<OUTPUT = unknown, TOKEN = unknown>",
-    "type": "RunCompletedResult<OUTPUT> | RunInterruptedResult<TOKEN>",
-    "description": "The result of a sandbox invocation."
-  },
-  {
-    "name": "RunCompletedResult<OUTPUT = unknown>",
-    "type": "interface",
-    "description": "A completed sandbox invocation.",
-    "properties": [
-      {
-        "type": "RunCompletedResult<OUTPUT>",
-        "parameters": [
-          {
-            "name": "status",
-            "type": "'completed'",
-            "description": "The completed status discriminator."
-          },
-          {
-            "name": "value",
-            "type": "OUTPUT",
-            "description": "The value returned by the sandboxed source."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunInterruptedResult<TOKEN = unknown>",
-    "type": "interface",
-    "description": "An interrupted sandbox invocation.",
-    "properties": [
-      {
-        "type": "RunInterruptedResult<TOKEN>",
-        "parameters": [
-          {
-            "name": "status",
-            "type": "'interrupted'",
-            "description": "The interrupted status discriminator."
-          },
-          {
-            "name": "interruptions",
-            "type": "RunInterruption[]",
-            "description": "The pending interruptions."
-          },
-          {
-            "name": "continuation",
-            "type": "TOKEN",
-            "description": "The opaque continuation token."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunInterruption<PAYLOAD = unknown>",
-    "type": "interface",
-    "description": "A pending host function interruption.",
-    "properties": [
-      {
-        "type": "RunInterruption<PAYLOAD>",
-        "parameters": [
-          {
-            "name": "id",
-            "type": "string",
-            "description": "The unique interruption ID."
-          },
-          {
-            "name": "hostFunctionName",
-            "type": "string",
-            "description": "The fully qualified host function path."
-          },
-          {
-            "name": "arguments",
-            "type": "unknown[]",
-            "description": "The complete guest argument list."
-          },
-          {
-            "name": "payload",
-            "type": "PAYLOAD",
-            "description": "The application-defined interruption payload."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunResolution<VALUE = unknown>",
-    "type": "interface",
-    "description": "A resolution supplied for an interruption.",
-    "properties": [
-      {
-        "type": "RunResolution<VALUE>",
-        "parameters": [
-          {
-            "name": "interruptionId",
-            "type": "string",
-            "description": "The ID of the interruption being resolved."
-          },
-          {
-            "name": "value",
-            "type": "VALUE",
-            "description": "The application-defined resolution value."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunLimits",
-    "type": "interface",
-    "description": "Resource limits applied to one sandbox invocation.",
-    "properties": [
-      {
-        "type": "RunLimits",
-        "parameters": [
-          {
-            "name": "timeoutMs",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 30000."
-          },
-          {
-            "name": "memoryLimitBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 67108864."
-          },
-          {
-            "name": "maxStackSizeBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 2097152."
-          },
-          {
-            "name": "maxResultBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 1048576."
-          },
-          {
-            "name": "maxConsoleOutputBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 65536."
-          },
-          {
-            "name": "maxSourceBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 262144."
-          },
-          {
-            "name": "maxHostFunctionArgumentsBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 1048576."
-          },
-          {
-            "name": "maxHostFunctionOutputBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 4194304."
-          },
-          {
-            "name": "maxBridgeRequests",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 256."
-          },
-          {
-            "name": "maxInFlightBridgeRequests",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 32."
-          },
-          {
-            "name": "maxContinuationBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "Default: 33554432."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    'RunInput<TOKEN = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Input accepted by run and Runner.run.'}</p>
+          <p>
+            <code>{'RunInput<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              source: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'JavaScript or type-stripped TypeScript source. Its evaluation mode is selected by sourceType, with backward-compatible defaults based on whether moduleLoader is present.',
+              },
+              sourceType: {
+                type: "'function-body' | 'module'",
+                typeDescription: "'function-body' | 'module'",
+                required: false,
+                description:
+                  'How to evaluate the entry source. Defaults to module when moduleLoader is present and function-body otherwise.',
+              },
+              hostFunctions: {
+                type: 'HostFunctions',
+                typeDescription: 'HostFunctions',
+                required: false,
+                description: 'Host function groups installed as guest globals.',
+              },
+              moduleLoader: {
+                type: 'RunModuleLoader',
+                typeDescription: 'RunModuleLoader',
+                required: false,
+                description:
+                  'A host-controlled native ES module loader for dynamic imports from function bodies and static or dynamic imports from modules.',
+              },
+              abortSignal: {
+                type: 'AbortSignal',
+                typeDescription: 'AbortSignal',
+                required: false,
+                description: 'The signal used to cancel the invocation.',
+              },
+              limits: {
+                type: 'RunLimits',
+                typeDescription: 'RunLimits',
+                required: false,
+                description: 'Per-run resource limits.',
+              },
+              continuation: {
+                type: 'TOKEN',
+                typeDescription: 'TOKEN',
+                required: false,
+                description: 'An opaque continuation token.',
+              },
+              resolutions: {
+                type: 'RunResolution[]',
+                typeDescription: 'RunResolution[]',
+                required: false,
+                description: 'Values that resolve pending interruptions.',
+              },
+              continuationContext: {
+                type: 'unknown',
+                typeDescription: 'unknown',
+                required: false,
+                description:
+                  'Serializable context authenticated by a continuation and required unchanged when resumed.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    'RunResult<OUTPUT = unknown, TOKEN = unknown>': {
+      type: 'RunCompletedResult<OUTPUT> | RunInterruptedResult<TOKEN>',
+      typeDescription:
+        'RunCompletedResult<OUTPUT> | RunInterruptedResult<TOKEN>',
+      required: true,
+      description: 'The result of a sandbox invocation.',
+    },
+    'RunCompletedResult<OUTPUT = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'A completed sandbox invocation.'}</p>
+          <p>
+            <code>{'RunCompletedResult<OUTPUT>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              status: {
+                type: "'completed'",
+                typeDescription: "'completed'",
+                required: true,
+                description: 'The completed status discriminator.',
+              },
+              value: {
+                type: 'OUTPUT',
+                typeDescription: 'OUTPUT',
+                required: true,
+                description: 'The value returned by the sandboxed source.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    'RunInterruptedResult<TOKEN = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'An interrupted sandbox invocation.'}</p>
+          <p>
+            <code>{'RunInterruptedResult<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              status: {
+                type: "'interrupted'",
+                typeDescription: "'interrupted'",
+                required: true,
+                description: 'The interrupted status discriminator.',
+              },
+              interruptions: {
+                type: 'RunInterruption[]',
+                typeDescription: 'RunInterruption[]',
+                required: true,
+                description: 'The pending interruptions.',
+              },
+              continuation: {
+                type: 'TOKEN',
+                typeDescription: 'TOKEN',
+                required: true,
+                description: 'The opaque continuation token.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    'RunInterruption<PAYLOAD = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'A pending host function interruption.'}</p>
+          <p>
+            <code>{'RunInterruption<PAYLOAD>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              id: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The unique interruption ID.',
+              },
+              hostFunctionName: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The fully qualified host function path.',
+              },
+              arguments: {
+                type: 'unknown[]',
+                typeDescription: 'unknown[]',
+                required: true,
+                description: 'The complete guest argument list.',
+              },
+              payload: {
+                type: 'PAYLOAD',
+                typeDescription: 'PAYLOAD',
+                required: true,
+                description: 'The application-defined interruption payload.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    'RunResolution<VALUE = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'A resolution supplied for an interruption.'}</p>
+          <p>
+            <code>{'RunResolution<VALUE>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              interruptionId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The ID of the interruption being resolved.',
+              },
+              value: {
+                type: 'VALUE',
+                typeDescription: 'VALUE',
+                required: true,
+                description: 'The application-defined resolution value.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunLimits: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Resource limits applied to one sandbox invocation.'}</p>
+          <p>
+            <code>{'RunLimits'}</code>
+          </p>
+          <TypeTable
+            type={{
+              timeoutMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 30000.',
+              },
+              memoryLimitBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 67108864.',
+              },
+              maxStackSizeBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 2097152.',
+              },
+              maxResultBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 1048576.',
+              },
+              maxConsoleOutputBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 65536.',
+              },
+              maxSourceBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 262144.',
+              },
+              maxHostFunctionArgumentsBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 1048576.',
+              },
+              maxHostFunctionOutputBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 4194304.',
+              },
+              maxBridgeRequests: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 256.',
+              },
+              maxInFlightBridgeRequests: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 32.',
+              },
+              maxContinuationBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'Default: 33554432.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>
 
 ### Runner Types
 
-```json
-[
-  {
-    "name": "RunnerOptions<TOKEN = string>",
-    "type": "interface",
-    "description": "Shared defaults used by a runner.",
-    "properties": [
-      {
-        "type": "RunnerOptions<TOKEN>",
-        "parameters": [
-          {
-            "name": "limits",
-            "type": "RunLimits",
-            "isOptional": true,
-            "description": "Shared resource limits."
-          },
-          {
-            "name": "syncHostFunctions",
-            "type": "SyncHostFunctions",
-            "isOptional": true,
-            "description": "Host functions exposed with synchronous guest call semantics."
-          },
-          {
-            "name": "continuationSecret",
-            "type": "string | Uint8Array",
-            "isOptional": true,
-            "description": "The HMAC key used for signed continuations."
-          },
-          {
-            "name": "continuationCodec",
-            "type": "ContinuationCodec<TOKEN>",
-            "isOptional": true,
-            "description": "A custom continuation codec."
-          },
-          {
-            "name": "continuationAudience",
-            "type": "string",
-            "isOptional": true,
-            "description": "The authenticated continuation audience."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "Runner<TOKEN = unknown>",
-    "type": "interface",
-    "description": "A configured JavaScript runner.",
-    "properties": [
-      {
-        "type": "Runner<TOKEN>",
-        "parameters": [
-          {
-            "name": "run",
-            "type": "<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>",
-            "description": "Executes a sandbox invocation."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    'RunnerOptions<TOKEN = string>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Shared defaults used by a runner.'}</p>
+          <p>
+            <code>{'RunnerOptions<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              limits: {
+                type: 'RunLimits',
+                typeDescription: 'RunLimits',
+                required: false,
+                description: 'Shared resource limits.',
+              },
+              syncHostFunctions: {
+                type: 'SyncHostFunctions',
+                typeDescription: 'SyncHostFunctions',
+                required: false,
+                description:
+                  'Host functions exposed with synchronous guest call semantics.',
+              },
+              continuationSecret: {
+                type: 'string | Uint8Array',
+                typeDescription: 'string | Uint8Array',
+                required: false,
+                description: 'The HMAC key used for signed continuations.',
+              },
+              continuationCodec: {
+                type: 'ContinuationCodec<TOKEN>',
+                typeDescription: 'ContinuationCodec<TOKEN>',
+                required: false,
+                description: 'A custom continuation codec.',
+              },
+              continuationAudience: {
+                type: 'string',
+                typeDescription: 'string',
+                required: false,
+                description: 'The authenticated continuation audience.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    'Runner<TOKEN = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'A configured JavaScript runner.'}</p>
+          <p>
+            <code>{'Runner<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              run: {
+                type: '<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>',
+                typeDescription:
+                  '<OUTPUT = unknown>(input: RunInput<TOKEN>) => Promise<RunResult<OUTPUT, TOKEN>>',
+                required: true,
+                description: 'Executes a sandbox invocation.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>
 
 ### Host Function Types
 
-```json
-[
-  {
-    "name": "HostFunction<ARGUMENTS extends unknown[] = unknown[], OUTPUT = unknown>",
-    "type": "(...args: ARGUMENTS) => OUTPUT | Promise<OUTPUT>",
-    "description": "A host function made available to sandboxed JavaScript."
-  },
-  {
-    "name": "HostFunctionGroup",
-    "type": "Record<string, HostFunction<never[], unknown>>",
-    "description": "A named collection of host functions."
-  },
-  {
-    "name": "HostFunctions",
-    "type": "Record<string, HostFunctionGroup>",
-    "description": "Host function groups installed as guest globals."
-  },
-  {
-    "name": "SyncHostFunctions",
-    "type": "HostFunctions",
-    "description": "Host function groups exposed with synchronous guest call semantics."
-  },
-  {
-    "name": "RunModuleLoader",
-    "type": "interface",
-    "description": "A host-controlled native ES module resolver.",
-    "properties": [
-      {
-        "type": "RunModuleLoader",
-        "parameters": [
-          {
-            "name": "identity",
-            "type": "string",
-            "isOptional": true,
-            "description": "A stable loader identity authenticated by continuations, limited to 512 bytes and required to create or resume one."
-          },
-          {
-            "name": "normalize",
-            "type": "(specifier: string, importer: string) => string | Promise<string>",
-            "isOptional": true,
-            "description": "Returns a canonical module name."
-          },
-          {
-            "name": "load",
-            "type": "(specifier: string) => string | Promise<string>",
-            "description": "Returns source for a normalized module name."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "HostFunctionContext",
-    "type": "interface",
-    "description": "Context supplied to each host function invocation.",
-    "properties": [
-      {
-        "type": "HostFunctionContext",
-        "parameters": [
-          {
-            "name": "abortSignal",
-            "type": "AbortSignal",
-            "description": "The signal for the active run."
-          },
-          {
-            "name": "invocationId",
-            "type": "string",
-            "description": "The current run attempt identifier."
-          },
-          {
-            "name": "logicalRunId",
-            "type": "string",
-            "description": "The logical run identifier."
-          },
-          {
-            "name": "requestId",
-            "type": "string",
-            "description": "The host function request identifier."
-          },
-          {
-            "name": "requestIndex",
-            "type": "number",
-            "description": "The one-based host function request order."
-          },
-          {
-            "name": "hostFunctionName",
-            "type": "string",
-            "description": "The fully qualified host function path."
-          },
-          {
-            "name": "interrupt",
-            "type": "(payload: unknown) => never",
-            "description": "Interrupts the host function and suspends the run."
-          },
-          {
-            "name": "resume",
-            "type": "HostFunctionResumeContext",
-            "isOptional": true,
-            "description": "Resume data for a replayed interrupted host function."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "HostFunctionResumeContext",
-    "type": "interface",
-    "description": "Resume data for a replayed interrupted host function.",
-    "properties": [
-      {
-        "type": "HostFunctionResumeContext",
-        "parameters": [
-          {
-            "name": "interruptionId",
-            "type": "string",
-            "description": "The interruption ID."
-          },
-          {
-            "name": "payload",
-            "type": "unknown",
-            "description": "The original interruption payload."
-          },
-          {
-            "name": "resolution",
-            "type": "unknown",
-            "description": "The supplied resolution."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    'HostFunction<ARGUMENTS extends unknown[] = unknown[], OUTPUT = unknown>': {
+      type: '(...args: ARGUMENTS) => OUTPUT | Promise<OUTPUT>',
+      typeDescription: '(...args: ARGUMENTS) => OUTPUT | Promise<OUTPUT>',
+      required: true,
+      description: 'A host function made available to sandboxed JavaScript.',
+    },
+    HostFunctionGroup: {
+      type: 'Record<string, HostFunction<never[], unknown>>',
+      typeDescription: 'Record<string, HostFunction<never[], unknown>>',
+      required: true,
+      description: 'A named collection of host functions.',
+    },
+    HostFunctions: {
+      type: 'Record<string, HostFunctionGroup>',
+      typeDescription: 'Record<string, HostFunctionGroup>',
+      required: true,
+      description: 'Host function groups installed as guest globals.',
+    },
+    SyncHostFunctions: {
+      type: 'HostFunctions',
+      typeDescription: 'HostFunctions',
+      required: true,
+      description:
+        'Host function groups exposed with synchronous guest call semantics.',
+    },
+    RunModuleLoader: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'A host-controlled native ES module resolver.'}</p>
+          <p>
+            <code>{'RunModuleLoader'}</code>
+          </p>
+          <TypeTable
+            type={{
+              identity: {
+                type: 'string',
+                typeDescription: 'string',
+                required: false,
+                description:
+                  'A stable loader identity authenticated by continuations, limited to 512 bytes and required to create or resume one.',
+              },
+              normalize: {
+                type: '(specifier: string, importer: string) => string | Promise<string>',
+                typeDescription:
+                  '(specifier: string, importer: string) => string | Promise<string>',
+                required: false,
+                description: 'Returns a canonical module name.',
+              },
+              load: {
+                type: '(specifier: string) => string | Promise<string>',
+                typeDescription:
+                  '(specifier: string) => string | Promise<string>',
+                required: true,
+                description: 'Returns source for a normalized module name.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    HostFunctionContext: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Context supplied to each host function invocation.'}</p>
+          <p>
+            <code>{'HostFunctionContext'}</code>
+          </p>
+          <TypeTable
+            type={{
+              abortSignal: {
+                type: 'AbortSignal',
+                typeDescription: 'AbortSignal',
+                required: true,
+                description: 'The signal for the active run.',
+              },
+              invocationId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The current run attempt identifier.',
+              },
+              logicalRunId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The logical run identifier.',
+              },
+              requestId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The host function request identifier.',
+              },
+              requestIndex: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description: 'The one-based host function request order.',
+              },
+              hostFunctionName: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The fully qualified host function path.',
+              },
+              interrupt: {
+                type: '(payload: unknown) => never',
+                typeDescription: '(payload: unknown) => never',
+                required: true,
+                description:
+                  'Interrupts the host function and suspends the run.',
+              },
+              resume: {
+                type: 'HostFunctionResumeContext',
+                typeDescription: 'HostFunctionResumeContext',
+                required: false,
+                description:
+                  'Resume data for a replayed interrupted host function.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    HostFunctionResumeContext: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Resume data for a replayed interrupted host function.'}</p>
+          <p>
+            <code>{'HostFunctionResumeContext'}</code>
+          </p>
+          <TypeTable
+            type={{
+              interruptionId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The interruption ID.',
+              },
+              payload: {
+                type: 'unknown',
+                typeDescription: 'unknown',
+                required: true,
+                description: 'The original interruption payload.',
+              },
+              resolution: {
+                type: 'unknown',
+                typeDescription: 'unknown',
+                required: true,
+                description: 'The supplied resolution.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>
 
 ### Continuation Types
 
-```json
-[
-  {
-    "name": "ContinuationCodec<TOKEN = unknown>",
-    "type": "interface",
-    "description": "An encoder and decoder for continuation state.",
-    "properties": [
-      {
-        "type": "ContinuationCodec<TOKEN>",
-        "parameters": [
-          {
-            "name": "encode",
-            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>",
-            "description": "Encodes replay state."
-          },
-          {
-            "name": "decode",
-            "type": "(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
-            "description": "Decodes replay state."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "ContinuationOperationContext",
-    "type": "interface",
-    "description": "Context supplied to a continuation codec operation.",
-    "properties": [
-      {
-        "type": "ContinuationOperationContext",
-        "parameters": [
-          {
-            "name": "abortSignal",
-            "type": "AbortSignal",
-            "description": "The operation signal."
-          },
-          {
-            "name": "deadlineMs",
-            "type": "number",
-            "description": "The operation deadline as a Unix timestamp in milliseconds."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "SignedContinuationCodecOptions",
-    "type": "interface",
-    "description": "Options for createSignedContinuationCodec.",
-    "properties": [
-      {
-        "type": "SignedContinuationCodecOptions",
-        "parameters": [
-          {
-            "name": "secret",
-            "type": "string | Uint8Array",
-            "description": "The primary HMAC key."
-          },
-          {
-            "name": "verificationSecrets",
-            "type": "(string | Uint8Array)[]",
-            "isOptional": true,
-            "description": "Previous HMAC keys accepted for verification."
-          },
-          {
-            "name": "maxAgeMs",
-            "type": "number",
-            "isOptional": true,
-            "description": "The maximum token lifetime."
-          },
-          {
-            "name": "maxTokenBytes",
-            "type": "number",
-            "isOptional": true,
-            "description": "The maximum token size."
-          },
-          {
-            "name": "clockSkewMs",
-            "type": "number",
-            "isOptional": true,
-            "description": "The allowed positive clock skew."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "ContinuationStorage",
-    "type": "interface",
-    "description": "Storage used by createStoredContinuationCodec.",
-    "properties": [
-      {
-        "type": "ContinuationStorage",
-        "parameters": [
-          {
-            "name": "set",
-            "type": "(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>",
-            "description": "Stores a continuation."
-          },
-          {
-            "name": "acquire",
-            "type": "(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>",
-            "description": "Atomically creates a temporary claim on a continuation without removing it."
-          },
-          {
-            "name": "consume",
-            "type": "(key: string, claimId: string) => void | Promise<void>",
-            "description": "Atomically removes a continuation when its claim identifier matches."
-          },
-          {
-            "name": "release",
-            "type": "(key: string, claimId: string) => void | Promise<void>",
-            "description": "Atomically releases a continuation when its claim identifier matches."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "StoredContinuation",
-    "type": "interface",
-    "description": "A stored continuation value.",
-    "properties": [
-      {
-        "type": "StoredContinuation",
-        "parameters": [
-          {
-            "name": "state",
-            "type": "RunContinuationState",
-            "description": "The replay state."
-          },
-          {
-            "name": "expiresAtMs",
-            "type": "number",
-            "description": "The expiration time as a Unix timestamp in milliseconds."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunContinuationState",
-    "type": "interface",
-    "description": "Serializable replay state passed to a continuation codec.",
-    "properties": [
-      {
-        "type": "RunContinuationState",
-        "parameters": [
-          {
-            "name": "version",
-            "type": "2",
-            "description": "The continuation state version."
-          },
-          {
-            "name": "runtime",
-            "type": "'run-replay-v2'",
-            "description": "The replay runtime identifier."
-          },
-          {
-            "name": "serde",
-            "type": "'run-js-v1'",
-            "description": "The serialization format identifier."
-          },
-          {
-            "name": "source",
-            "type": "string",
-            "description": "The source associated with the continuation."
-          },
-          {
-            "name": "logicalRunId",
-            "type": "string",
-            "description": "The logical run identifier."
-          },
-          {
-            "name": "scopeHash",
-            "type": "string",
-            "description": "The authenticated scope hash."
-          },
-          {
-            "name": "determinism",
-            "type": "{ dateNowMs: number; randomSeed: string }",
-            "description": "The deterministic clock and random seed."
-          },
-          {
-            "name": "ledger",
-            "type": "RunLedgerEntry[]",
-            "description": "The recorded host function outcomes."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "RunLedgerEntry",
-    "type": "fulfilled | rejected | interrupted",
-    "description": "A recorded host function outcome. The wire property name bindingName is the persisted host function path key.",
-    "properties": [
-      {
-        "type": "FulfilledRunLedgerEntry",
-        "parameters": [
-          {
-            "name": "bindingName",
-            "type": "string",
-            "description": "The persisted host function path key (wire property name remains bindingName)."
-          },
-          {
-            "name": "inputJson",
-            "type": "string",
-            "description": "The serialized host function input."
-          },
-          {
-            "name": "status",
-            "type": "'fulfilled'",
-            "description": "The fulfilled status discriminator."
-          },
-          {
-            "name": "settledOrder",
-            "type": "number",
-            "description": "The settlement order."
-          },
-          {
-            "name": "dateNowMs",
-            "type": "number",
-            "description": "The deterministic clock value."
-          },
-          {
-            "name": "valueJson",
-            "type": "string",
-            "description": "The serialized fulfilled value."
-          }
-        ]
-      },
-      {
-        "type": "RejectedRunLedgerEntry",
-        "parameters": [
-          {
-            "name": "bindingName",
-            "type": "string",
-            "description": "The persisted host function path key (wire property name remains bindingName)."
-          },
-          {
-            "name": "inputJson",
-            "type": "string",
-            "description": "The serialized host function input."
-          },
-          {
-            "name": "status",
-            "type": "'rejected'",
-            "description": "The rejected status discriminator."
-          },
-          {
-            "name": "settledOrder",
-            "type": "number",
-            "description": "The settlement order."
-          },
-          {
-            "name": "dateNowMs",
-            "type": "number",
-            "description": "The deterministic clock value."
-          },
-          {
-            "name": "error",
-            "type": "{ name: string; message: string; stack?: string; code?: string; details?: unknown }",
-            "description": "The serialized rejection."
-          }
-        ]
-      },
-      {
-        "type": "InterruptedRunLedgerEntry",
-        "parameters": [
-          {
-            "name": "bindingName",
-            "type": "string",
-            "description": "The persisted host function path key (wire property name remains bindingName)."
-          },
-          {
-            "name": "inputJson",
-            "type": "string",
-            "description": "The serialized host function input."
-          },
-          {
-            "name": "status",
-            "type": "'interrupted'",
-            "description": "The interrupted status discriminator."
-          },
-          {
-            "name": "interruptionId",
-            "type": "string",
-            "description": "The interruption ID."
-          },
-          {
-            "name": "payloadJson",
-            "type": "string",
-            "description": "The serialized interruption payload."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    'ContinuationCodec<TOKEN = unknown>': {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'An encoder and decoder for continuation state.'}</p>
+          <p>
+            <code>{'ContinuationCodec<TOKEN>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              encode: {
+                type: '(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>',
+                typeDescription:
+                  '(state: RunContinuationState, context?: ContinuationOperationContext) => TOKEN | Promise<TOKEN>',
+                required: true,
+                description: 'Encodes replay state.',
+              },
+              decode: {
+                type: '(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>',
+                typeDescription:
+                  '(token: TOKEN, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>',
+                required: true,
+                description: 'Decodes replay state.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    ContinuationOperationContext: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Context supplied to a continuation codec operation.'}</p>
+          <p>
+            <code>{'ContinuationOperationContext'}</code>
+          </p>
+          <TypeTable
+            type={{
+              abortSignal: {
+                type: 'AbortSignal',
+                typeDescription: 'AbortSignal',
+                required: true,
+                description: 'The operation signal.',
+              },
+              deadlineMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description:
+                  'The operation deadline as a Unix timestamp in milliseconds.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    SignedContinuationCodecOptions: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Options for createSignedContinuationCodec.'}</p>
+          <p>
+            <code>{'SignedContinuationCodecOptions'}</code>
+          </p>
+          <TypeTable
+            type={{
+              secret: {
+                type: 'string | Uint8Array',
+                typeDescription: 'string | Uint8Array',
+                required: true,
+                description: 'The primary HMAC key.',
+              },
+              verificationSecrets: {
+                type: '(string | Uint8Array)[]',
+                typeDescription: '(string | Uint8Array)[]',
+                required: false,
+                description: 'Previous HMAC keys accepted for verification.',
+              },
+              maxAgeMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'The maximum token lifetime.',
+              },
+              maxTokenBytes: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'The maximum token size.',
+              },
+              clockSkewMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description: 'The allowed positive clock skew.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    ContinuationStorage: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Storage used by createStoredContinuationCodec.'}</p>
+          <p>
+            <code>{'ContinuationStorage'}</code>
+          </p>
+          <TypeTable
+            type={{
+              set: {
+                type: '(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>',
+                typeDescription:
+                  '(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>',
+                required: true,
+                description: 'Stores a continuation.',
+              },
+              acquire: {
+                type: '(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>',
+                typeDescription:
+                  '(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>',
+                required: true,
+                description:
+                  'Atomically creates a temporary claim on a continuation without removing it.',
+              },
+              consume: {
+                type: '(key: string, claimId: string) => void | Promise<void>',
+                typeDescription:
+                  '(key: string, claimId: string) => void | Promise<void>',
+                required: true,
+                description:
+                  'Atomically removes a continuation when its claim identifier matches.',
+              },
+              release: {
+                type: '(key: string, claimId: string) => void | Promise<void>',
+                typeDescription:
+                  '(key: string, claimId: string) => void | Promise<void>',
+                required: true,
+                description:
+                  'Atomically releases a continuation when its claim identifier matches.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    StoredContinuation: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'A stored continuation value.'}</p>
+          <p>
+            <code>{'StoredContinuation'}</code>
+          </p>
+          <TypeTable
+            type={{
+              state: {
+                type: 'RunContinuationState',
+                typeDescription: 'RunContinuationState',
+                required: true,
+                description: 'The replay state.',
+              },
+              expiresAtMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description:
+                  'The expiration time as a Unix timestamp in milliseconds.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunContinuationState: {
+      type: 'interface',
+      typeDescription: 'interface',
+      required: true,
+      description: (
+        <>
+          <p>{'Serializable replay state passed to a continuation codec.'}</p>
+          <p>
+            <code>{'RunContinuationState'}</code>
+          </p>
+          <TypeTable
+            type={{
+              version: {
+                type: '2',
+                typeDescription: '2',
+                required: true,
+                description: 'The continuation state version.',
+              },
+              runtime: {
+                type: "'run-replay-v2'",
+                typeDescription: "'run-replay-v2'",
+                required: true,
+                description: 'The replay runtime identifier.',
+              },
+              serde: {
+                type: "'run-js-v1'",
+                typeDescription: "'run-js-v1'",
+                required: true,
+                description: 'The serialization format identifier.',
+              },
+              source: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The source associated with the continuation.',
+              },
+              logicalRunId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The logical run identifier.',
+              },
+              scopeHash: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The authenticated scope hash.',
+              },
+              determinism: {
+                type: '{ dateNowMs: number; randomSeed: string }',
+                typeDescription: '{ dateNowMs: number; randomSeed: string }',
+                required: true,
+                description: 'The deterministic clock and random seed.',
+              },
+              ledger: {
+                type: 'RunLedgerEntry[]',
+                typeDescription: 'RunLedgerEntry[]',
+                required: true,
+                description: 'The recorded host function outcomes.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunLedgerEntry: {
+      type: 'fulfilled | rejected | interrupted',
+      typeDescription: 'fulfilled | rejected | interrupted',
+      required: true,
+      description: (
+        <>
+          <p>
+            {
+              'A recorded host function outcome. The wire property name bindingName is the persisted host function path key.'
+            }
+          </p>
+          <p>
+            <code>{'FulfilledRunLedgerEntry'}</code>
+          </p>
+          <TypeTable
+            type={{
+              bindingName: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The persisted host function path key (wire property name remains bindingName).',
+              },
+              inputJson: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The serialized host function input.',
+              },
+              status: {
+                type: "'fulfilled'",
+                typeDescription: "'fulfilled'",
+                required: true,
+                description: 'The fulfilled status discriminator.',
+              },
+              settledOrder: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description: 'The settlement order.',
+              },
+              dateNowMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description: 'The deterministic clock value.',
+              },
+              valueJson: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The serialized fulfilled value.',
+              },
+            }}
+          />
+          <p>
+            <code>{'RejectedRunLedgerEntry'}</code>
+          </p>
+          <TypeTable
+            type={{
+              bindingName: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The persisted host function path key (wire property name remains bindingName).',
+              },
+              inputJson: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The serialized host function input.',
+              },
+              status: {
+                type: "'rejected'",
+                typeDescription: "'rejected'",
+                required: true,
+                description: 'The rejected status discriminator.',
+              },
+              settledOrder: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description: 'The settlement order.',
+              },
+              dateNowMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description: 'The deterministic clock value.',
+              },
+              error: {
+                type: '{ name: string; message: string; stack?: string; code?: string; details?: unknown }',
+                typeDescription:
+                  '{ name: string; message: string; stack?: string; code?: string; details?: unknown }',
+                required: true,
+                description: 'The serialized rejection.',
+              },
+            }}
+          />
+          <p>
+            <code>{'InterruptedRunLedgerEntry'}</code>
+          </p>
+          <TypeTable
+            type={{
+              bindingName: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The persisted host function path key (wire property name remains bindingName).',
+              },
+              inputJson: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The serialized host function input.',
+              },
+              status: {
+                type: "'interrupted'",
+                typeDescription: "'interrupted'",
+                required: true,
+                description: 'The interrupted status discriminator.',
+              },
+              interruptionId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The interruption ID.',
+              },
+              payloadJson: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The serialized interruption payload.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>

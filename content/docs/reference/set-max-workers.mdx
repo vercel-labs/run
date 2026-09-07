@@ -26,25 +26,27 @@ import { setMaxWorkers } from 'run';
 
 ### Parameters
 
-```json
-[
-  {
-    "name": "maxWorkers",
-    "type": "number",
-    "isOptional": true,
-    "description": "A positive integer worker cap. Omit the value or pass undefined to restore the dynamic memory-based default."
-  }
-]
-```
+<TypeTable
+  type={{
+    maxWorkers: {
+      type: 'number',
+      typeDescription: 'number',
+      required: false,
+      description:
+        'A positive integer worker cap. Omit the value or pass undefined to restore the dynamic memory-based default.',
+    },
+  }}
+/>
 
 ### Returns
 
-```json
-[
-  {
-    "name": "result",
-    "type": "void",
-    "description": "This function does not return a value."
-  }
-]
-```
+<TypeTable
+  type={{
+    result: {
+      type: 'void',
+      typeDescription: 'void',
+      required: true,
+      description: 'This function does not return a value.',
+    },
+  }}
+/>

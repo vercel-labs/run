@@ -34,88 +34,120 @@ import { getHostFunctionContext } from 'run';
 
 ### Parameters
 
-```json
-[]
-```
+This function takes no parameters.
 
 ### Returns
 
-```json
-[
-  {
-    "name": "context",
-    "type": "HostFunctionContext",
-    "description": "The context for the active host binding or module-loader call.",
-    "properties": [
-      {
-        "type": "HostFunctionContext",
-        "parameters": [
-          {
-            "name": "abortSignal",
-            "type": "AbortSignal",
-            "description": "A signal aborted when the run is aborted, times out, or fails."
-          },
-          {
-            "name": "invocationId",
-            "type": "string",
-            "description": "The stable identifier for the current run attempt."
-          },
-          {
-            "name": "logicalRunId",
-            "type": "string",
-            "description": "The stable identifier for the logical run across replay attempts."
-          },
-          {
-            "name": "requestId",
-            "type": "string",
-            "description": "The stable identifier for this host function request in the current attempt."
-          },
-          {
-            "name": "requestIndex",
-            "type": "number",
-            "description": "The one-based host function request order in the current attempt."
-          },
-          {
-            "name": "hostFunctionName",
-            "type": "string",
-            "description": "The fully qualified callback path, for example tools.search or moduleLoader.load."
-          },
-          {
-            "name": "interrupt",
-            "type": "(payload: unknown) => never",
-            "description": "Interrupts an asynchronous host function and suspends the run. Synchronous bindings and module loaders cannot interrupt."
-          },
-          {
-            "name": "resume",
-            "type": "HostFunctionResumeContext",
-            "isOptional": true,
-            "description": "Resume data available when an interrupted host function is invoked again.",
-            "properties": [
-              {
-                "type": "HostFunctionResumeContext",
-                "parameters": [
-                  {
-                    "name": "interruptionId",
-                    "type": "string",
-                    "description": "The ID of the interruption being resolved."
-                  },
-                  {
-                    "name": "payload",
-                    "type": "unknown",
-                    "description": "The original interruption payload."
-                  },
-                  {
-                    "name": "resolution",
-                    "type": "unknown",
-                    "description": "The application-defined resolution value."
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    context: {
+      type: 'HostFunctionContext',
+      typeDescription: 'HostFunctionContext',
+      required: true,
+      description: (
+        <>
+          <p>
+            {'The context for the active host binding or module-loader call.'}
+          </p>
+          <p>
+            <code>{'HostFunctionContext'}</code>
+          </p>
+          <TypeTable
+            type={{
+              abortSignal: {
+                type: 'AbortSignal',
+                typeDescription: 'AbortSignal',
+                required: true,
+                description:
+                  'A signal aborted when the run is aborted, times out, or fails.',
+              },
+              invocationId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The stable identifier for the current run attempt.',
+              },
+              logicalRunId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The stable identifier for the logical run across replay attempts.',
+              },
+              requestId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The stable identifier for this host function request in the current attempt.',
+              },
+              requestIndex: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description:
+                  'The one-based host function request order in the current attempt.',
+              },
+              hostFunctionName: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description:
+                  'The fully qualified callback path, for example tools.search or moduleLoader.load.',
+              },
+              interrupt: {
+                type: '(payload: unknown) => never',
+                typeDescription: '(payload: unknown) => never',
+                required: true,
+                description:
+                  'Interrupts an asynchronous host function and suspends the run. Synchronous bindings and module loaders cannot interrupt.',
+              },
+              resume: {
+                type: 'HostFunctionResumeContext',
+                typeDescription: 'HostFunctionResumeContext',
+                required: false,
+                description: (
+                  <>
+                    <p>
+                      {
+                        'Resume data available when an interrupted host function is invoked again.'
+                      }
+                    </p>
+                    <p>
+                      <code>{'HostFunctionResumeContext'}</code>
+                    </p>
+                    <TypeTable
+                      type={{
+                        interruptionId: {
+                          type: 'string',
+                          typeDescription: 'string',
+                          required: true,
+                          description:
+                            'The ID of the interruption being resolved.',
+                        },
+                        payload: {
+                          type: 'unknown',
+                          typeDescription: 'unknown',
+                          required: true,
+                          description: 'The original interruption payload.',
+                        },
+                        resolution: {
+                          type: 'unknown',
+                          typeDescription: 'unknown',
+                          required: true,
+                          description:
+                            'The application-defined resolution value.',
+                        },
+                      }}
+                    />
+                  </>
+                ),
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>

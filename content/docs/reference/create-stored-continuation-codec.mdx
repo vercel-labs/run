@@ -51,149 +51,201 @@ import { createStoredContinuationCodec } from 'run';
 
 ### Parameters
 
-```json
-[
-  {
-    "name": "storage",
-    "type": "ContinuationStorage",
-    "description": "The storage adapter used to save, temporarily claim, and atomically consume continuation state.",
-    "properties": [
-      {
-        "type": "ContinuationStorage",
-        "parameters": [
-          {
-            "name": "set",
-            "type": "(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>",
-            "description": "Stores a continuation under the generated key."
-          },
-          {
-            "name": "acquire",
-            "type": "(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>",
-            "description": "Atomically creates a temporary claim on a continuation without removing it."
-          },
-          {
-            "name": "consume",
-            "type": "(key: string, claimId: string) => void | Promise<void>",
-            "description": "Atomically removes a continuation when its claim identifier matches."
-          },
-          {
-            "name": "release",
-            "type": "(key: string, claimId: string) => void | Promise<void>",
-            "description": "Atomically releases a continuation when its claim identifier matches."
-          }
-        ]
-      },
-      {
-        "type": "StoredContinuation",
-        "parameters": [
-          {
-            "name": "state",
-            "type": "RunContinuationState",
-            "description": "The serializable replay state."
-          },
-          {
-            "name": "expiresAtMs",
-            "type": "number",
-            "description": "The expiration time as a Unix timestamp in milliseconds."
-          }
-        ]
-      },
-      {
-        "type": "ContinuationOperationContext",
-        "parameters": [
-          {
-            "name": "abortSignal",
-            "type": "AbortSignal",
-            "description": "The signal for the continuation operation."
-          },
-          {
-            "name": "deadlineMs",
-            "type": "number",
-            "description": "The operation deadline as a Unix timestamp in milliseconds."
-          }
-        ]
-      }
-    ]
-  },
-  {
-    "name": "maxAgeMs",
-    "type": "number",
-    "isOptional": true,
-    "description": "The lifetime assigned to stored continuations in milliseconds. Must be a positive integer. Default: 3600000."
-  }
-]
-```
+<TypeTable
+  type={{
+    storage: {
+      type: 'ContinuationStorage',
+      typeDescription: 'ContinuationStorage',
+      required: true,
+      description: (
+        <>
+          <p>
+            {
+              'The storage adapter used to save, temporarily claim, and atomically consume continuation state.'
+            }
+          </p>
+          <p>
+            <code>{'ContinuationStorage'}</code>
+          </p>
+          <TypeTable
+            type={{
+              set: {
+                type: '(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>',
+                typeDescription:
+                  '(key: string, value: StoredContinuation, context?: ContinuationOperationContext) => void | Promise<void>',
+                required: true,
+                description: 'Stores a continuation under the generated key.',
+              },
+              acquire: {
+                type: '(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>',
+                typeDescription:
+                  '(key: string, claimId: string, context?: ContinuationOperationContext) => StoredContinuation | undefined | Promise<StoredContinuation | undefined>',
+                required: true,
+                description:
+                  'Atomically creates a temporary claim on a continuation without removing it.',
+              },
+              consume: {
+                type: '(key: string, claimId: string) => void | Promise<void>',
+                typeDescription:
+                  '(key: string, claimId: string) => void | Promise<void>',
+                required: true,
+                description:
+                  'Atomically removes a continuation when its claim identifier matches.',
+              },
+              release: {
+                type: '(key: string, claimId: string) => void | Promise<void>',
+                typeDescription:
+                  '(key: string, claimId: string) => void | Promise<void>',
+                required: true,
+                description:
+                  'Atomically releases a continuation when its claim identifier matches.',
+              },
+            }}
+          />
+          <p>
+            <code>{'StoredContinuation'}</code>
+          </p>
+          <TypeTable
+            type={{
+              state: {
+                type: 'RunContinuationState',
+                typeDescription: 'RunContinuationState',
+                required: true,
+                description: 'The serializable replay state.',
+              },
+              expiresAtMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description:
+                  'The expiration time as a Unix timestamp in milliseconds.',
+              },
+            }}
+          />
+          <p>
+            <code>{'ContinuationOperationContext'}</code>
+          </p>
+          <TypeTable
+            type={{
+              abortSignal: {
+                type: 'AbortSignal',
+                typeDescription: 'AbortSignal',
+                required: true,
+                description: 'The signal for the continuation operation.',
+              },
+              deadlineMs: {
+                type: 'number',
+                typeDescription: 'number',
+                required: true,
+                description:
+                  'The operation deadline as a Unix timestamp in milliseconds.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    maxAgeMs: {
+      type: 'number',
+      typeDescription: 'number',
+      required: false,
+      description:
+        'The lifetime assigned to stored continuations in milliseconds. Must be a positive integer. Default: 3600000.',
+    },
+  }}
+/>
 
 ### Returns
 
-```json
-[
-  {
-    "name": "codec",
-    "type": "ContinuationCodec<string>",
-    "description": "A storage-backed string continuation codec.",
-    "properties": [
-      {
-        "type": "ContinuationCodec<string>",
-        "parameters": [
-          {
-            "name": "encode",
-            "type": "(state: RunContinuationState, context?: ContinuationOperationContext) => string | Promise<string>",
-            "description": "Stores replay state and returns a random base64url key."
-          },
-          {
-            "name": "decode",
-            "type": "(key: string, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>",
-            "description": "Atomically consumes the stored continuation and returns its replay state."
-          }
-        ]
-      },
-      {
-        "type": "RunContinuationState",
-        "parameters": [
-          {
-            "name": "version",
-            "type": "2",
-            "description": "The continuation state version."
-          },
-          {
-            "name": "runtime",
-            "type": "'run-replay-v2'",
-            "description": "The replay runtime identifier."
-          },
-          {
-            "name": "serde",
-            "type": "'run-js-v1'",
-            "description": "The serialization format identifier."
-          },
-          {
-            "name": "source",
-            "type": "string",
-            "description": "The source associated with the continuation."
-          },
-          {
-            "name": "logicalRunId",
-            "type": "string",
-            "description": "The logical run identifier."
-          },
-          {
-            "name": "scopeHash",
-            "type": "string",
-            "description": "The authenticated continuation scope hash."
-          },
-          {
-            "name": "determinism",
-            "type": "{ dateNowMs: number; randomSeed: string }",
-            "description": "The deterministic clock and random seed."
-          },
-          {
-            "name": "ledger",
-            "type": "RunLedgerEntry[]",
-            "description": "The recorded host function outcomes."
-          }
-        ]
-      }
-    ]
-  }
-]
-```
+<TypeTable
+  type={{
+    codec: {
+      type: 'ContinuationCodec<string>',
+      typeDescription: 'ContinuationCodec<string>',
+      required: true,
+      description: (
+        <>
+          <p>{'A storage-backed string continuation codec.'}</p>
+          <p>
+            <code>{'ContinuationCodec<string>'}</code>
+          </p>
+          <TypeTable
+            type={{
+              encode: {
+                type: '(state: RunContinuationState, context?: ContinuationOperationContext) => string | Promise<string>',
+                typeDescription:
+                  '(state: RunContinuationState, context?: ContinuationOperationContext) => string | Promise<string>',
+                required: true,
+                description:
+                  'Stores replay state and returns a random base64url key.',
+              },
+              decode: {
+                type: '(key: string, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>',
+                typeDescription:
+                  '(key: string, context?: ContinuationOperationContext) => RunContinuationState | Promise<RunContinuationState>',
+                required: true,
+                description:
+                  'Atomically consumes the stored continuation and returns its replay state.',
+              },
+            }}
+          />
+          <p>
+            <code>{'RunContinuationState'}</code>
+          </p>
+          <TypeTable
+            type={{
+              version: {
+                type: '2',
+                typeDescription: '2',
+                required: true,
+                description: 'The continuation state version.',
+              },
+              runtime: {
+                type: "'run-replay-v2'",
+                typeDescription: "'run-replay-v2'",
+                required: true,
+                description: 'The replay runtime identifier.',
+              },
+              serde: {
+                type: "'run-js-v1'",
+                typeDescription: "'run-js-v1'",
+                required: true,
+                description: 'The serialization format identifier.',
+              },
+              source: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The source associated with the continuation.',
+              },
+              logicalRunId: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The logical run identifier.',
+              },
+              scopeHash: {
+                type: 'string',
+                typeDescription: 'string',
+                required: true,
+                description: 'The authenticated continuation scope hash.',
+              },
+              determinism: {
+                type: '{ dateNowMs: number; randomSeed: string }',
+                typeDescription: '{ dateNowMs: number; randomSeed: string }',
+                required: true,
+                description: 'The deterministic clock and random seed.',
+              },
+              ledger: {
+                type: 'RunLedgerEntry[]',
+                typeDescription: 'RunLedgerEntry[]',
+                required: true,
+                description: 'The recorded host function outcomes.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+  }}
+/>
