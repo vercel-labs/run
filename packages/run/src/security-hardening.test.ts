@@ -377,7 +377,7 @@ describe('guest sandbox hardening', () => {
         `,
       }),
     ).rejects.toMatchObject({
-      code: 'RUN_ERROR',
+      code: 'RUN_USER_SOURCE_ERROR',
       details: { tenant: 'victim-tenant-42' },
       message: 'guest failure',
     });

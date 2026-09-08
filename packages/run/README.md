@@ -490,6 +490,9 @@ Runtime failures extend `RunError` and expose a stable `code`:
   host effects are safe to retry.
 - `RUN_PROTOCOL_ERROR` indicates malformed, tampered, expired, or divergent
   continuation state. Do not retry unchanged input.
+- `RUN_USER_SOURCE_ERROR` identifies uncaught guest evaluation failures, including
+  syntax errors and thrown values. Guest-authored `code` properties are replaced;
+  trusted host and runtime codes are preserved.
 - `RUN_HOST_FUNCTION_ERROR` comes from capability lookup or host function
   execution.
 - `RUN_BRIDGE_LIMIT`, `RUN_SOURCE_TOO_LARGE`, and serialization failures require
