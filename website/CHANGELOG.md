@@ -1,5 +1,12 @@
 # @run/website
 
+## 0.0.9
+
+### Patch Changes
+
+- Updated dependencies [7daedc4]
+  - run@2.1.5
+
 ## 0.0.8
 
 ### Patch Changes
