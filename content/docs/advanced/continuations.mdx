@@ -112,8 +112,8 @@ if (result.status === 'interrupted') {
 ```
 
 The host presents the interruption payload to an authorized actor. When a
-decision is available, load the same token and resume with a resolution for
-every interruption:
+decision is available, load the same token and resume with resolutions for one
+or more pending interruptions. This example resolves all of them:
 
 ```ts
 const approval = await approvalStore.get('approval_789');
@@ -142,8 +142,17 @@ compatible behavior for interrupted host functions while old continuations
 remain valid.
 
 Several host functions can interrupt during the same invocation. The result
-contains the full batch, and the host must resolve every interruption in that
-batch together. Replay may later reach another batch of interruptions.
+contains the full batch, and the host can resolve any non-empty subset of it.
+Unresolved calls keep their IDs and payloads and remain pending without being
+invoked again. Resolved calls can advance independently and reach new host
+calls or interruptions. If the run remains interrupted, save the returned
+continuation and pending interruptions for the next resume. Apply subsequent
+resolutions to that updated continuation so completed work is preserved.
+
+Each supplied resolution must identify a different pending interruption. Empty
+batches, duplicate IDs, and unknown IDs are rejected. Partial resumption does
+not cancel or detach outstanding calls; a program using `Promise.race` should
+still drain those calls before returning.
 
 The continuation ledger records asynchronous calls, synchronous calls, and
 module normalization and loading in their aggregate request order. Replay uses

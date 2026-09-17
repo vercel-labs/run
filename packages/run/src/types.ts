@@ -127,6 +127,10 @@ export interface RunInput<TOKEN = unknown> {
   abortSignal?: AbortSignal;
   limits?: RunLimits;
   continuation?: TOKEN;
+  /**
+   * Resolutions for a non-empty subset of pending interruptions. Required when
+   * resuming a continuation; interruptions without a resolution remain pending.
+   */
   resolutions?: RunResolution[];
   /**
    * Serializable tenant, principal, or policy context authenticated by a
