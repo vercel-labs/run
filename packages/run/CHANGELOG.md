@@ -1,5 +1,11 @@
 # run
 
+## 2.1.5
+
+### Patch Changes
+
+- 7daedc4: feat(run): allow resumption for interruptions after partial resolves
+
 ## 2.1.4
 
 ### Patch Changes
