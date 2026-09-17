@@ -278,9 +278,9 @@ function assertContinuationResolutions(
     );
     seen.add(resolution.interruptionId);
   }
-  if (pendingIds.size === 0 || seen.size !== pendingIds.size) {
+  if (pendingIds.size === 0 || seen.size === 0) {
     throw new RunProtocolError(
-      'A continuation requires exactly one resolution for every pending interruption.',
+      'A continuation requires at least one resolution for a pending interruption.',
       { pending: pendingIds.size, received: seen.size },
     );
   }

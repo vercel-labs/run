@@ -410,19 +410,6 @@ describe('run', () => {
       run({
         ...input,
         continuation: interrupted.continuation,
-        resolutions: [
-          {
-            interruptionId: firstInterruption(interrupted).id,
-            value: 'only one',
-          },
-        ],
-      }),
-    ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });
-
-    await expect(
-      run({
-        ...input,
-        continuation: interrupted.continuation,
         resolutions: interrupted.interruptions.map((item, index) => ({
           interruptionId: item.id,
           value: index === 0 ? 'yes' : 'also yes',

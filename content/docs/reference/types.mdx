@@ -116,7 +116,8 @@ import type {
                 type: 'RunResolution[]',
                 typeDescription: 'RunResolution[]',
                 required: false,
-                description: 'Values that resolve pending interruptions.',
+                description:
+                  'Values that resolve a non-empty subset of pending interruptions. Required when resuming a continuation; interruptions without a resolution remain pending.',
               },
               continuationContext: {
                 type: 'unknown',

@@ -107,7 +107,7 @@ describe('continuation replay hardening', () => {
     });
   });
 
-  it('rejects duplicate, unknown, missing, and extra resolutions before effects', async () => {
+  it('rejects duplicate, unknown, empty, and extra resolutions before effects', async () => {
     const effect = vi.fn();
     const source = `
       return await Promise.all([tools.pause(1), tools.pause(2)]);
@@ -134,8 +134,8 @@ describe('continuation replay hardening', () => {
     }
 
     for (const resolutions of [
+      undefined,
       [],
-      [{ interruptionId: first.id, value: true }],
       [
         { interruptionId: first.id, value: true },
         { interruptionId: first.id, value: false },
@@ -154,7 +154,7 @@ describe('continuation replay hardening', () => {
         run({
           continuation: interrupted.continuation,
           hostFunctions,
-          resolutions,
+          ...(resolutions === undefined ? {} : { resolutions }),
           source,
         }),
       ).rejects.toMatchObject({ code: 'RUN_PROTOCOL_ERROR' });

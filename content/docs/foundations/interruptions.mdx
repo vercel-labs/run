@@ -98,8 +98,12 @@ if (context.resume.resolution !== true) {
 return { sent: true };
 ```
 
-When an interrupted result contains several interruptions, the host must
-resolve all of them together before continuing the run.
+When an interrupted result contains several interruptions, the host can resume
+with resolutions for any non-empty subset. Calls without a resolution remain
+pending and are not invoked again. Resolved calls can advance their dependent
+JavaScript and reach new interruptions. The next interrupted result includes
+the unresolved calls with their original IDs alongside any new interruptions.
+Use that result's continuation for the next resume.
 
 ## Replay
 

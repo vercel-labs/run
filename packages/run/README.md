@@ -400,7 +400,7 @@ const result = await run({
 });
 
 if (result.status === 'interrupted') {
-  // Present the full batch to the user, then resolve every item together.
+  // This example resolves the full batch after collecting every approval.
   await run({
     source,
     hostFunctions,
@@ -413,10 +413,13 @@ if (result.status === 'interrupted') {
 }
 ```
 
-Every interruption in a returned batch must be resolved together. Host
-functions reached later may create another interruption round after replay.
-Each interruption also exposes the complete guest call as its `arguments`
-array.
+You can instead resume with resolutions for any non-empty subset of the batch.
+Calls without a resolution remain pending with the same IDs and payloads,
+without invoking their host functions again. Resolved branches can advance and
+reach new interruptions. If the run remains interrupted, use its returned
+continuation and pending interruptions for the next resume so completed work
+is preserved. Each interruption also exposes the complete guest call as its
+`arguments` array.
 
 ### Scope and authorization
 
