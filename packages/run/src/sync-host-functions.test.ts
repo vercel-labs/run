@@ -121,6 +121,110 @@ describe('synchronous host functions', () => {
     expect(observed).toEqual(['async:1', 'sync:2']);
   });
 
+  it.each([
+    "asyncValues.read('x'.repeat(128))",
+    "syncValues.read('x'.repeat(128))",
+    "asyncValues['x'.repeat(1024)]()",
+    "syncValues['x'.repeat(1024)]()",
+  ])(
+    'charges caught size rejections for %s to the bridge limit',
+    async call => {
+      let calls = 0;
+      const read = () => (calls += 1);
+      const runner = createRunner({
+        limits: { maxBridgeRequests: 2, maxHostFunctionArgumentsBytes: 64 },
+        syncHostFunctions: { syncValues: { read } },
+      });
+
+      await expect(
+        runner.run({
+          hostFunctions: { asyncValues: { read } },
+          source: `
+          for (let i = 0; i < 3; i++) {
+            try { await ${call}; } catch {}
+          }
+          return 'caught';
+        `,
+        }),
+      ).rejects.toBeInstanceOf(RunBridgeLimitError);
+      expect(calls).toBe(0);
+    },
+  );
+
+  it.each([
+    { limit: 4, rejectionFirst: true },
+    { limit: 4, rejectionFirst: false },
+    { limit: 5, rejectionFirst: true },
+    { limit: 5, rejectionFirst: false },
+  ])(
+    'shares a limit of $limit across all bridge paths (rejection first: $rejectionFirst)',
+    async ({ limit, rejectionFirst }) => {
+      const observed: string[] = [];
+      const record = (kind: string) => {
+        observed.push(`${kind}:${getHostFunctionContext().requestIndex}`);
+      };
+      const runner = createRunner({
+        limits: { maxBridgeRequests: limit },
+        syncHostFunctions: { syncValues: { read: () => record('sync') } },
+      });
+      const rejectImport = "try { await import('x'.repeat(2048)); } catch {}";
+      const execution = runner.run({
+        hostFunctions: { asyncValues: { read: () => record('async') } },
+        moduleLoader: {
+          load() {
+            record('load');
+            return 'export {};';
+          },
+          normalize(name) {
+            record('normalize');
+            return name;
+          },
+        },
+        source: `
+          ${rejectionFirst ? rejectImport : ''}
+          await asyncValues.read();
+          syncValues.read();
+          ${rejectionFirst ? '' : rejectImport}
+          try { await import('/ok.js'); } catch {}
+        `,
+      });
+      if (limit === 5) {
+        await expect(execution).resolves.toEqual({
+          status: 'completed',
+          value: undefined,
+        });
+        expect(observed).toEqual([
+          'async:1',
+          'sync:2',
+          'normalize:3',
+          'load:4',
+        ]);
+      } else {
+        await expect(execution).rejects.toBeInstanceOf(RunBridgeLimitError);
+        expect(observed).toEqual(['async:1', 'sync:2', 'normalize:3']);
+      }
+    },
+  );
+
+  it('rejects a size failure after admitted calls exhaust the bridge limit', async () => {
+    let calls = 0;
+    const runner = createRunner({
+      limits: { maxBridgeRequests: 2 },
+      syncHostFunctions: { values: { read: () => (calls += 1) } },
+    });
+    await expect(
+      runner.run({
+        moduleLoader: { load: () => 'export {};' },
+        source: `
+          values.read();
+          values.read();
+          try { await import('x'.repeat(2048)); } catch {}
+        `,
+      }),
+    ).rejects.toBeInstanceOf(RunBridgeLimitError);
+    expect(calls).toBe(2);
+  });
+
   it('does not execute a later sync request beyond the aggregate limit', async () => {
     let sideEffect = false;
     const runner = createRunner({
@@ -871,6 +975,7 @@ describe('native module loading', () => {
 
   it('bounds rejected loads of oversized normalized names', async () => {
     let loads = 0;
+    let normalizations = 0;
     const runner = createRunner({ limits: { maxBridgeRequests: 2 } });
 
     await expect(
@@ -880,7 +985,10 @@ describe('native module loading', () => {
             loads += 1;
             return 'export {};';
           },
-          normalize: () => '\u0001'.repeat(2048),
+          normalize() {
+            normalizations += 1;
+            return '\u0001'.repeat(2048);
+          },
         },
         source: `
           for (let i = 0; i < 2; i++) {
@@ -888,8 +996,9 @@ describe('native module loading', () => {
           }
         `,
       }),
-    ).resolves.toEqual({ status: 'completed', value: undefined });
+    ).rejects.toBeInstanceOf(RunBridgeLimitError);
     expect(loads).toBe(0);
+    expect(normalizations).toBe(1);
   });
 
   it('accepts a multibyte module name at the byte limit', async () => {

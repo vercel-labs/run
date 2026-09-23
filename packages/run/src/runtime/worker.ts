@@ -47,7 +47,7 @@ let aggregateBridgeResponseCounter = 0;
 let bridgeRequestCounter = 0;
 let bridgeIdleGeneration = 0;
 let syncBridgeRequestCounter = 0;
-let rejectedSyncBridgeRequestCounter = 0;
+let bridgeRequestAttemptCounter = 0;
 let embeddedQuickJsWasmModulePromise: Promise<WebAssembly.Module> | undefined;
 let activeCancellation:
   | {
@@ -133,7 +133,7 @@ async function handleMainMessage(value: unknown): Promise<void> {
     aggregateBridgeResponseCounter = 0;
     bridgeRequestCounter = 0;
     syncBridgeRequestCounter = 0;
-    rejectedSyncBridgeRequestCounter = 0;
+    bridgeRequestAttemptCounter = 0;
     bridgeIdleGeneration += 1;
     try {
       await run(message);
@@ -691,18 +691,15 @@ function createBridgeFunctions(
   const invokeHostFunction = context.newFunction(
     '__runInvokeHostFunction',
     (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
+      admitBridgeRequestAttempt(message);
       const hostFunctionName = hostFunctionNameHandle.toString();
       const inputJson = inputJsonHandle.toString();
-      if (Buffer.byteLength(hostFunctionName) > 1024) {
-        throw new Error('Host function name exceeds 1024 bytes.');
-      }
-      if (
-        Buffer.byteLength(inputJson) > message.options.maxHostFunctionInputBytes
-      ) {
-        throw new Error(
-          `Host function arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
-        );
-      }
+      assertBridgeRequestSize(
+        message,
+        hostFunctionName,
+        inputJson,
+        'Host function',
+      );
       return requestHost(
         context,
         message.invocationId,
@@ -719,18 +716,15 @@ function createBridgeFunctions(
   const invokeSyncHostFunction = context.newFunction(
     '__runInvokeSyncHostFunction',
     (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
+      admitBridgeRequestAttempt(message);
       const hostFunctionName = hostFunctionNameHandle.toString();
       const inputJson = inputJsonHandle.toString();
-      if (Buffer.byteLength(hostFunctionName) > 1024) {
-        throw new Error('Host function name exceeds 1024 bytes.');
-      }
-      if (
-        Buffer.byteLength(inputJson) > message.options.maxHostFunctionInputBytes
-      ) {
-        throw new Error(
-          `Host function arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
-        );
-      }
+      assertBridgeRequestSize(
+        message,
+        hostFunctionName,
+        inputJson,
+        'Host function',
+      );
       const response = requestSyncHost(
         message,
         SyncBridgeRequestKind.HostFunction,
@@ -753,7 +747,8 @@ function requestSyncModuleNormalize(
   specifier: string,
   importer: string,
 ): string {
-  assertSyncBridgeRequestSize(message, specifier, importer);
+  admitBridgeRequestAttempt(message);
+  assertBridgeRequestSize(message, specifier, importer);
   const response = requestSyncHost(
     message,
     SyncBridgeRequestKind.ModuleNormalize,
@@ -774,7 +769,8 @@ function requestSyncModuleLoad(
   message: WorkerRunMessage,
   name: string,
 ): string {
-  assertSyncBridgeRequestSize(message, name);
+  admitBridgeRequestAttempt(message);
+  assertBridgeRequestSize(message, name);
   const response = requestSyncHost(
     message,
     SyncBridgeRequestKind.ModuleLoad,
@@ -803,35 +799,37 @@ function throwModuleBridgeError(
   throw new Error(error.message);
 }
 
-function assertSyncBridgeRequestSize(
-  message: WorkerRunMessage,
-  name: string,
-  payload?: string,
-): void {
-  let errorMessage: string;
-  if (Buffer.byteLength(name) > 1024) {
-    errorMessage = 'Synchronous bridge request name exceeds 1024 bytes.';
-  } else if (
-    payload !== undefined &&
-    Buffer.byteLength(payload) > message.options.maxHostFunctionInputBytes
-  ) {
-    errorMessage = `Synchronous bridge request arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`;
-  } else {
-    return;
-  }
-
-  // Rejected requests never reach the manager, so keep their budget separate
-  // from the contiguous request indexes used by the bridge protocol.
-  rejectedSyncBridgeRequestCounter += 1;
-  if (rejectedSyncBridgeRequestCounter > message.options.maxBridgeRequests) {
+function admitBridgeRequestAttempt(message: WorkerRunMessage): void {
+  // Count every attempt before validation, independently of the contiguous
+  // transport indexes: locally rejected requests never reach the manager.
+  if (bridgeRequestAttemptCounter >= message.options.maxBridgeRequests) {
     const error = new RunBridgeLimitError(
-      `JavaScript runtime exceeded the ${message.options.maxBridgeRequests} rejected bridge request limit.`,
+      `JavaScript runtime exceeded the ${message.options.maxBridgeRequests} bridge request limit.`,
       { maxBridgeRequests: message.options.maxBridgeRequests },
     );
     activeCancellation?.fail(error);
     throw error;
   }
-  throw new Error(errorMessage);
+  bridgeRequestAttemptCounter += 1;
+}
+
+function assertBridgeRequestSize(
+  message: WorkerRunMessage,
+  name: string,
+  payload?: string,
+  label = 'Synchronous bridge request',
+): void {
+  if (Buffer.byteLength(name) > 1024) {
+    throw new Error(`${label} name exceeds 1024 bytes.`);
+  }
+  if (
+    payload !== undefined &&
+    Buffer.byteLength(payload) > message.options.maxHostFunctionInputBytes
+  ) {
+    throw new Error(
+      `${label} arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
+    );
+  }
 }
 
 function requestSyncHost(
@@ -844,7 +842,7 @@ function requestSyncHost(
   if (syncBridge === undefined) {
     throw new RunProtocolError('Synchronous bridge is unavailable.');
   }
-  assertSyncBridgeRequestSize(message, name, payload);
+  assertBridgeRequestSize(message, name, payload);
   const { header } = getSyncBridgeViews(syncBridge);
   if (Atomics.load(header, SyncBridgeHeader.State) !== SyncBridgeState.Idle) {
     throw new RunProtocolError('Synchronous bridge was not idle.');
