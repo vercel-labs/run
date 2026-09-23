@@ -2,13 +2,17 @@ import { Buffer } from 'node:buffer';
 import { Worker } from 'node:worker_threads';
 import { expect, it } from 'vitest';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
-import type { MainToWorkerMessage } from './protocol.js';
+import type {
+  MainToWorkerMessage,
+  WorkerResultMessage,
+  WorkerRunMessage,
+} from './protocol.js';
 import { INLINE_RUN_WORKER_SOURCE } from './worker-source.js';
 
 const createRunMessage = (
   invocationId: string,
   source: string,
-): MainToWorkerMessage => ({
+): WorkerRunMessage => ({
   determinism: {
     dateNowMs: 1_700_000_000_000,
     randomSeed: '00000000000000000000000000000001',
@@ -18,6 +22,7 @@ const createRunMessage = (
   moduleLoader: false,
   options: {
     executionTimeoutMs: 950,
+    maxBridgeRequests: 256,
     maxConsoleOutputBytes: 64 * 1024,
     maxHostFunctionInputBytes: 1024 * 1024,
     maxResultBytes: 1024 * 1024,
@@ -31,6 +36,68 @@ const createRunMessage = (
   syncHostFunctionNamespaces: [],
   type: 'run',
 });
+
+it.each([String.raw`'\u0001'.repeat(70_000)`, "'é'.repeat(513)"])(
+  'rejects %s before serialization and resets the rejection budget on reuse',
+  async specifier => {
+    const source = `
+      const originalStringify = JSON.stringify;
+      JSON.stringify = function(value, ...args) {
+        if (Array.isArray(value) && value.some(item =>
+          typeof item === 'string' && Buffer.byteLength(item) > 1024
+        )) {
+          throw new Error('Oversized module argument reached JSON.stringify');
+        }
+        return originalStringify(value, ...args);
+      };
+      ${INLINE_RUN_WORKER_SOURCE}
+    `;
+    const worker =
+      (globalThis as { Bun?: unknown }).Bun === undefined
+        ? new Worker(
+            new URL(
+              `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`,
+            ),
+            { execArgv: [] },
+          )
+        : new Worker(source, { eval: true, execArgv: [] });
+    try {
+      // Each run uses its entire rejection allowance; reuse must reset it.
+      for (const invocationId of ['first', 'second']) {
+        const completed = createPromiseWithResolvers<WorkerResultMessage>();
+        const onMessage = (message: WorkerResultMessage) => {
+          if (message.type === 'result') {
+            completed.resolve(message);
+          }
+        };
+        worker.on('message', onMessage);
+        worker.on('error', completed.reject);
+        const message = createRunMessage(
+          invocationId,
+          `
+          try { await import(${specifier}); } catch (error) { return error.message; }
+          throw new Error('Expected import rejection');
+        `,
+        );
+        message.moduleLoader = true;
+        message.options.maxBridgeRequests = 1;
+        // eslint-disable-next-line unicorn/require-post-message-target-origin -- Node.js Worker has no targetOrigin parameter.
+        worker.postMessage(message);
+        const result = await completed.promise;
+        worker.off('message', onMessage);
+        worker.off('error', completed.reject);
+        expect(result).toMatchObject({
+          success: true,
+          valueJson: expect.stringContaining(
+            'Synchronous bridge request name exceeds 1024 bytes.',
+          ),
+        });
+      }
+    } finally {
+      await worker.terminate();
+    }
+  },
+);
 
 it('reports message failures and ignores late messages without crashing', async () => {
   const worker =

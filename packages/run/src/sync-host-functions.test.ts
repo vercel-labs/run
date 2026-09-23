@@ -839,6 +839,76 @@ describe('native module loading', () => {
     expect(seen).toEqual(['ok']);
   });
 
+  it.each([
+    { label: 'oversized names', specifier: '\u0001'.repeat(2048) },
+    { label: 'escaped payloads', specifier: '\u0001'.repeat(16) },
+  ])(
+    'terminates repeated rejected $label even when caught',
+    async ({ specifier }) => {
+      const loaded: string[] = [];
+      const runner = createRunner({
+        limits: { maxBridgeRequests: 2, maxHostFunctionArgumentsBytes: 64 },
+      });
+
+      await expect(
+        runner.run({
+          moduleLoader: {
+            load(name) {
+              loaded.push(name);
+              return 'export {};';
+            },
+          },
+          source: `
+          for (let i = 0; i < 3; i++) {
+            try { await import(${JSON.stringify(specifier)}); } catch {}
+          }
+        `,
+        }),
+      ).rejects.toBeInstanceOf(RunBridgeLimitError);
+      expect(loaded).toEqual([]);
+    },
+  );
+
+  it('bounds rejected loads of oversized normalized names', async () => {
+    let loads = 0;
+    const runner = createRunner({ limits: { maxBridgeRequests: 2 } });
+
+    await expect(
+      runner.run({
+        moduleLoader: {
+          load() {
+            loads += 1;
+            return 'export {};';
+          },
+          normalize: () => '\u0001'.repeat(2048),
+        },
+        source: `
+          for (let i = 0; i < 2; i++) {
+            try { await import('/module-' + i); } catch {}
+          }
+        `,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(loads).toBe(0);
+  });
+
+  it('accepts a multibyte module name at the byte limit', async () => {
+    const name = 'é'.repeat(512);
+    const loaded: string[] = [];
+    await expect(
+      createRunner().run({
+        moduleLoader: {
+          load(specifier) {
+            loaded.push(specifier);
+            return 'export {};';
+          },
+        },
+        source: `await import(${JSON.stringify(name)});`,
+      }),
+    ).resolves.toEqual({ status: 'completed', value: undefined });
+    expect(loaded).toEqual([name]);
+  });
+
   it('preserves side-effectful imports whose bindings are unused', async () => {
     const seen: string[] = [];
     const runner = createRunner({

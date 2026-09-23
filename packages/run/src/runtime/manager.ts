@@ -896,6 +896,7 @@ function startWorkerRun({
       executionTimeoutMs: getWorkerExecutionTimeoutMs(
         normalizedOptions.timeoutMs,
       ),
+      maxBridgeRequests: normalizedOptions.maxBridgeRequests,
       maxConsoleOutputBytes: normalizedOptions.maxConsoleOutputBytes,
       maxHostFunctionInputBytes: normalizedOptions.maxHostFunctionInputBytes,
       maxResultBytes: normalizedOptions.maxResultBytes,
