@@ -127,7 +127,9 @@ synchronous bridge. When needed, the bridge is included in process memory
 admission, must fit within `memoryLimitBytes`, and has a hard 64 MiB capacity.
 
 `maxBridgeRequests` controls total asynchronous bindings, synchronous bindings,
-and module-loader interaction, while
+and module-loader interaction, including requests rejected by the worker's
+name or argument size checks. Catching those errors does not restore the budget.
+Each module normalization and load counts as a separate request, while
 `maxInFlightBridgeRequests` controls parallel host interaction. Lowering the
 in-flight limit can protect a database or external service even when the total
 number of asynchronous host function calls remains unchanged. Synchronous and

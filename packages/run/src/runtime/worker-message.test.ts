@@ -38,7 +38,7 @@ const createRunMessage = (
 });
 
 it.each([String.raw`'\u0001'.repeat(70_000)`, "'é'.repeat(513)"])(
-  'rejects %s before serialization and resets the rejection budget on reuse',
+  'rejects %s before serialization and resets the request budget on reuse',
   async specifier => {
     const source = `
       const originalStringify = JSON.stringify;
@@ -62,7 +62,7 @@ it.each([String.raw`'\u0001'.repeat(70_000)`, "'é'.repeat(513)"])(
           )
         : new Worker(source, { eval: true, execArgv: [] });
     try {
-      // Each run uses its entire rejection allowance; reuse must reset it.
+      // Each run uses its entire request allowance; reuse must reset it.
       for (const invocationId of ['first', 'second']) {
         const completed = createPromiseWithResolvers<WorkerResultMessage>();
         const onMessage = (message: WorkerResultMessage) => {
