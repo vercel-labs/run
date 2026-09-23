@@ -6,6 +6,7 @@ import {
 
 const WORKER_OPTIONS = {
   executionTimeoutMs: 950,
+  maxBridgeRequests: 256,
   maxConsoleOutputBytes: 64 * 1024,
   maxHostFunctionInputBytes: 1024 * 1024,
   maxResultBytes: 1024 * 1024,

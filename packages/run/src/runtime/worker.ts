@@ -6,6 +6,7 @@ import { EvalFlags, JSException, QuickJS } from 'quickjs-wasi';
 import type { Deferred, JSValueHandle } from 'quickjs-wasi';
 import {
   deserializeError,
+  RunBridgeLimitError,
   RunProtocolError,
   RunTimeoutError,
   serializeError,
@@ -46,6 +47,7 @@ let aggregateBridgeResponseCounter = 0;
 let bridgeRequestCounter = 0;
 let bridgeIdleGeneration = 0;
 let syncBridgeRequestCounter = 0;
+let rejectedSyncBridgeRequestCounter = 0;
 let embeddedQuickJsWasmModulePromise: Promise<WebAssembly.Module> | undefined;
 let activeCancellation:
   | {
@@ -131,6 +133,7 @@ async function handleMainMessage(value: unknown): Promise<void> {
     aggregateBridgeResponseCounter = 0;
     bridgeRequestCounter = 0;
     syncBridgeRequestCounter = 0;
+    rejectedSyncBridgeRequestCounter = 0;
     bridgeIdleGeneration += 1;
     try {
       await run(message);
@@ -750,6 +753,7 @@ function requestSyncModuleNormalize(
   specifier: string,
   importer: string,
 ): string {
+  assertSyncBridgeRequestSize(message, specifier, importer);
   const response = requestSyncHost(
     message,
     SyncBridgeRequestKind.ModuleNormalize,
@@ -770,6 +774,7 @@ function requestSyncModuleLoad(
   message: WorkerRunMessage,
   name: string,
 ): string {
+  assertSyncBridgeRequestSize(message, name);
   const response = requestSyncHost(
     message,
     SyncBridgeRequestKind.ModuleLoad,
@@ -798,6 +803,37 @@ function throwModuleBridgeError(
   throw new Error(error.message);
 }
 
+function assertSyncBridgeRequestSize(
+  message: WorkerRunMessage,
+  name: string,
+  payload?: string,
+): void {
+  let errorMessage: string;
+  if (Buffer.byteLength(name) > 1024) {
+    errorMessage = 'Synchronous bridge request name exceeds 1024 bytes.';
+  } else if (
+    payload !== undefined &&
+    Buffer.byteLength(payload) > message.options.maxHostFunctionInputBytes
+  ) {
+    errorMessage = `Synchronous bridge request arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`;
+  } else {
+    return;
+  }
+
+  // Rejected requests never reach the manager, so keep their budget separate
+  // from the contiguous request indexes used by the bridge protocol.
+  rejectedSyncBridgeRequestCounter += 1;
+  if (rejectedSyncBridgeRequestCounter > message.options.maxBridgeRequests) {
+    const error = new RunBridgeLimitError(
+      `JavaScript runtime exceeded the ${message.options.maxBridgeRequests} rejected bridge request limit.`,
+      { maxBridgeRequests: message.options.maxBridgeRequests },
+    );
+    activeCancellation?.fail(error);
+    throw error;
+  }
+  throw new Error(errorMessage);
+}
+
 function requestSyncHost(
   message: WorkerRunMessage,
   kind: SyncBridgeRequestKind,
@@ -808,14 +844,7 @@ function requestSyncHost(
   if (syncBridge === undefined) {
     throw new RunProtocolError('Synchronous bridge is unavailable.');
   }
-  if (Buffer.byteLength(name) > 1024) {
-    throw new Error('Synchronous bridge request name exceeds 1024 bytes.');
-  }
-  if (Buffer.byteLength(payload) > message.options.maxHostFunctionInputBytes) {
-    throw new Error(
-      `Synchronous bridge request arguments exceed the ${message.options.maxHostFunctionInputBytes} byte size limit.`,
-    );
-  }
+  assertSyncBridgeRequestSize(message, name, payload);
   const { header } = getSyncBridgeViews(syncBridge);
   if (Atomics.load(header, SyncBridgeHeader.State) !== SyncBridgeState.Idle) {
     throw new RunProtocolError('Synchronous bridge was not idle.');

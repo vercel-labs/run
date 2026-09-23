@@ -52,6 +52,7 @@ const isRunOptions = (value: unknown): boolean => {
   try {
     assertExactKeys(value, [
       'executionTimeoutMs',
+      'maxBridgeRequests',
       'maxConsoleOutputBytes',
       'maxHostFunctionInputBytes',
       'maxResultBytes',
