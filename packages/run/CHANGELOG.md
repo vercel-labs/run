@@ -1,5 +1,11 @@
 # run
 
+## 2.1.6
+
+### Patch Changes
+
+- 6a88d16: fix: enforce aggregate bridge budget for accepted and rejected requests
+
 ## 2.1.5
 
 ### Patch Changes
