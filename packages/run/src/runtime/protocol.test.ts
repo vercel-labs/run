@@ -21,6 +21,7 @@ const DETERMINISM = {
 };
 
 const createRunMessage = (invocationId: string) => ({
+  bridgeRequestAccounting: 'attempts',
   determinism: DETERMINISM,
   hostFunctionNamespaces: ['tools'],
   invocationId,
@@ -60,6 +61,10 @@ describe('worker protocol hardening', () => {
     { type: 'unknown' },
     { ...createRunMessage('invocation-a'), extra: true },
     { ...createRunMessage('invocation-a'), invocationId: '' },
+    {
+      ...createRunMessage('invocation-a'),
+      bridgeRequestAccounting: 'unlimited',
+    },
     { extra: true, invocationId: '', type: 'cancel' },
     { invocationId: '', type: 'cancel' },
     {

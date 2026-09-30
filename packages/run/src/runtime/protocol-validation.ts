@@ -197,9 +197,9 @@ type AssertMainToWorkerMessage = (
   value: unknown,
 ) => asserts value is MainToWorkerMessage;
 
-const hasValidSyncBridgeConfiguration = (
-  value: Record<string, unknown>,
-): boolean =>
+const hasValidBridgeConfiguration = (value: Record<string, unknown>): boolean =>
+  (value.bridgeRequestAccounting === 'attempts' ||
+    value.bridgeRequestAccounting === 'admitted') &&
   (value.syncBridge === undefined ||
     value.syncBridge instanceof SharedArrayBuffer) &&
   (!value.moduleLoader || value.syncBridge !== undefined) &&
@@ -216,6 +216,7 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
   }
   if (value.type === 'run') {
     assertExactKeys(value, [
+      'bridgeRequestAccounting',
       'determinism',
       'hostFunctionNamespaces',
       'invocationId',
@@ -240,7 +241,7 @@ export const assertMainToWorkerMessage: AssertMainToWorkerMessage = value => {
         value.syncHostFunctionNamespaces.length ||
       typeof value.moduleLoader !== 'boolean' ||
       !hasValidSourceType(value.sourceType) ||
-      !hasValidSyncBridgeConfiguration(value) ||
+      !hasValidBridgeConfiguration(value) ||
       !isDeterminism(value.determinism) ||
       !isRunOptions(value.options)
     ) {

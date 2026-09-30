@@ -271,6 +271,90 @@ describe('manager protocol state machine', () => {
     },
   );
 
+  it.each(['encoding', 'cancelled'])(
+    'does not mask a worker bridge limit failure while suspension is %s',
+    async phase => {
+      const encodeStarted = createPromiseWithResolvers<null>();
+      const finishEncode = createPromiseWithResolvers<null>();
+      const cancelled = createPromiseWithResolvers<null>();
+      let emitWorker: WorkerEmit | undefined;
+      let invocationId: string | undefined;
+      setRuntimeWorkerFactoryForTest(() =>
+        createWorkerDouble({
+          postMessage(value, emit) {
+            const message = value as { type?: string; invocationId?: string };
+            if (message.type === 'cancel') {
+              cancelled.resolve(null);
+              return;
+            }
+            if (message.type !== 'run' || message.invocationId === undefined) {
+              return;
+            }
+            ({ invocationId } = message);
+            emitWorker = emit;
+            queueMicrotask(() => {
+              emit('message', {
+                hostFunctionName: 'tools.pause',
+                inputJson: '[[]]',
+                invocationId,
+                requestId: `${invocationId}:bridge-1`,
+                requestIndex: 1,
+                type: 'host-function-request',
+              });
+              emit('message', {
+                invocationId,
+                requestCount: 1,
+                responseCount: 0,
+                type: 'bridge-idle',
+              });
+            });
+          },
+        }),
+      );
+      const runner = createRunner({
+        continuationCodec: {
+          decode() {
+            throw new Error('not used');
+          },
+          async encode() {
+            encodeStarted.resolve(null);
+            await finishEncode.promise;
+            return 'encoded-interruption';
+          },
+        },
+      });
+      const result = runner.run({
+        hostFunctions: {
+          tools: {
+            pause: () => getHostFunctionContext().interrupt('approval'),
+          },
+        },
+        source: 'return await tools.pause();',
+      });
+      const rejected = expect(result).rejects.toMatchObject({
+        code: 'RUN_BRIDGE_LIMIT',
+      });
+      await encodeStarted.promise;
+      if (phase === 'cancelled') {
+        finishEncode.resolve(null);
+        await cancelled.promise;
+      }
+      emitWorker?.('message', {
+        error: {
+          code: 'RUN_BRIDGE_LIMIT',
+          message: 'JavaScript runtime exceeded the bridge request limit.',
+          name: 'RunBridgeLimitError',
+        },
+        invocationId,
+        success: false,
+        type: 'result',
+      });
+      emitWorker?.('message', { invocationId, type: 'ready' });
+      finishEncode.resolve(null);
+      await rejected;
+    },
+  );
+
   it('preserves an encoded interruption when the worker fails after its result', async () => {
     const encodeStarted = createPromiseWithResolvers<null>();
     const finishEncode = createPromiseWithResolvers<null>();

@@ -5,6 +5,7 @@ import type {
 } from '../types.js';
 
 export interface WorkerRunMessage {
+  bridgeRequestAccounting: 'attempts' | 'admitted';
   type: 'run';
   invocationId: string;
   source: string;

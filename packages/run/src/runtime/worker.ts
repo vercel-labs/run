@@ -800,6 +800,11 @@ function throwModuleBridgeError(
 }
 
 function admitBridgeRequestAttempt(message: WorkerRunMessage): void {
+  // Authenticated legacy continuations retain their original admission rules.
+  // The manager still limits dispatched requests; size checks remain enabled.
+  if (message.bridgeRequestAccounting === 'admitted') {
+    return;
+  }
   // Count every attempt before validation, independently of the contiguous
   // transport indexes: locally rejected requests never reach the manager.
   if (bridgeRequestAttemptCounter >= message.options.maxBridgeRequests) {

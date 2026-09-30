@@ -1,0 +1,21 @@
+{
+  "determinism": {
+    "dateNowMs": 1790181110978,
+    "randomSeed": "16ff489fdf7307f08fc3044eeafc26c3"
+  },
+  "ledger": [
+    {
+      "bindingName": "tools.pause",
+      "inputJson": "[[]]",
+      "interruptionId": "interrupt-1",
+      "payloadJson": "[\"approval\"]",
+      "status": "interrupted"
+    }
+  ],
+  "logicalRunId": "ba7a99c27d712cf31bea546738430d6c",
+  "runtime": "run-replay-v2",
+  "scopeHash": "d1f5138f6f573c5b5304ced876744530dc8dd646c2331c605cfcf6479280c614",
+  "serde": "run-js-v1",
+  "source": "for (let i = 0; i < 3; i++) { try { await tools.echo('x'.repeat(128)); } catch {} }\nreturn await tools.pause();",
+  "version": 2
+}

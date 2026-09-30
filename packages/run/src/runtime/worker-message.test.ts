@@ -13,6 +13,7 @@ const createRunMessage = (
   invocationId: string,
   source: string,
 ): WorkerRunMessage => ({
+  bridgeRequestAccounting: 'attempts',
   determinism: {
     dateNowMs: 1_700_000_000_000,
     randomSeed: '00000000000000000000000000000001',

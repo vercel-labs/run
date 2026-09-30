@@ -458,6 +458,13 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
   }
 }
 
+const getBridgeRequestAccounting = (
+  state: RunContinuationState | undefined,
+): 'admitted' | 'attempts' =>
+  state !== undefined && state.bridgeRequestLimits === undefined
+    ? 'admitted'
+    : 'attempts';
+
 function startWorkerRun({
   source,
   sourceType,
@@ -512,6 +519,7 @@ function startWorkerRun({
     };
 
   const outerAbortSignal = abortSignal;
+  const bridgeRequestAccounting = getBridgeRequestAccounting(continuationState);
   const invocationAbortController = new AbortController();
 
   let resultMessage: WorkerResultMessage | undefined;
@@ -802,6 +810,11 @@ function startWorkerRun({
         return;
       }
       resultMessage = message;
+      // An interruption cancels guest execution, but must not hide a terminal
+      // budget failure reported by the worker while suspension was settling.
+      if (!message.success && message.error?.code === 'RUN_BRIDGE_LIMIT') {
+        failTerminal(deserializeResultError(message));
+      }
       return;
     }
 
@@ -888,6 +901,7 @@ function startWorkerRun({
   }
 
   const runMessage: MainToWorkerMessage = {
+    bridgeRequestAccounting,
     determinism,
     hostFunctionNamespaces: [...hostFunctionManifest.keys()],
     invocationId,
@@ -1535,6 +1549,15 @@ function startWorkerRun({
         context =>
           continuationCodec.encode(
             {
+              ...(bridgeRequestAccounting === 'attempts'
+                ? {
+                    bridgeRequestLimits: {
+                      maxBridgeRequests: normalizedOptions.maxBridgeRequests,
+                      maxHostFunctionArgumentsBytes:
+                        normalizedOptions.maxHostFunctionInputBytes,
+                    },
+                  }
+                : undefined),
               determinism: { ...determinism },
               ledger: structuredClone(ledger),
               logicalRunId,

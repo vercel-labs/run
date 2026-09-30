@@ -207,6 +207,11 @@ export interface ContinuationOperationContext {
 export interface RunContinuationState {
   version: 2;
   runtime: 'run-replay-v2';
+  /** Present for workflows using aggregate attempt accounting; absent on legacy state. */
+  bridgeRequestLimits?: {
+    maxBridgeRequests: number;
+    maxHostFunctionArgumentsBytes: number;
+  };
   serde: 'run-js-v1';
   source: string;
   logicalRunId: string;

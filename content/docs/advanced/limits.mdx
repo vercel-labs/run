@@ -129,6 +129,9 @@ admission, must fit within `memoryLimitBytes`, and has a hard 64 MiB capacity.
 `maxBridgeRequests` controls total asynchronous bindings, synchronous bindings,
 and module-loader interaction, including requests rejected by the worker's
 name or argument size checks. Catching those errors does not restore the budget.
+Existing continuations created before aggregate attempt accounting retain their
+original counting rules. New continuations bind `maxBridgeRequests` and
+`maxHostFunctionArgumentsBytes` so those limits must match when resuming.
 Each module normalization and load counts as a separate request, while
 `maxInFlightBridgeRequests` controls parallel host interaction. Lowering the
 in-flight limit can protect a database or external service even when the total

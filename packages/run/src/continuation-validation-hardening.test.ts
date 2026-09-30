@@ -63,6 +63,44 @@ const expectInvalid = (value: unknown): void => {
 };
 
 describe('continuation state validation hardening', () => {
+  it('accepts matching optional bridge limits without changing the v2 state', () => {
+    const options = normalizeOptions();
+    expect(() =>
+      assertContinuationState(
+        {
+          ...validState(),
+          bridgeRequestLimits: {
+            maxBridgeRequests: options.maxBridgeRequests,
+            maxHostFunctionArgumentsBytes: options.maxHostFunctionInputBytes,
+          },
+        },
+        source,
+        scopeHash,
+        options,
+      ),
+    ).not.toThrow();
+  });
+
+  it.each([
+    undefined,
+    null,
+    {},
+    { maxBridgeRequests: 256 },
+    {
+      extra: true,
+      maxBridgeRequests: 256,
+      maxHostFunctionArgumentsBytes: 1024 * 1024,
+    },
+    { maxBridgeRequests: '256', maxHostFunctionArgumentsBytes: 1024 * 1024 },
+    { maxBridgeRequests: 1, maxHostFunctionArgumentsBytes: 1024 * 1024 },
+    { maxBridgeRequests: 256, maxHostFunctionArgumentsBytes: 64 },
+  ])(
+    'rejects malformed or mismatched bridge limits %j',
+    bridgeRequestLimits => {
+      expectInvalid({ ...validState(), bridgeRequestLimits });
+    },
+  );
+
   it('validates mixed synchronous, module, and asynchronous ledger entries', () => {
     const state = validState();
     state.ledger = [

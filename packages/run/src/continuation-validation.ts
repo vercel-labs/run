@@ -394,6 +394,9 @@ const isMatchingContinuationState = (
 ): value is RunContinuationState =>
   isRecord(value) &&
   hasExactKeys(value, [
+    ...(Object.hasOwn(value, 'bridgeRequestLimits')
+      ? ['bridgeRequestLimits']
+      : []),
     'determinism',
     'ledger',
     'logicalRunId',
@@ -509,6 +512,22 @@ const validateContinuationState: ValidateContinuationState = (
     throw new RunProtocolError(
       'Continuation does not match the supplied source, scope, or runtime version.',
     );
+  }
+  if (Object.hasOwn(value, 'bridgeRequestLimits')) {
+    const limits = value.bridgeRequestLimits;
+    if (
+      !isRecord(limits) ||
+      !hasExactKeys(limits, [
+        'maxBridgeRequests',
+        'maxHostFunctionArgumentsBytes',
+      ]) ||
+      limits.maxBridgeRequests !== options.maxBridgeRequests ||
+      limits.maxHostFunctionArgumentsBytes !== options.maxHostFunctionInputBytes
+    ) {
+      throw new RunProtocolError(
+        'Continuation bridge request limits do not match the configured limits.',
+      );
+    }
   }
   if (!hasValidDeterminism(value.determinism)) {
     throw new RunProtocolError('Continuation determinism state is invalid.');

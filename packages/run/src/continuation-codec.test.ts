@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createSignedContinuationCodec,
@@ -9,6 +10,7 @@ import type {
   StoredContinuation,
 } from './continuation-codec.js';
 import type { RunContinuationState } from './types.js';
+import { createRunner, getHostFunctionContext } from './index.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 
 const state: RunContinuationState = {
@@ -81,6 +83,145 @@ const createMemoryStorage = (): {
 afterEach(() => vi.useRealTimers());
 
 describe('continuation codecs', () => {
+  it.each(['signed', 'stored'])(
+    'resumes and re-interrupts a legacy %s continuation with its original budget',
+    async kind => {
+      // Produced by commit 184b344: three caught oversized calls, then one
+      // admitted interruption, with maxBridgeRequests = 1.
+      const legacyState = JSON.parse(
+        await readFile(
+          new URL(
+            '__fixtures__/legacy-bridge-continuation.json',
+            import.meta.url,
+          ),
+          'utf8',
+        ),
+      ) as RunContinuationState;
+      const { storage, values } = createMemoryStorage();
+      const codec =
+        kind === 'stored'
+          ? createStoredContinuationCodec({ storage })
+          : createSignedContinuationCodec({
+              secret: 'legacy-continuation-test-secret-32-bytes',
+            });
+      const token = await codec.encode(legacyState);
+      const runner = createRunner({
+        continuationCodec: codec,
+        limits: { maxBridgeRequests: 1, maxHostFunctionArgumentsBytes: 64 },
+      });
+      const echo = vi.fn();
+      const pause = vi.fn(() => {
+        const context = getHostFunctionContext();
+        if (context.resume?.resolution === 'again') {
+          context.interrupt('approval-again');
+        }
+        return context.resume?.resolution;
+      });
+      const [entry] = legacyState.ledger;
+      if (entry?.status !== 'interrupted') {
+        throw new Error('Expected an interrupted fixture.');
+      }
+      const input = {
+        hostFunctions: { tools: { echo, pause } },
+        source: legacyState.source,
+      };
+      const repeated = await runner.run({
+        ...input,
+        continuation: token,
+        resolutions: [{ interruptionId: entry.interruptionId, value: 'again' }],
+      });
+      if (repeated.status !== 'interrupted') {
+        throw new Error('Expected another interruption.');
+      }
+      const nextState =
+        kind === 'stored'
+          ? values.get(repeated.continuation)?.state
+          : await codec.decode(repeated.continuation);
+      expect(nextState).toMatchObject({ runtime: 'run-replay-v2', version: 2 });
+      expect(nextState).not.toHaveProperty('bridgeRequestLimits');
+      const [interruption] = repeated.interruptions;
+      if (interruption === undefined) {
+        throw new Error('Expected a pending interruption.');
+      }
+      await expect(
+        runner.run({
+          ...input,
+          continuation: repeated.continuation,
+          resolutions: [{ interruptionId: interruption.id, value: 'approved' }],
+        }),
+      ).resolves.toEqual({ status: 'completed', value: 'approved' });
+      expect(echo).not.toHaveBeenCalled();
+      expect(pause).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it('rejects changed bridge limits before consuming a new stored continuation', async () => {
+    const { storage, values } = createMemoryStorage();
+    const codec = createStoredContinuationCodec({ storage });
+    const runner = createRunner({
+      continuationCodec: codec,
+      limits: { maxBridgeRequests: 2, maxHostFunctionArgumentsBytes: 64 },
+    });
+    const echo = vi.fn();
+    const pause = vi.fn(() => {
+      const context = getHostFunctionContext();
+      if (!context.resume) {
+        context.interrupt('approval');
+      }
+      return context.resume?.resolution;
+    });
+    const input = {
+      hostFunctions: { tools: { echo, pause } },
+      source: `
+        try { await tools.echo('x'.repeat(128)); } catch {}
+        return await tools.pause();
+      `,
+    };
+    const interrupted = await runner.run(input);
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected an interrupted run.');
+    }
+    expect(values.get(interrupted.continuation)?.state).toMatchObject({
+      bridgeRequestLimits: {
+        maxBridgeRequests: 2,
+        maxHostFunctionArgumentsBytes: 64,
+      },
+      runtime: 'run-replay-v2',
+      version: 2,
+    });
+    const [interruption] = interrupted.interruptions;
+    if (interruption === undefined) {
+      throw new Error('Expected a pending interruption.');
+    }
+    const resumeInput = {
+      ...input,
+      continuation: interrupted.continuation,
+      resolutions: [{ interruptionId: interruption.id, value: 'approved' }],
+    };
+    for (const limits of [
+      { maxBridgeRequests: 1 },
+      { maxHostFunctionArgumentsBytes: 128 },
+    ]) {
+      await expect(
+        runner.run({ ...resumeInput, limits }),
+      ).rejects.toMatchObject({
+        code: 'RUN_PROTOCOL_ERROR',
+        message:
+          'Continuation bridge request limits do not match the configured limits.',
+      });
+      expect(values.has(interrupted.continuation)).toBe(true);
+      expect(pause).toHaveBeenCalledOnce();
+      expect(echo).not.toHaveBeenCalled();
+    }
+    await expect(runner.run(resumeInput)).resolves.toEqual({
+      status: 'completed',
+      value: 'approved',
+    });
+    expect(values.has(interrupted.continuation)).toBe(false);
+    expect(pause).toHaveBeenCalledTimes(2);
+    expect(echo).not.toHaveBeenCalled();
+  });
+
   it('atomically consumes stored continuations', async () => {
     const { storage } = createMemoryStorage();
     const codec = createStoredContinuationCodec({

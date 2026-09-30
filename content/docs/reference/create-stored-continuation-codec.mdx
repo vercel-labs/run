@@ -206,6 +206,13 @@ import { createStoredContinuationCodec } from 'run';
                 required: true,
                 description: 'The replay runtime identifier.',
               },
+              bridgeRequestLimits: {
+                type: '{ maxBridgeRequests: number; maxHostFunctionArgumentsBytes: number }',
+                typeDescription:
+                  '{ maxBridgeRequests: number; maxHostFunctionArgumentsBytes: number }',
+                description:
+                  'Optional authenticated limits for aggregate attempt accounting. Absent on legacy continuations; custom codecs must preserve it when present.',
+              },
               serde: {
                 type: "'run-js-v1'",
                 typeDescription: "'run-js-v1'",
