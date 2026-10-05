@@ -195,13 +195,11 @@ async function run(message: WorkerRunMessage): Promise<void> {
 
 async function execute(message: WorkerRunMessage): Promise<string> {
   const deadline = Date.now() + message.options.executionTimeoutMs;
-  let interruptChecks = 0;
   let cancelled = false;
   let executionTimedOut = false;
   const quickJSOptions: Parameters<typeof createQuickJSContext>[0] = {
     interruptHandler: () => {
-      interruptChecks += 1;
-      const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
+      const timedOut = Date.now() > deadline;
       executionTimedOut ||= timedOut;
       return cancelled || timedOut;
     },
@@ -228,15 +226,16 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let registerTrustedErrorHandle: JSValueHandle | undefined;
   let resetDateNowHandle: JSValueHandle | undefined;
   let serializeJsonPayloadHandle: JSValueHandle | undefined;
-  let executionFailure: { error: unknown } | undefined;
-  const getExecutionFailure = (): { error: unknown } | undefined =>
-    executionFailure;
+  let executionFailure: { afterTimeout: boolean; error: unknown } | undefined;
+  const getExecutionFailure = ():
+    | { afterTimeout: boolean; error: unknown }
+    | undefined => executionFailure;
   activeCancellation = {
     cancel: () => {
       cancelled = true;
     },
     fail: error => {
-      executionFailure ??= { error };
+      executionFailure ??= { afterTimeout: executionTimedOut, error };
       cancelled = true;
     },
     invocationId: message.invocationId,
@@ -291,7 +290,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     return valueJson;
   } catch (error) {
     const messageFailure = getExecutionFailure();
-    if (messageFailure !== undefined) {
+    if (messageFailure !== undefined && !messageFailure.afterTimeout) {
       throw messageFailure.error;
     }
     if (executionTimedOut) {
