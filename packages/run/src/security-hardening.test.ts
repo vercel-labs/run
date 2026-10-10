@@ -363,6 +363,7 @@ describe('guest sandbox hardening', () => {
 
   it.each([
     'RUN_BRIDGE_LIMIT',
+    'RUN_CPU_TIMEOUT',
     'RUN_HOST_FUNCTION_ERROR',
     'RUN_SERIALIZATION_ERROR',
     'RUN_TIMEOUT',

@@ -3,6 +3,7 @@ export {
   RunHostFunctionError,
   RunBridgeLimitError,
   RunConcurrencyError,
+  RunCpuTimeoutError,
   RunDetachedBridgeRequestError,
   RunError,
   RunProtocolError,

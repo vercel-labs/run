@@ -315,7 +315,8 @@ invocation and is available through `getHostFunctionContext()`.
 
 | Limit                                        |    Default |
 | -------------------------------------------- | ---------: |
-| Timeout                                      | 30 seconds |
+| Timeout (`timeoutMs`)                        | 30 seconds |
+| CPU timeout (`cpuTimeoutMs`)                 | 30 seconds |
 | QuickJS memory                               |     64 MiB |
 | QuickJS stack                                |      2 MiB |
 | Source                                       |    256 KiB |
@@ -326,6 +327,15 @@ invocation and is available through `getHostFunctionContext()`.
 | Bridge requests                              |        256 |
 | Concurrent bridge requests                   |         32 |
 | Continuation                                 |     32 MiB |
+
+`timeoutMs` is the wall-clock ceiling for one invocation, including time spent
+waiting on host functions, module loaders, and continuation codecs. It fails
+with `RUN_TIMEOUT`. `cpuTimeoutMs` bounds the time the worker spends running
+guest JavaScript in one invocation and fails with `RUN_CPU_TIMEOUT`. Time spent
+awaiting asynchronous host functions or blocked in synchronous host functions
+and module loaders does not count toward it. To allow slow host functions,
+raise `timeoutMs` and rely on `cpuTimeoutMs` to stop runaway guest code. Each
+invocation, including each continuation resume, starts with a fresh CPU budget.
 
 All limits must be positive integers no greater than `2_147_483_647`. Values
 above this ceiling are rejected instead of being passed to platform APIs that
@@ -375,6 +385,10 @@ manifests, module-loader identity, and complete serialized argument list for
 every bridge call. Guest `Date`, `Date.now()`, and `Math.random()` remain
 deterministic across replay. Divergence is rejected before a mismatched
 integration executes.
+
+Replay runs the guest source again from the start. That guest work counts
+toward the resumed invocation's `cpuTimeoutMs`, which starts from zero on every
+resume.
 
 An interrupted host function itself is reinvoked. Call `interrupt()` before
 doing non-idempotent work. For writes that may be retried, use
@@ -491,6 +505,8 @@ Runtime failures extend `RunError` and expose a stable `code`:
 
 - `RUN_ABORTED`, `RUN_TIMEOUT`, and `RUN_CONCURRENCY_LIMIT` may be retried when
   host effects are safe to retry.
+- `RUN_CPU_TIMEOUT` means guest JavaScript exceeded `cpuTimeoutMs`. Retrying
+  unchanged source usually fails again.
 - `RUN_PROTOCOL_ERROR` indicates malformed, tampered, expired, or divergent
   continuation state. Do not retry unchanged input.
 - `RUN_USER_SOURCE_ERROR` identifies uncaught guest evaluation failures, including

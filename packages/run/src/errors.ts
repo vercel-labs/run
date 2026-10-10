@@ -5,6 +5,7 @@ import { RunAbortedError } from './errors/run-aborted-error.js';
 import { RunHostFunctionError } from './errors/run-host-function-error.js';
 import { RunBridgeLimitError } from './errors/run-bridge-limit-error.js';
 import { RunConcurrencyError } from './errors/run-concurrency-error.js';
+import { RunCpuTimeoutError } from './errors/run-cpu-timeout-error.js';
 import { RunDetachedBridgeRequestError } from './errors/run-detached-bridge-request-error.js';
 import { RunError } from './errors/run-error.js';
 import { RunProtocolError } from './errors/run-protocol-error.js';
@@ -16,6 +17,7 @@ export {
   RunHostFunctionError,
   RunBridgeLimitError,
   RunConcurrencyError,
+  RunCpuTimeoutError,
   RunDetachedBridgeRequestError,
   RunError,
   RunProtocolError,
@@ -254,6 +256,13 @@ export const deserializeError = (error: SerializableError): Error => {
   if (error.code === 'RUN_TIMEOUT') {
     const details = error.details as { timeoutMs?: number } | undefined;
     const result = new RunTimeoutError(details?.timeoutMs ?? 0);
+    restoreStack(result, error);
+    return result;
+  }
+
+  if (error.code === 'RUN_CPU_TIMEOUT') {
+    const details = error.details as { cpuTimeoutMs?: number } | undefined;
+    const result = new RunCpuTimeoutError(details?.cpuTimeoutMs ?? 0);
     restoreStack(result, error);
     return result;
   }

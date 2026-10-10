@@ -23,6 +23,7 @@ and a coding agent rarely want the same budget.
 | Limit                           |    Default | Bounds                              |
 | ------------------------------- | ---------: | ----------------------------------- |
 | `timeoutMs`                     | 30 seconds | The complete invocation             |
+| `cpuTimeoutMs`                  | 30 seconds | Guest JavaScript execution time     |
 | `memoryLimitBytes`              |     64 MiB | QuickJS and sync-bridge admission   |
 | `maxStackSizeBytes`             |      2 MiB | QuickJS stack                       |
 | `maxSourceBytes`                |    256 KiB | Entry and loaded module source      |
@@ -48,6 +49,7 @@ const MiB = 1024 * 1024;
 const runner = createRunner({
   limits: {
     timeoutMs: 15_000,
+    cpuTimeoutMs: 5_000,
     memoryLimitBytes: 32 * MiB,
     maxStackSizeBytes: 1024 * 1024,
     maxSourceBytes: 128 * 1024,
@@ -108,6 +110,21 @@ Start with the defaults and measure representative workloads before changing
 them. Lower a limit when the workload has a predictable shape, and raise it
 only when the application is prepared to absorb the additional resource use.
 
+`timeoutMs` and `cpuTimeoutMs` measure different things. `timeoutMs` is the
+wall-clock ceiling for the complete invocation, including time spent waiting on
+host functions, module loaders, and continuation codecs. `cpuTimeoutMs` counts
+only the time the worker spends running guest JavaScript. Time spent awaiting
+asynchronous host functions or blocked in synchronous host functions and module
+loaders does not count. When host functions are slow, such as a sandbox command
+or a remote API call, raise `timeoutMs` and keep `cpuTimeoutMs` low to stop
+runaway guest code. `cpuTimeoutMs` measures elapsed time while guest code runs,
+so it approximates CPU time rather than reading per-thread CPU counters.
+
+Each invocation, including each continuation resume, starts with a fresh
+`cpuTimeoutMs` budget. Replay runs the guest source again from the start, so
+the guest work replayed in a resumed invocation counts toward that
+invocation's budget.
+
 Source, argument, output, result, and continuation limits are measured after
 their relevant UTF-8 encoding or serialization step. A JavaScript object that
 appears small can have a much larger serialized representation.
@@ -144,6 +161,7 @@ limit.
 Limit violations reject the invocation. The most relevant stable codes are:
 
 - `RUN_TIMEOUT` indicates that the invocation exceeded `timeoutMs`.
+- `RUN_CPU_TIMEOUT` indicates that guest JavaScript exceeded `cpuTimeoutMs`.
 - `RUN_SOURCE_TOO_LARGE` indicates that the source exceeded
   `maxSourceBytes`.
 - `RUN_BRIDGE_LIMIT` indicates that total or in-flight host function traffic

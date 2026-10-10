@@ -63,8 +63,27 @@ export type HostFunctionManifest = ReadonlyMap<string, ReadonlySet<string>>;
 
 /** Resource limits applied to one sandbox invocation. */
 export interface RunLimits {
-  /** @default `30_000` */
+  /**
+   * Wall-clock ceiling for the complete invocation, including time spent
+   * waiting on host functions, module loaders, and continuation codecs.
+   * Exceeding it fails with `RUN_TIMEOUT`.
+   *
+   * @default `30_000`
+   */
   timeoutMs?: number;
+  /**
+   * Time the worker may spend running guest JavaScript in one invocation.
+   * Time spent awaiting asynchronous host functions or blocked in synchronous
+   * host functions and module loaders does not count. Each invocation,
+   * including each continuation resume, starts with a fresh budget. Exceeding
+   * it fails with `RUN_CPU_TIMEOUT`.
+   *
+   * This measures elapsed time while guest code runs, so it approximates CPU
+   * time rather than reading per-thread CPU counters.
+   *
+   * @default `30_000`
+   */
+  cpuTimeoutMs?: number;
   /** @default `64 * 1024 * 1024` */
   memoryLimitBytes?: number;
   /** @default `2 * 1024 * 1024` */
@@ -294,6 +313,7 @@ export interface InternalRunInput extends RunInput<unknown> {
 /** @internal */
 export interface NormalizedRunOptions {
   timeoutMs: number;
+  cpuTimeoutMs: number;
   memoryLimitBytes: number;
   maxStackSizeBytes: number;
   maxResultBytes: number;

@@ -18,6 +18,7 @@ export interface WorkerRunMessage {
   options: Pick<
     NormalizedRunOptions,
     | 'timeoutMs'
+    | 'cpuTimeoutMs'
     | 'maxBridgeRequests'
     | 'memoryLimitBytes'
     | 'maxStackSizeBytes'

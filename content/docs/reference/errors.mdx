@@ -28,7 +28,8 @@ and resource limits before choosing a retry policy.
 
 Run replaces guest-authored `code` properties with `RUN_USER_SOURCE_ERROR`,
 including custom codes and attempts to imitate runtime errors. Trusted errors
-from host functions retain their codes, and actual timeouts remain `RUN_TIMEOUT`.
+from host functions retain their codes, and actual timeouts remain `RUN_TIMEOUT`
+or `RUN_CPU_TIMEOUT`.
 Generic `RUN_ERROR` remains a fallback and does not identify a source failure.
 
 ## Import
@@ -39,6 +40,7 @@ import {
   RunHostFunctionError,
   RunBridgeLimitError,
   RunConcurrencyError,
+  RunCpuTimeoutError,
   RunDetachedBridgeRequestError,
   RunError,
   RunProtocolError,
@@ -360,6 +362,45 @@ import {
                 typeDescription: '{ timeoutMs: number }',
                 required: true,
                 description: 'The configured timeout in milliseconds.',
+              },
+            }}
+          />
+        </>
+      ),
+    },
+    RunCpuTimeoutError: {
+      type: 'RunError',
+      typeDescription: 'RunError',
+      required: true,
+      description: (
+        <>
+          <p>
+            {
+              'Raised when guest JavaScript exceeds its per-invocation CPU time limit.'
+            }
+          </p>
+          <p>
+            <code>{'RunCpuTimeoutError'}</code>
+          </p>
+          <TypeTable
+            type={{
+              constructor: {
+                type: '(cpuTimeoutMs: number) => RunCpuTimeoutError',
+                typeDescription: '(cpuTimeoutMs: number) => RunCpuTimeoutError',
+                required: true,
+                description: 'Creates a RunCpuTimeoutError.',
+              },
+              code: {
+                type: "'RUN_CPU_TIMEOUT'",
+                typeDescription: "'RUN_CPU_TIMEOUT'",
+                required: true,
+                description: 'The stable error code.',
+              },
+              details: {
+                type: '{ cpuTimeoutMs: number }',
+                typeDescription: '{ cpuTimeoutMs: number }',
+                required: true,
+                description: 'The configured CPU time limit in milliseconds.',
               },
             }}
           />

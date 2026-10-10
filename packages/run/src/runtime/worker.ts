@@ -7,6 +7,7 @@ import type { Deferred, JSValueHandle } from 'quickjs-wasi';
 import {
   deserializeError,
   RunBridgeLimitError,
+  RunCpuTimeoutError,
   RunProtocolError,
   RunTimeoutError,
   serializeError,
@@ -14,6 +15,8 @@ import {
 import { assertJsonPayloadSize } from '../utils/serialization.js';
 import { parseJson } from '../utils/parse-json.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
+import { createGuestClock } from './guest-clock.js';
+import type { GuestClock } from './guest-clock.js';
 import { buildGuestRuntimeSetupSource, wrapUserCode } from './guest-sources.js';
 import { normalizeUserSourceStack } from './source-stack.js';
 import type { WorkerBridgeResponse, WorkerRunMessage } from './protocol.js';
@@ -36,6 +39,7 @@ const pendingBridgeRequests = new Map<
   {
     context: QuickJS;
     deferred: Deferred;
+    guestClock: GuestClock;
     invocationId: string;
     registerTrustedError?: JSValueHandle;
     resetDateNow?: JSValueHandle;
@@ -104,12 +108,14 @@ async function handleMainMessage(value: unknown): Promise<void> {
       return;
     }
 
-    resolveBridgeResponse(
-      pending.context,
-      pending.deferred,
-      message,
-      pending.resetDateNow,
-      pending.registerTrustedError,
+    pending.guestClock.measure(() =>
+      resolveBridgeResponse(
+        pending.context,
+        pending.deferred,
+        message,
+        pending.resetDateNow,
+        pending.registerTrustedError,
+      ),
     );
     pendingBridgeRequests.delete(message.requestId);
     aggregateBridgeResponseCounter += 1;
@@ -195,24 +201,35 @@ async function run(message: WorkerRunMessage): Promise<void> {
 
 async function execute(message: WorkerRunMessage): Promise<string> {
   const deadline = Date.now() + message.options.executionTimeoutMs;
-  let interruptChecks = 0;
+  const guestClock = createGuestClock();
   let cancelled = false;
+  let cpuTimedOut = false;
   let executionTimedOut = false;
   const quickJSOptions: Parameters<typeof createQuickJSContext>[0] = {
     interruptHandler: () => {
-      interruptChecks += 1;
-      const timedOut = interruptChecks > 10_000 || Date.now() > deadline;
-      executionTimedOut ||= timedOut;
-      return cancelled || timedOut;
+      // Limit flags are only set for the first cause, so a cancellation or
+      // message failure is never reported as a timeout.
+      if (cancelled) {
+        return true;
+      }
+      if (guestClock.elapsedMs() > message.options.cpuTimeoutMs) {
+        cpuTimedOut = true;
+        return true;
+      }
+      if (Date.now() > deadline) {
+        executionTimedOut = true;
+        return true;
+      }
+      return false;
     },
     maxStackSizeBytes: message.options.maxStackSizeBytes,
     memoryLimitBytes: message.options.memoryLimitBytes,
   };
   if (message.moduleLoader) {
     quickJSOptions.moduleLoader = {
-      load: name => requestSyncModuleLoad(message, name),
+      load: name => requestSyncModuleLoad(message, guestClock, name),
       normalize: (baseName, specifier) =>
-        requestSyncModuleNormalize(message, specifier, baseName),
+        requestSyncModuleNormalize(message, guestClock, specifier, baseName),
     };
   }
   const context = await createQuickJSContext(quickJSOptions);
@@ -229,8 +246,19 @@ async function execute(message: WorkerRunMessage): Promise<string> {
   let resetDateNowHandle: JSValueHandle | undefined;
   let serializeJsonPayloadHandle: JSValueHandle | undefined;
   let executionFailure: { error: unknown } | undefined;
-  const getExecutionFailure = (): { error: unknown } | undefined =>
-    executionFailure;
+  // An interrupted guest surfaces as a generic QuickJS or job error, which can
+  // also arrive through a bridge response; report the limit that caused it.
+  const getExecutionFailure = (): { error: unknown } | undefined => {
+    if (cpuTimedOut) {
+      return {
+        error: new RunCpuTimeoutError(message.options.cpuTimeoutMs),
+      };
+    }
+    if (executionTimedOut) {
+      return { error: new RunTimeoutError(message.options.timeoutMs) };
+    }
+    return executionFailure;
+  };
   activeCancellation = {
     cancel: () => {
       cancelled = true;
@@ -258,6 +286,7 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     bridgeFunctions = createBridgeFunctions(
       context,
       message,
+      guestClock,
       () => resetDateNowHandle,
       () => registerTrustedErrorHandle,
     );
@@ -273,16 +302,21 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     registerTrustedErrorHandle = guestRuntimeHandles.registerTrustedError;
     resetDateNowHandle = guestRuntimeHandles.resetDateNow;
     serializeJsonPayloadHandle = guestRuntimeHandles.serializeJsonPayload;
-    const valueJson = await evaluateUserSource(
-      context,
-      message,
-      serializeJsonPayloadHandle,
-      getTrustedErrorCodeHandle,
-      () => {
-        if (cancelled) {
-          throw new Error('Worker execution cancelled by host');
-        }
-      },
+    // The clock runs for the whole evaluation; resolveQuickJSPromise stops it
+    // while awaiting the host, and bridge responses restart it for guest jobs.
+    const valueJson = await guestClock.measureAsync(() =>
+      evaluateUserSource(
+        context,
+        message,
+        guestClock,
+        guestRuntimeHandles.serializeJsonPayload,
+        guestRuntimeHandles.getTrustedErrorCode,
+        () => {
+          if (cancelled) {
+            throw new Error('Worker execution cancelled by host');
+          }
+        },
+      ),
     );
     const completedFailure = getExecutionFailure();
     if (completedFailure !== undefined) {
@@ -290,12 +324,9 @@ async function execute(message: WorkerRunMessage): Promise<string> {
     }
     return valueJson;
   } catch (error) {
-    const messageFailure = getExecutionFailure();
-    if (messageFailure !== undefined) {
-      throw messageFailure.error;
-    }
-    if (executionTimedOut) {
-      throw new RunTimeoutError(message.options.timeoutMs);
+    const failure = getExecutionFailure();
+    if (failure !== undefined) {
+      throw failure.error;
     }
     throw error;
   } finally {
@@ -380,6 +411,7 @@ function disposeHandle(handle: JSValueHandle | undefined): void {
 async function evaluateUserSource(
   context: QuickJS,
   message: WorkerRunMessage,
+  guestClock: GuestClock,
   serializeJsonPayload: JSValueHandle,
   getTrustedErrorCode: JSValueHandle,
   assertActive: () => void,
@@ -397,6 +429,7 @@ async function evaluateUserSource(
     }
     const resolvedModule = await resolveQuickJSPromise(
       context,
+      guestClock,
       modulePromise,
       assertActive,
     );
@@ -434,6 +467,7 @@ async function evaluateUserSource(
   const promiseHandle = context.global.getProp('__runResult');
   const resolvedResult = await resolveQuickJSPromise(
     context,
+    guestClock,
     promiseHandle,
     assertActive,
   );
@@ -682,6 +716,7 @@ function formatConsoleArg(
 function createBridgeFunctions(
   context: QuickJS,
   message: WorkerRunMessage,
+  guestClock: GuestClock,
   getResetDateNow: () => JSValueHandle | undefined,
   getRegisterTrustedError: () => JSValueHandle | undefined,
 ): {
@@ -703,6 +738,7 @@ function createBridgeFunctions(
       return requestHost(
         context,
         message.invocationId,
+        guestClock,
         {
           hostFunctionName,
           inputJson,
@@ -727,6 +763,7 @@ function createBridgeFunctions(
       );
       const response = requestSyncHost(
         message,
+        guestClock,
         SyncBridgeRequestKind.HostFunction,
         hostFunctionName,
         inputJson,
@@ -744,6 +781,7 @@ function createBridgeFunctions(
 
 function requestSyncModuleNormalize(
   message: WorkerRunMessage,
+  guestClock: GuestClock,
   specifier: string,
   importer: string,
 ): string {
@@ -751,6 +789,7 @@ function requestSyncModuleNormalize(
   assertBridgeRequestSize(message, specifier, importer);
   const response = requestSyncHost(
     message,
+    guestClock,
     SyncBridgeRequestKind.ModuleNormalize,
     specifier,
     JSON.stringify([specifier, importer]),
@@ -767,12 +806,14 @@ function requestSyncModuleNormalize(
 
 function requestSyncModuleLoad(
   message: WorkerRunMessage,
+  guestClock: GuestClock,
   name: string,
 ): string {
   admitBridgeRequestAttempt(message);
   assertBridgeRequestSize(message, name);
   const response = requestSyncHost(
     message,
+    guestClock,
     SyncBridgeRequestKind.ModuleLoad,
     name,
     JSON.stringify([name]),
@@ -839,6 +880,7 @@ function assertBridgeRequestSize(
 
 function requestSyncHost(
   message: WorkerRunMessage,
+  guestClock: GuestClock,
   kind: SyncBridgeRequestKind,
   name: string,
   payload: string,
@@ -865,11 +907,13 @@ function requestSyncHost(
   aggregateBridgeRequestCounter = requestIndex;
   Atomics.store(header, SyncBridgeHeader.State, SyncBridgeState.Request);
   Atomics.notify(header, SyncBridgeHeader.State);
-  while (
-    Atomics.load(header, SyncBridgeHeader.State) === SyncBridgeState.Request
-  ) {
-    Atomics.wait(header, SyncBridgeHeader.State, SyncBridgeState.Request);
-  }
+  guestClock.exclude(() => {
+    while (
+      Atomics.load(header, SyncBridgeHeader.State) === SyncBridgeState.Request
+    ) {
+      Atomics.wait(header, SyncBridgeHeader.State, SyncBridgeState.Request);
+    }
+  });
   if (
     Atomics.load(header, SyncBridgeHeader.State) !== SyncBridgeState.Response
   ) {
@@ -904,6 +948,7 @@ function scheduleBridgeIdle(invocationId: string): void {
 function requestHost(
   context: QuickJS,
   invocationId: string,
+  guestClock: GuestClock,
   payload: Record<string, unknown>,
   resetDateNow?: JSValueHandle,
   registerTrustedError?: JSValueHandle,
@@ -915,6 +960,7 @@ function requestHost(
   pendingBridgeRequests.set(requestId, {
     context,
     deferred,
+    guestClock,
     invocationId,
     ...(registerTrustedError === undefined ? {} : { registerTrustedError }),
     ...(resetDateNow === undefined ? {} : { resetDateNow }),
@@ -1035,6 +1081,7 @@ function drainPendingJobs(context: QuickJS): void {
 
 async function resolveQuickJSPromise(
   context: QuickJS,
+  guestClock: GuestClock,
   promiseHandle: JSValueHandle,
   assertActive: () => void,
 ) {
@@ -1045,7 +1092,9 @@ async function resolveQuickJSPromise(
     drainPendingJobs(context);
     const nextTurn = createPromiseWithResolvers<typeof notSettled>();
     setTimeout(() => nextTurn.resolve(notSettled), 0);
-    const result = await Promise.race([resolved, nextTurn.promise]);
+    const result = await guestClock.excludeAsync(() =>
+      Promise.race([resolved, nextTurn.promise]),
+    );
     if (result !== notSettled) {
       assertActive();
       drainPendingJobs(context);

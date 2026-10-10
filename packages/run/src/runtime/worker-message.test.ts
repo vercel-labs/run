@@ -22,6 +22,7 @@ const createRunMessage = (
   invocationId,
   moduleLoader: false,
   options: {
+    cpuTimeoutMs: 1000,
     executionTimeoutMs: 950,
     maxBridgeRequests: 256,
     maxConsoleOutputBytes: 64 * 1024,

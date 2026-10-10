@@ -5,6 +5,7 @@ import {
 } from './protocol-validation.js';
 
 const WORKER_OPTIONS = {
+  cpuTimeoutMs: 1000,
   executionTimeoutMs: 950,
   maxBridgeRequests: 256,
   maxConsoleOutputBytes: 64 * 1024,
@@ -74,6 +75,10 @@ describe('worker protocol hardening', () => {
     {
       ...createRunMessage('invocation-a'),
       options: { ...WORKER_OPTIONS, timeoutMs: 0 },
+    },
+    {
+      ...createRunMessage('invocation-a'),
+      options: { ...WORKER_OPTIONS, cpuTimeoutMs: 0 },
     },
     {
       invocationId: 'invocation-a',

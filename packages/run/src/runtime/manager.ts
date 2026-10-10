@@ -907,6 +907,7 @@ function startWorkerRun({
     invocationId,
     moduleLoader: moduleLoader !== undefined,
     options: {
+      cpuTimeoutMs: normalizedOptions.cpuTimeoutMs,
       executionTimeoutMs: getWorkerExecutionTimeoutMs(
         normalizedOptions.timeoutMs,
       ),

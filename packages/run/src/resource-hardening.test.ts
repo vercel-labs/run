@@ -16,6 +16,7 @@ const MAX_LIMIT_VALUE = 2_147_483_647;
 
 const LIMIT_NAMES = [
   'timeoutMs',
+  'cpuTimeoutMs',
   'memoryLimitBytes',
   'maxStackSizeBytes',
   'maxResultBytes',
