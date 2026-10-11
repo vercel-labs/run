@@ -82,3 +82,36 @@ export function createGuestClock(
     },
   };
 }
+
+/** Inputs for {@link getExceededLimit}, with times in milliseconds. */
+export interface ExceededLimitInput {
+  /** Guest time accumulated by the invocation's {@link GuestClock}. */
+  cpuElapsedMs: number;
+  cpuTimeoutMs: number;
+  /** Wall-clock deadline on the same clock as `now`. */
+  deadline: number;
+  now: number;
+}
+
+/**
+ * Returns the limit an interrupt check should report, or `undefined` when
+ * neither is exceeded.
+ *
+ * Both limits can be crossed between two checks, for example when a host wait
+ * ends after the wall deadline and the guest then exhausts its CPU budget.
+ * Guest time only advances while the guest runs, so the CPU limit was crossed
+ * about `cpuElapsedMs - cpuTimeoutMs` before `now`. The earlier crossing wins.
+ */
+export function getExceededLimit({
+  cpuElapsedMs,
+  cpuTimeoutMs,
+  deadline,
+  now,
+}: ExceededLimitInput): 'cpu' | 'wall' | undefined {
+  const cpuOverrunMs = cpuElapsedMs - cpuTimeoutMs;
+  const wallExceeded = now > deadline;
+  if (cpuOverrunMs <= 0) {
+    return wallExceeded ? 'wall' : undefined;
+  }
+  return wallExceeded && now - cpuOverrunMs >= deadline ? 'wall' : 'cpu';
+}

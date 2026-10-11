@@ -77,7 +77,7 @@ import { createRunner } from 'run';
                 typeDescription: 'number',
                 required: false,
                 description:
-                  'Time in milliseconds the worker may spend running guest JavaScript in one invocation, excluding host waits. Default: 30000.',
+                  'Time in milliseconds the worker may spend running guest JavaScript in one invocation, excluding host waits. Takes effect only when lower than timeoutMs. Default: 10000.',
               },
               memoryLimitBytes: {
                 type: 'number',

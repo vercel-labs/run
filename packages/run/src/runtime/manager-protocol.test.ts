@@ -271,9 +271,16 @@ describe('manager protocol state machine', () => {
     },
   );
 
-  it.each(['encoding', 'cancelled'])(
-    'does not mask a worker bridge limit failure while suspension is %s',
-    async phase => {
+  it.each([
+    ['RUN_BRIDGE_LIMIT', 'encoding', 'RunBridgeLimitError'],
+    ['RUN_BRIDGE_LIMIT', 'cancelled', 'RunBridgeLimitError'],
+    ['RUN_CPU_TIMEOUT', 'encoding', 'RunCpuTimeoutError'],
+    ['RUN_CPU_TIMEOUT', 'cancelled', 'RunCpuTimeoutError'],
+    ['RUN_TIMEOUT', 'encoding', 'RunTimeoutError'],
+    ['RUN_TIMEOUT', 'cancelled', 'RunTimeoutError'],
+  ])(
+    'does not mask a worker %s failure while suspension is %s',
+    async (code, phase, name) => {
       const encodeStarted = createPromiseWithResolvers<null>();
       const finishEncode = createPromiseWithResolvers<null>();
       const cancelled = createPromiseWithResolvers<null>();
@@ -331,9 +338,7 @@ describe('manager protocol state machine', () => {
         },
         source: 'return await tools.pause();',
       });
-      const rejected = expect(result).rejects.toMatchObject({
-        code: 'RUN_BRIDGE_LIMIT',
-      });
+      const rejected = expect(result).rejects.toMatchObject({ code });
       await encodeStarted.promise;
       if (phase === 'cancelled') {
         finishEncode.resolve(null);
@@ -341,9 +346,9 @@ describe('manager protocol state machine', () => {
       }
       emitWorker?.('message', {
         error: {
-          code: 'RUN_BRIDGE_LIMIT',
-          message: 'JavaScript runtime exceeded the bridge request limit.',
-          name: 'RunBridgeLimitError',
+          code,
+          message: `JavaScript runtime failed with ${code}.`,
+          name,
         },
         invocationId,
         success: false,

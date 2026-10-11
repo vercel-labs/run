@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createGuestClock } from './guest-clock.js';
+import { createGuestClock, getExceededLimit } from './guest-clock.js';
 
 const createManualClock = () => {
   let now = 0;
@@ -65,5 +65,22 @@ describe('guest clock', () => {
     ).toThrow('host failure');
     advance(1000);
     expect(clock.elapsedMs()).toBe(10);
+  });
+});
+
+describe('getExceededLimit', () => {
+  const limits = { cpuTimeoutMs: 100, deadline: 1000 };
+
+  it.each([
+    ['neither limit is exceeded', 100, 1000, undefined],
+    ['only the CPU limit is exceeded', 101, 500, 'cpu'],
+    ['only the wall deadline is exceeded', 50, 1001, 'wall'],
+    // The guest resumed after a host wait that ended past the deadline, then
+    // ran 30ms. Its CPU limit was crossed at 1020, after the deadline.
+    ['the CPU limit was crossed after the deadline', 110, 1030, 'wall'],
+    // The guest crossed its CPU limit at 990 and the next check ran at 1010.
+    ['the CPU limit was crossed before the deadline', 120, 1010, 'cpu'],
+  ] as const)('reports %s', (_name, cpuElapsedMs, now, expected) => {
+    expect(getExceededLimit({ ...limits, cpuElapsedMs, now })).toBe(expected);
   });
 });

@@ -15,7 +15,7 @@ import {
 import { assertJsonPayloadSize } from '../utils/serialization.js';
 import { parseJson } from '../utils/parse-json.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
-import { createGuestClock } from './guest-clock.js';
+import { createGuestClock, getExceededLimit } from './guest-clock.js';
 import type { GuestClock } from './guest-clock.js';
 import { buildGuestRuntimeSetupSource, wrapUserCode } from './guest-sources.js';
 import { normalizeUserSourceStack } from './source-stack.js';
@@ -212,15 +212,18 @@ async function execute(message: WorkerRunMessage): Promise<string> {
       if (cancelled) {
         return true;
       }
-      if (guestClock.elapsedMs() > message.options.cpuTimeoutMs) {
+      const exceeded = getExceededLimit({
+        cpuElapsedMs: guestClock.elapsedMs(),
+        cpuTimeoutMs: message.options.cpuTimeoutMs,
+        deadline,
+        now: Date.now(),
+      });
+      if (exceeded === 'cpu') {
         cpuTimedOut = true;
-        return true;
-      }
-      if (Date.now() > deadline) {
+      } else if (exceeded === 'wall') {
         executionTimedOut = true;
-        return true;
       }
-      return false;
+      return exceeded !== undefined;
     },
     maxStackSizeBytes: message.options.maxStackSizeBytes,
     memoryLimitBytes: message.options.memoryLimitBytes,

@@ -50,8 +50,41 @@ async function measureSpinIterationsPerMs(): Promise<number> {
 }
 
 describe('cpuTimeoutMs', () => {
-  it('defaults to 30 seconds', () => {
-    expect(normalizeOptions({}).cpuTimeoutMs).toBe(30_000);
+  it('defaults to 10 seconds, below the wall-clock timeout', () => {
+    const options = normalizeOptions({});
+    expect(options.cpuTimeoutMs).toBe(10_000);
+    expect(options.cpuTimeoutMs).toBeLessThan(options.timeoutMs);
+  });
+
+  it('stops a busy loop with RUN_CPU_TIMEOUT under the default limits', async () => {
+    // Guest time never exceeds wall time, so a default CPU limit at or above
+    // timeoutMs would let the wall deadline win and report RUN_TIMEOUT.
+    const { error, ms } = await elapsed(() =>
+      run({ source: 'while (true) {}' }),
+    );
+    expect(error).toBeInstanceOf(RunCpuTimeoutError);
+    expect(error).toMatchObject({
+      code: 'RUN_CPU_TIMEOUT',
+      details: { cpuTimeoutMs: 10_000 },
+    });
+    expect(ms).toBeGreaterThanOrEqual(10_000);
+  }, 25_000);
+
+  it('does not let a pending interruption hide RUN_CPU_TIMEOUT', async () => {
+    const runner = createRunner({ continuationSecret: 'x'.repeat(48) });
+    const pause = vi.fn(() => getHostFunctionContext().interrupt('approval'));
+    // One call interrupts while a concurrent call resolves and resumes the
+    // guest, which never goes idle again, so the interruption is still
+    // pending when the CPU limit trips.
+    await expect(
+      runner.run({
+        hostFunctions: { tools: { pause, tick: () => 1 } },
+        limits: { cpuTimeoutMs: 200, timeoutMs: 10_000 },
+        source:
+          'await Promise.race([tools.pause(), tools.tick()]); while (true) {}',
+      }),
+    ).rejects.toMatchObject({ code: 'RUN_CPU_TIMEOUT' });
+    expect(pause).toHaveBeenCalledTimes(1);
   });
 
   it('stops a busy loop with RUN_CPU_TIMEOUT near the CPU limit', async () => {

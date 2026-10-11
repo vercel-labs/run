@@ -23,7 +23,7 @@ and a coding agent rarely want the same budget.
 | Limit                           |    Default | Bounds                              |
 | ------------------------------- | ---------: | ----------------------------------- |
 | `timeoutMs`                     | 30 seconds | The complete invocation             |
-| `cpuTimeoutMs`                  | 30 seconds | Guest JavaScript execution time     |
+| `cpuTimeoutMs`                  | 10 seconds | Guest JavaScript execution time     |
 | `memoryLimitBytes`              |     64 MiB | QuickJS and sync-bridge admission   |
 | `maxStackSizeBytes`             |      2 MiB | QuickJS stack                       |
 | `maxSourceBytes`                |    256 KiB | Entry and loaded module source      |
@@ -120,10 +120,19 @@ or a remote API call, raise `timeoutMs` and keep `cpuTimeoutMs` low to stop
 runaway guest code. `cpuTimeoutMs` measures elapsed time while guest code runs,
 so it approximates CPU time rather than reading per-thread CPU counters.
 
+Guest time never exceeds wall time, so `cpuTimeoutMs` only takes effect when it
+is lower than `timeoutMs`. With the defaults, guest code may run for 10 seconds
+and the remaining 20 seconds of the wall-clock budget are available for host
+waits. If you lower `timeoutMs`, lower `cpuTimeoutMs` below it as well, or
+runaway guest code fails with `RUN_TIMEOUT` instead of `RUN_CPU_TIMEOUT`.
+
 Each invocation, including each continuation resume, starts with a fresh
 `cpuTimeoutMs` budget. Replay runs the guest source again from the start, so
 the guest work replayed in a resumed invocation counts toward that
-invocation's budget.
+invocation's budget. An exceeded budget is never hidden by a pending
+interruption: if guest code exceeds `cpuTimeoutMs` or `timeoutMs` while an
+interruption is being suspended, the invocation fails instead of returning a
+continuation.
 
 Source, argument, output, result, and continuation limits are measured after
 their relevant UTF-8 encoding or serialization step. A JavaScript object that

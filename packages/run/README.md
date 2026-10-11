@@ -316,7 +316,7 @@ invocation and is available through `getHostFunctionContext()`.
 | Limit                                        |    Default |
 | -------------------------------------------- | ---------: |
 | Timeout (`timeoutMs`)                        | 30 seconds |
-| CPU timeout (`cpuTimeoutMs`)                 | 30 seconds |
+| CPU timeout (`cpuTimeoutMs`)                 | 10 seconds |
 | QuickJS memory                               |     64 MiB |
 | QuickJS stack                                |      2 MiB |
 | Source                                       |    256 KiB |
@@ -334,8 +334,12 @@ with `RUN_TIMEOUT`. `cpuTimeoutMs` bounds the time the worker spends running
 guest JavaScript in one invocation and fails with `RUN_CPU_TIMEOUT`. Time spent
 awaiting asynchronous host functions or blocked in synchronous host functions
 and module loaders does not count toward it. To allow slow host functions,
-raise `timeoutMs` and rely on `cpuTimeoutMs` to stop runaway guest code. Each
-invocation, including each continuation resume, starts with a fresh CPU budget.
+raise `timeoutMs` and rely on `cpuTimeoutMs` to stop runaway guest code. Guest
+time never exceeds wall time, so `cpuTimeoutMs` only takes effect when it is
+lower than `timeoutMs`; the defaults leave 20 seconds of wall time for host
+waits. Each invocation, including each continuation resume, starts with a fresh
+CPU budget. A pending interruption never hides an exceeded budget: the
+invocation fails instead of returning a continuation.
 
 All limits must be positive integers no greater than `2_147_483_647`. Values
 above this ceiling are rejected instead of being passed to platform APIs that

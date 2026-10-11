@@ -131,6 +131,19 @@ const idleWorkers: PooledWorker[] = [];
 let workerFactory: () => Worker = createRuntimeWorker;
 const isBunRuntime = (globalThis as { Bun?: unknown }).Bun !== undefined;
 const BUN_WORKER_TERMINATE_GRACE_MS = 100;
+// Budget failures the worker reports for guest work. They end the invocation
+// even when an interruption is pending, so suspending never resets a budget
+// that guest code has already exhausted.
+const TERMINAL_BUDGET_ERROR_CODES: ReadonlySet<string> = new Set([
+  'RUN_BRIDGE_LIMIT',
+  'RUN_CPU_TIMEOUT',
+  'RUN_TIMEOUT',
+]);
+
+const isTerminalBudgetFailure = (message: WorkerResultMessage): boolean =>
+  !message.success &&
+  message.error?.code !== undefined &&
+  TERMINAL_BUDGET_ERROR_CODES.has(message.error.code);
 
 const runInBackground = async (operation: Promise<unknown>): Promise<void> => {
   await operation;
@@ -812,7 +825,7 @@ function startWorkerRun({
       resultMessage = message;
       // An interruption cancels guest execution, but must not hide a terminal
       // budget failure reported by the worker while suspension was settling.
-      if (!message.success && message.error?.code === 'RUN_BRIDGE_LIMIT') {
+      if (isTerminalBudgetFailure(message)) {
         failTerminal(deserializeResultError(message));
       }
       return;

@@ -1,7 +1,7 @@
 import type { NormalizedRunOptions, RunLimits } from '../types.js';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_CPU_TIMEOUT_MS = 30_000;
+const DEFAULT_CPU_TIMEOUT_MS = 10_000;
 const DEFAULT_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
 const DEFAULT_STACK_LIMIT_BYTES = 2 * 1024 * 1024;
 const DEFAULT_MAX_RESULT_BYTES = 1024 * 1024;

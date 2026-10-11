@@ -79,9 +79,11 @@ export interface RunLimits {
    * it fails with `RUN_CPU_TIMEOUT`.
    *
    * This measures elapsed time while guest code runs, so it approximates CPU
-   * time rather than reading per-thread CPU counters.
+   * time rather than reading per-thread CPU counters. Guest time never exceeds
+   * wall time, so this limit only takes effect when it is lower than
+   * `timeoutMs`.
    *
-   * @default `30_000`
+   * @default `10_000`
    */
   cpuTimeoutMs?: number;
   /** @default `64 * 1024 * 1024` */
