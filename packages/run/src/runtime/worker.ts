@@ -986,18 +986,20 @@ function resolveBridgeResponse(
   resetDateNow?: JSValueHandle,
   registerTrustedError?: JSValueHandle,
 ): void {
-  resetGuestDateNow(context, resetDateNow, message.dateNowMs);
-  if (message.success) {
-    const value = context.newString(message.valueJson ?? '');
-    deferred.resolve(value);
-    value.dispose();
-    context.executePendingJobs();
-    return;
+  try {
+    resetGuestDateNow(context, resetDateNow, message.dateNowMs);
+    if (message.success) {
+      using value = context.newString(message.valueJson ?? '');
+      deferred.resolve(value);
+    } else {
+      using error = createBridgeErrorHandle(context, message.error);
+      registerBridgeError(context, registerTrustedError, error, message.error);
+      deferred.reject(error);
+    }
+  } finally {
+    // The callback trampoline gave the guest its own reference.
+    deferred.handle.dispose();
   }
-  const error = createBridgeErrorHandle(context, message.error);
-  registerBridgeError(context, registerTrustedError, error, message.error);
-  deferred.reject(error);
-  error.dispose();
   context.executePendingJobs();
 }
 
