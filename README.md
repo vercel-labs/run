@@ -67,9 +67,11 @@ embedded worker and guest serialization code. Source edits rerun affected tests
 without a package build or a `dist` directory. Use `pnpm --filter run test:node`
 for a single source test run.
 
-`pnpm test` also builds and runs the package distribution tests, which check the
-standalone output and package exports. Run those separately with
-`pnpm --filter run test:package`.
+`pnpm test` runs the source suite, then builds and runs the full suite against
+the shipped worker bundle, including hardening and package distribution tests.
+`pnpm --filter run test:package` (also `test:hardening`) runs this build-backed
+suite directly. Bare `vitest` commands use the source setup; `--mode package`
+selects the built worker and requires a package build first.
 
 `pnpm check` runs formatting, static analysis, and the fail-closed banned-pattern
 security scan. A local `@banned-pattern-ignore` is accepted only when it states
