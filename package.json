@@ -11,6 +11,7 @@
     "ci:version": "changeset version && pnpm install --no-frozen-lockfile",
     "fix": "pnpm --filter run fix && oxfmt content/docs",
     "test": "pnpm --filter run test",
+    "test:watch": "pnpm --filter run test:watch",
     "type-check": "pnpm --filter run type-check"
   },
   "devDependencies": {
