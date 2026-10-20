@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   RunBridgeLimitError,
   RunDetachedBridgeRequestError,
+  RunHostFunctionError,
   RunTimeoutError,
 } from './errors.js';
 import { getHostFunctionContext } from './host-function-context.js';
@@ -65,6 +66,58 @@ describe('resource and lifecycle hardening', () => {
       Array.from({ length: LIMIT_NAMES.length }, () => MAX_LIMIT_VALUE),
     );
   });
+
+  it.each(['resolve', 'reject'] as const)(
+    'releases discarded async host payloads after %s',
+    async outcome => {
+      // Rejections are sanitized to at most 16 KiB per message.
+      // Both cases process more data than the guest heap can retain.
+      const payload = 'x'.repeat(outcome === 'reject' ? 16 * 1024 : 256 * 1024);
+      const iterations = outcome === 'reject' ? 800 : 100;
+      let calls = 0;
+      const result = await run({
+        hostFunctions: {
+          files: {
+            read: () => {
+              calls += 1;
+              if (outcome === 'reject') {
+                return Promise.reject(new RunHostFunctionError(payload));
+              }
+              return Promise.resolve(payload);
+            },
+          },
+        },
+        limits: {
+          maxBridgeRequests: 1000,
+          // Keep replay history from masking guest-memory retention.
+          maxContinuationBytes: 64 * 1024 * 1024,
+          memoryLimitBytes: 8 * 1024 * 1024,
+          timeoutMs: 30_000,
+        },
+        source: `
+          let total = 0;
+          let rejected = 0;
+          for (let i = 0; i < ${iterations}; i++) {
+            try {
+              total += (await files.read()).length;
+            } catch (error) {
+              rejected++;
+              total += error.message.length;
+            }
+          }
+          return { total, rejected };
+        `,
+      });
+      expect(result).toEqual({
+        status: 'completed',
+        value: {
+          rejected: outcome === 'reject' ? iterations : 0,
+          total: iterations * payload.length,
+        },
+      });
+      expect(calls).toBe(iterations);
+    },
+  );
 
   it('terminates CPU, recursion, allocation, and microtask storms', async () => {
     const cases: { source: string; limits?: RunLimits }[] = [

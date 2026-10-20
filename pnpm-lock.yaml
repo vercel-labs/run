@@ -83,8 +83,8 @@ importers:
         specifier: ^1.56.0
         version: 1.56.0
       quickjs-wasi:
-        specifier: 3.6.0
-        version: 3.6.0
+        specifier: 3.6.3
+        version: 3.6.3
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(@swc/core@1.15.3)(jiti@2.7.0)(postcss@8.5.26)(tsx@4.23.5)(typescript@5.8.3)(yaml@2.9.0)
@@ -6257,8 +6257,8 @@ packages:
     resolution: {integrity: sha512-WuyALRjWPDGtt/wzJiadO5AXY+8hZ80hVpe6MyivgraREW751X3SbhRvG3eLKOYN+8VEvqLcf3wdnt44Z4S4SA==}
     engines: {node: '>=10'}
 
-  quickjs-wasi@3.6.0:
-    resolution: {integrity: sha512-/CNzMq42B8ThzUpzjLSF8K50ntVLV3RREyT8zr4wHaP2CZSHFhPkqg3E1GULmTerehf8Bo+UguQ+4LoOMCTC6A==}
+  quickjs-wasi@3.6.3:
+    resolution: {integrity: sha512-gDXhV2yi6oyVcGPYnACIzVbMNsmMlwjryhh3vAk8K589Xk/J06fb2SGbx8GJQnxyJv43pdrNbfP815dTkSYb9g==}
 
   radix-ui@1.6.4:
     resolution: {integrity: sha512-Kpgb9sx08toOydBK42//0N3MqIPlqjHcY39CYuGG8+7DrF6+NTfAnc3o+f1kvoKzG6cI56ri7Z45XEBQqG1QqQ==}
@@ -13855,7 +13855,7 @@ snapshots:
 
   quick-lru@5.1.1: {}
 
-  quickjs-wasi@3.6.0: {}
+  quickjs-wasi@3.6.3: {}
 
   radix-ui@1.6.4(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8):
     dependencies:
