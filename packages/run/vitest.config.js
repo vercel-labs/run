@@ -50,7 +50,9 @@ export default defineConfig(({ mode }) => {
       alias: testPackage
         ? [
             {
-              find: './worker-source.js',
+              // Runtime modules and tests one directory above must use the
+              // same built worker when exercising the package.
+              find: /^\.\/(?:runtime\/)?worker-source\.js$/u,
               replacement: fileURLToPath(
                 new URL('dist/runtime/worker-source.js', import.meta.url),
               ),
