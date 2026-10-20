@@ -62,6 +62,15 @@ Start with the [introduction](content/docs/introduction/index.mdx), then the
 
 ## Development
 
+`pnpm test:watch` runs tests directly against TypeScript source, including the
+embedded worker and guest serialization code. Source edits rerun affected tests
+without a package build or a `dist` directory. Use `pnpm --filter run test:node`
+for a single source test run.
+
+`pnpm test` also builds and runs the package distribution tests, which check the
+standalone output and package exports. Run those separately with
+`pnpm --filter run test:package`.
+
 `pnpm check` runs formatting, static analysis, and the fail-closed banned-pattern
 security scan. A local `@banned-pattern-ignore` is accepted only when it states
 a concrete safety reason and suppresses an actual finding; stale suppressions
