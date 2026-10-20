@@ -205,8 +205,12 @@ export const waitAsyncForSyncBridgeChange = async (
       value: number,
     ): { async: boolean; value: string | Promise<string> };
   };
-  const result = waitAsync(header, SyncBridgeHeader.State, expectedState);
-  if (result.async) {
-    await result.value;
+  // Notifications can arrive late, after the peer has already advanced the
+  // protocol. A wake-up alone does not mean the expected state has changed.
+  while (Atomics.load(header, SyncBridgeHeader.State) === expectedState) {
+    const result = waitAsync(header, SyncBridgeHeader.State, expectedState);
+    if (result.async) {
+      await result.value;
+    }
   }
 };
