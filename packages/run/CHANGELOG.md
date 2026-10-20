@@ -1,5 +1,12 @@
 # run
 
+## 2.1.9
+
+### Patch Changes
+
+- 2e2b1da: Release bridge-owned promise handles after async host responses settle, release synchronous response handles after transferring them to guest ownership, and upgrade quickjs-wasi to release both deferred resolvers, allowing discarded response payloads to be collected.
+- 142e646: Avoid retaining completed asynchronous host call replay history and applying continuation size limits when continuations are not configured.
+
 ## 2.1.8
 
 ### Patch Changes
