@@ -24,7 +24,8 @@ const spin = (iterations: number): string =>
   `{ let total = 0; for (let i = 0; i < ${iterations}; i++) total += i; }`;
 
 // The limit is enforced at QuickJS interrupt checks, so guest code must keep
-// running after a host wait for wrongly counted wait time to be observed.
+// running after a host wait for wrongly counted wait time to be observed. Each
+// wait-exclusion test also asserts that checks ran after its final wait.
 const GUEST_WORK_AFTER_WAIT = spin(10_000);
 
 // Run the actual bundled worker, QuickJS, bridges, and clock accounting. Only
@@ -36,22 +37,25 @@ function useWorkerClock({
   asyncWaitMs = 0,
   syncWaitMs = 0,
 } = {}) {
-  // Virtual milliseconds, interrupt checks, and whether Atomics.wait is active.
+  // Virtual microseconds, interrupt checks, whether Atomics.wait is active,
+  // and the interrupt count at the end of the most recent excluded wait.
   const state = new Int32Array(
-    new SharedArrayBuffer(3 * Int32Array.BYTES_PER_ELEMENT),
+    new SharedArrayBuffer(4 * Int32Array.BYTES_PER_ELEMENT),
   );
+  Atomics.store(state, 3, -1);
   const source = `
     import { workerData as cpuTestData, parentPort as cpuTestPort } from 'node:worker_threads';
     {
       const state = new Int32Array(cpuTestData);
       Object.defineProperty(performance, 'now', {
-        value: () => Atomics.load(state, 0),
+        value: () => Atomics.load(state, 0) / 1000,
       });
       cpuTestPort.on('message', message => {
         // Message callbacks run after guest execution has yielded, before the
         // runtime measures the guest jobs resumed by this response.
         if (message.type === 'bridge-response') {
-          Atomics.add(state, 0, ${asyncWaitMs});
+          Atomics.add(state, 0, ${asyncWaitMs * 1000});
+          Atomics.store(state, 3, Atomics.load(state, 1));
         }
       });
       const wait = Atomics.wait;
@@ -60,7 +64,8 @@ function useWorkerClock({
         try {
           return wait(...args);
         } finally {
-          Atomics.add(state, 0, ${syncWaitMs});
+          Atomics.add(state, 0, ${syncWaitMs * 1000});
+          Atomics.store(state, 3, Atomics.load(state, 1));
           Atomics.store(state, 2, 0);
         }
       };
@@ -77,7 +82,7 @@ function useWorkerClock({
           const checks = firstCheck ? ${interruptBurst} : 1;
           firstCheck = false;
           for (let i = 0; i < checks; i++) {
-            Atomics.add(state, 0, ${msPerInterrupt});
+            Atomics.add(state, 0, ${msPerInterrupt * 1000});
             Atomics.add(state, 1, 1);
             if (interrupt()) return 1;
           }
@@ -104,6 +109,10 @@ function useWorkerClock({
   );
   return {
     checks: () => Atomics.load(state, 1),
+    checksAfterLastWait: () => {
+      const checksAtWait = Atomics.load(state, 3);
+      return checksAtWait < 0 ? 0 : Atomics.load(state, 1) - checksAtWait;
+    },
     // Hold the host response until the worker enters its excluded wait. This
     // handshake avoids relying on thread scheduling or a sleep to reach it.
     waitUntilBlocked: async () => {
@@ -179,6 +188,9 @@ describe('cpuTimeoutMs', () => {
       message: 'JavaScript runtime exceeded its CPU time limit of 200ms.',
     });
     expect(ms).toBeGreaterThanOrEqual(200);
+    // Allow ample worker startup/scheduling headroom, but reject enforcement
+    // delayed until near the 10-second wall deadline.
+    expect(ms).toBeLessThan(5000);
   });
 
   it.each([
@@ -213,7 +225,7 @@ describe('cpuTimeoutMs', () => {
   });
 
   it('does not count time awaiting asynchronous host functions', async () => {
-    useWorkerClock({ asyncWaitMs: 300 });
+    const clock = useWorkerClock({ asyncWaitMs: 300 });
     await expect(
       run({
         hostFunctions: {
@@ -228,6 +240,7 @@ describe('cpuTimeoutMs', () => {
         `,
       }),
     ).resolves.toEqual({ status: 'completed', value: 700 });
+    expect(clock.checksAfterLastWait()).toBeGreaterThan(0);
   });
 
   it('does not count time blocked in synchronous host functions', async () => {
@@ -252,6 +265,7 @@ describe('cpuTimeoutMs', () => {
         `,
       }),
     ).resolves.toEqual({ status: 'completed', value: 600 });
+    expect(clock.checksAfterLastWait()).toBeGreaterThan(0);
   });
 
   it('does not count time blocked in module loaders', async () => {
@@ -275,6 +289,7 @@ describe('cpuTimeoutMs', () => {
       }),
     ).resolves.toEqual({ status: 'completed', value: 1 });
     expect(load).toHaveBeenCalledTimes(2);
+    expect(clock.checksAfterLastWait()).toBeGreaterThan(0);
   });
 
   it('keeps timeoutMs as the wall-clock ceiling for slow host functions', async () => {
@@ -317,29 +332,42 @@ describe('cpuTimeoutMs', () => {
   });
 
   it('completes many host calls with large arguments (#76)', async () => {
-    useWorkerClock({ msPerInterrupt: 0 });
+    // Guest work (including serde) consumes CPU time. Host waits exceed the
+    // default CPU budget in aggregate and must remain excluded. Fractional
+    // milliseconds keep this workload within budget without freezing the clock.
+    useWorkerClock({ asyncWaitMs: 1000, msPerInterrupt: 0.1 });
     let calls = 0;
     // 250 x 30 KB exceeds the ~6.6 MB of arguments that stopped runs at
     // ~220 calls under the former interrupt-check cap.
-    await expect(
-      run({
-        hostFunctions: {
-          host: {
-            send: () => {
-              calls += 1;
-              return true;
-            },
+    const input: RunInput<string> = {
+      hostFunctions: {
+        host: {
+          send: () => {
+            calls += 1;
+            return true;
           },
         },
-        limits: { maxBridgeRequests: 1000 },
-        source: `
+      },
+      limits: { maxBridgeRequests: 1000 },
+      source: `
           const text = 'x'.repeat(30_000);
           for (let i = 0; i < 250; i++) await host.send({ i, text });
           return 'done';
         `,
-      }),
-    ).resolves.toEqual({ status: 'completed', value: 'done' });
+    };
+    await expect(run(input)).resolves.toEqual({
+      status: 'completed',
+      value: 'done',
+    });
     expect(calls).toBe(250);
+    // The same workload must exhaust a smaller budget: this catches a frozen
+    // clock or disabled CPU enforcement without completing another 250 calls.
+    await expect(
+      run({ ...input, limits: { ...input.limits, cpuTimeoutMs: 1 } }),
+    ).rejects.toMatchObject({
+      code: 'RUN_CPU_TIMEOUT',
+      details: { cpuTimeoutMs: 1 },
+    });
   });
 
   it('gives each continuation resume a fresh CPU budget', async () => {
