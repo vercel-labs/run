@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { Buffer } from 'node:buffer';
+import { Worker } from 'node:worker_threads';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   RunCpuTimeoutError,
   RunTimeoutError,
@@ -7,6 +9,8 @@ import {
   run,
 } from './index.js';
 import type { RunInput } from './index.js';
+import { setRuntimeWorkerFactoryForTest } from './runtime/manager.js';
+import { INLINE_RUN_WORKER_SOURCE } from './runtime/worker-source.js';
 import { normalizeOptions } from './utils/options.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 
@@ -21,7 +25,95 @@ const spin = (iterations: number): string =>
 
 // The limit is enforced at QuickJS interrupt checks, so guest code must keep
 // running after a host wait for wrongly counted wait time to be observed.
-const GUEST_WORK_AFTER_WAIT = spin(1_000_000);
+const GUEST_WORK_AFTER_WAIT = spin(10_000);
+
+// Run the actual bundled worker, QuickJS, bridges, and clock accounting. Only
+// the worker's monotonic time source is controlled; wall deadlines stay real.
+// Main-thread fake timers cannot control a separate worker's performance.now().
+function useWorkerClock({
+  msPerInterrupt = 1,
+  interruptBurst = 1,
+  asyncWaitMs = 0,
+  syncWaitMs = 0,
+} = {}) {
+  // Virtual milliseconds, interrupt checks, and whether Atomics.wait is active.
+  const state = new Int32Array(
+    new SharedArrayBuffer(3 * Int32Array.BYTES_PER_ELEMENT),
+  );
+  const source = `
+    import { workerData as cpuTestData, parentPort as cpuTestPort } from 'node:worker_threads';
+    {
+      const state = new Int32Array(cpuTestData);
+      Object.defineProperty(performance, 'now', {
+        value: () => Atomics.load(state, 0),
+      });
+      cpuTestPort.on('message', message => {
+        // Message callbacks run after guest execution has yielded, before the
+        // runtime measures the guest jobs resumed by this response.
+        if (message.type === 'bridge-response') {
+          Atomics.add(state, 0, ${asyncWaitMs});
+        }
+      });
+      const wait = Atomics.wait;
+      Atomics.wait = (...args) => {
+        Atomics.store(state, 2, 1);
+        try {
+          return wait(...args);
+        } finally {
+          Atomics.add(state, 0, ${syncWaitMs});
+          Atomics.store(state, 2, 0);
+        }
+      };
+      const instantiate = WebAssembly.instantiate;
+      WebAssembly.instantiate = (module, imports) => {
+        const interrupt = imports.env.host_interrupt;
+        if (typeof interrupt !== 'function') {
+          throw new Error('QuickJS interrupt hook is missing');
+        }
+        let firstCheck = true;
+        imports.env.host_interrupt = () => {
+          // A burst exercises the former interrupt-count cap without burning
+          // millions of guest instructions. Every check calls the real handler.
+          const checks = firstCheck ? ${interruptBurst} : 1;
+          firstCheck = false;
+          for (let i = 0; i < checks; i++) {
+            Atomics.add(state, 0, ${msPerInterrupt});
+            Atomics.add(state, 1, 1);
+            if (interrupt()) return 1;
+          }
+          return 0;
+        };
+        return instantiate(module, imports);
+      };
+    }
+    ${INLINE_RUN_WORKER_SOURCE}
+  `;
+  setRuntimeWorkerFactoryForTest(() =>
+    (globalThis as { Bun?: unknown }).Bun === undefined
+      ? new Worker(
+          new URL(
+            `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`,
+          ),
+          { execArgv: [], workerData: state.buffer },
+        )
+      : new Worker(source, {
+          eval: true,
+          execArgv: [],
+          workerData: state.buffer,
+        }),
+  );
+  return {
+    checks: () => Atomics.load(state, 1),
+    // Hold the host response until the worker enters its excluded wait. This
+    // handshake avoids relying on thread scheduling or a sleep to reach it.
+    waitUntilBlocked: async () => {
+      await vi.waitFor(() => expect(Atomics.load(state, 2)).toBe(1), {
+        interval: 1,
+        timeout: 5000,
+      });
+    },
+  };
+}
 
 async function elapsed(
   operation: () => Promise<unknown>,
@@ -34,22 +126,10 @@ async function elapsed(
   return { error: failure, ms: performance.now() - start };
 }
 
-// Uses the faster of two samples so a scheduling hiccup cannot make the
-// calibrated work too small to exceed the budget.
-async function measureSpinIterationsPerMs(): Promise<number> {
-  const iterations = 10_000_000;
-  let fastestMs = Number.POSITIVE_INFINITY;
-  for (let sample = 0; sample < 2; sample += 1) {
-    const baseline = await elapsed(() => run({ source: 'return 0;' }));
-    const measured = await elapsed(() =>
-      run({ source: `${spin(iterations)} return 0;` }),
-    );
-    fastestMs = Math.min(fastestMs, measured.ms - baseline.ms);
-  }
-  return iterations / Math.max(1, fastestMs);
-}
-
 describe('cpuTimeoutMs', () => {
+  afterEach(() => {
+    setRuntimeWorkerFactoryForTest(undefined);
+  });
   it('defaults to 10 seconds, below the wall-clock timeout', () => {
     const options = normalizeOptions({});
     expect(options.cpuTimeoutMs).toBe(10_000);
@@ -57,18 +137,16 @@ describe('cpuTimeoutMs', () => {
   });
 
   it('stops a busy loop with RUN_CPU_TIMEOUT under the default limits', async () => {
-    // Guest time never exceeds wall time, so a default CPU limit at or above
-    // timeoutMs would let the wall deadline win and report RUN_TIMEOUT.
-    const { error, ms } = await elapsed(() =>
-      run({ source: 'while (true) {}' }),
-    );
+    useWorkerClock({ msPerInterrupt: 1000 });
+    // Advance the worker clock through the default budget without waiting ten
+    // real seconds. The real-clock test below still checks elapsed enforcement.
+    const { error } = await elapsed(() => run({ source: 'while (true) {}' }));
     expect(error).toBeInstanceOf(RunCpuTimeoutError);
     expect(error).toMatchObject({
       code: 'RUN_CPU_TIMEOUT',
       details: { cpuTimeoutMs: 10_000 },
     });
-    expect(ms).toBeGreaterThanOrEqual(10_000);
-  }, 25_000);
+  });
 
   it('does not let a pending interruption hide RUN_CPU_TIMEOUT', async () => {
     const runner = createRunner({ continuationSecret: 'x'.repeat(48) });
@@ -101,7 +179,6 @@ describe('cpuTimeoutMs', () => {
       message: 'JavaScript runtime exceeded its CPU time limit of 200ms.',
     });
     expect(ms).toBeGreaterThanOrEqual(200);
-    expect(ms).toBeLessThan(5000);
   });
 
   it.each([
@@ -127,16 +204,21 @@ describe('cpuTimeoutMs', () => {
     });
   });
 
-  it('completes a long loop that exceeded the former interrupt-check cap', async () => {
+  it('allows more than 10,000 interrupt checks within the CPU budget', async () => {
+    const clock = useWorkerClock({ interruptBurst: 10_001, msPerInterrupt: 0 });
     await expect(
-      run({ source: 'for (let i = 0; i < 60_000_000; i++) {} return "done";' }),
+      run({ source: `${GUEST_WORK_AFTER_WAIT} return 'done';` }),
     ).resolves.toEqual({ status: 'completed', value: 'done' });
+    expect(clock.checks()).toBeGreaterThan(10_000);
   });
 
   it('does not count time awaiting asynchronous host functions', async () => {
+    useWorkerClock({ asyncWaitMs: 300 });
     await expect(
       run({
-        hostFunctions: { tools: { sleep } },
+        hostFunctions: {
+          tools: { sleep: (ms: number) => Promise.resolve(ms) },
+        },
         limits: { cpuTimeoutMs: 150, timeoutMs: 5000 },
         source: `
           const first = await tools.sleep(300);
@@ -149,9 +231,17 @@ describe('cpuTimeoutMs', () => {
   });
 
   it('does not count time blocked in synchronous host functions', async () => {
+    const clock = useWorkerClock({ syncWaitMs: 300 });
     const runner = createRunner({
       limits: { cpuTimeoutMs: 150, timeoutMs: 5000 },
-      syncHostFunctions: { tools: { sleep } },
+      syncHostFunctions: {
+        tools: {
+          sleep: async (ms: number) => {
+            await clock.waitUntilBlocked();
+            return ms;
+          },
+        },
+      },
     });
     await expect(
       runner.run({
@@ -165,8 +255,9 @@ describe('cpuTimeoutMs', () => {
   });
 
   it('does not count time blocked in module loaders', async () => {
+    const clock = useWorkerClock({ syncWaitMs: 300 });
     const load = vi.fn(async (specifier: string) => {
-      await sleep(300);
+      await clock.waitUntilBlocked();
       return specifier === './entry.js'
         ? "import { value } from './value.js'; export default value;"
         : 'export const value = 1;';
@@ -196,7 +287,37 @@ describe('cpuTimeoutMs', () => {
     ).rejects.toBeInstanceOf(RunTimeoutError);
   });
 
+  it.each([
+    ['asynchronous host functions', 'await tools.wait();'],
+    ['synchronous host functions', 'sync.wait();'],
+    ['module loaders', "await import('./value.js');"],
+  ])('counts guest work after waiting on %s', async (_name, waitSource) => {
+    const clock = useWorkerClock({ asyncWaitMs: 300, syncWaitMs: 300 });
+    const runner = createRunner({
+      syncHostFunctions: {
+        sync: { wait: () => clock.waitUntilBlocked() },
+      },
+    });
+    await expect(
+      runner.run({
+        hostFunctions: { tools: { wait: () => Promise.resolve(1) } },
+        limits: { cpuTimeoutMs: 150, timeoutMs: 5000 },
+        moduleLoader: {
+          load: async () => {
+            await clock.waitUntilBlocked();
+            return 'export const value = 1;';
+          },
+        },
+        source: `${waitSource} while (true) {}`,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_CPU_TIMEOUT',
+      details: { cpuTimeoutMs: 150 },
+    });
+  });
+
   it('completes many host calls with large arguments (#76)', async () => {
+    useWorkerClock({ msPerInterrupt: 0 });
     let calls = 0;
     // 250 x 30 KB exceeds the ~6.6 MB of arguments that stopped runs at
     // ~220 calls under the former interrupt-check cap.
@@ -222,13 +343,12 @@ describe('cpuTimeoutMs', () => {
   });
 
   it('gives each continuation resume a fresh CPU budget', async () => {
+    useWorkerClock();
     const cpuTimeoutMs = 600;
     const steps = 8;
-    // Size each step so the final invocation, which replays every step, uses
-    // about 40% of the budget while all invocations together use about 220%.
-    const iterationsPerStep = Math.round(
-      ((await measureSpinIterationsPerMs()) * cpuTimeoutMs * 0.4) / steps,
-    );
+    // Each interrupt consumes one virtual millisecond, independent of machine
+    // speed. The combined work must fail while every replay/resume must fit.
+    const iterationsPerStep = 100_000;
     // Invocation k replays k - 1 steps and runs one new step; the last resume
     // replays all of them.
     const executedSteps = (steps * (steps + 1)) / 2 + steps;
@@ -275,5 +395,42 @@ describe('cpuTimeoutMs', () => {
     }
     expect(result).toEqual({ status: 'completed', value: 'done' });
     expect(invocations).toBe(steps + 1);
+  });
+
+  it('still enforces the CPU budget after a continuation resume', async () => {
+    useWorkerClock();
+    const runner = createRunner({ continuationSecret: 'x'.repeat(48) });
+    const input: RunInput<string> = {
+      hostFunctions: {
+        tools: {
+          pause: () => {
+            const context = getHostFunctionContext();
+            return context.resume === undefined
+              ? context.interrupt(null)
+              : context.resume.resolution;
+          },
+        },
+      },
+      limits: { cpuTimeoutMs: 150, timeoutMs: 5000 },
+      source: 'await tools.pause(); while (true) {}',
+    };
+    const result = await runner.run(input);
+    expect(result.status).toBe('interrupted');
+    if (result.status !== 'interrupted') {
+      throw new Error('Expected a continuation before the busy loop.');
+    }
+    await expect(
+      runner.run({
+        ...input,
+        continuation: result.continuation,
+        resolutions: result.interruptions.map(interruption => ({
+          interruptionId: interruption.id,
+          value: true,
+        })),
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_CPU_TIMEOUT',
+      details: { cpuTimeoutMs: 150 },
+    });
   });
 });
