@@ -478,7 +478,9 @@ const SYNC_HOST_FUNCTIONS_PROXY_SOURCE = `
         } catch (error) {
           throw serializationError('Synchronous host function arguments are not serializable', error);
         }
-        var encoded = invokeSyncHostFunction(hostFunctionPath, inputJson);
+        var response = { value: undefined };
+        invokeSyncHostFunction(hostFunctionPath, inputJson, response);
+        var encoded = response.value;
         if (encoded.charCodeAt(0) === 0) {
           var serialized = JSON.parse(encoded.slice(1));
           var error = new __runOriginalError(serialized.message || 'Synchronous host function failed');

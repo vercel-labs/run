@@ -754,7 +754,11 @@ function createBridgeFunctions(
 
   const invokeSyncHostFunction = context.newFunction(
     '__runInvokeSyncHostFunction',
-    (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
+    (
+      hostFunctionNameHandle: JSValueHandle,
+      inputJsonHandle: JSValueHandle,
+      responseHandle: JSValueHandle,
+    ) => {
       admitBridgeRequestAttempt(message);
       const hostFunctionName = hostFunctionNameHandle.toString();
       const inputJson = inputJsonHandle.toString();
@@ -771,11 +775,20 @@ function createBridgeFunctions(
         hostFunctionName,
         inputJson,
       );
-      return context.newString(
+      const value = context.newString(
         response.success
           ? `\u0001${response.payload}`
           : `\u0000${JSON.stringify(response.error)}`,
       );
+      try {
+        // setProp gives the guest-owned response object its own reference.
+        // Returning value and disposing it here would precede the trampoline's
+        // duplication of the return handle.
+        context.setProp(responseHandle, 'value', value);
+      } finally {
+        disposeHandle(value);
+      }
+      return context.undefined;
     },
   );
 
@@ -986,18 +999,33 @@ function resolveBridgeResponse(
   resetDateNow?: JSValueHandle,
   registerTrustedError?: JSValueHandle,
 ): void {
-  resetGuestDateNow(context, resetDateNow, message.dateNowMs);
-  if (message.success) {
-    const value = context.newString(message.valueJson ?? '');
-    deferred.resolve(value);
-    value.dispose();
-    context.executePendingJobs();
-    return;
+  try {
+    resetGuestDateNow(context, resetDateNow, message.dateNowMs);
+    if (message.success) {
+      const value = context.newString(message.valueJson ?? '');
+      try {
+        deferred.resolve(value);
+      } finally {
+        value.dispose();
+      }
+    } else {
+      const error = createBridgeErrorHandle(context, message.error);
+      try {
+        registerBridgeError(
+          context,
+          registerTrustedError,
+          error,
+          message.error,
+        );
+        deferred.reject(error);
+      } finally {
+        error.dispose();
+      }
+    }
+  } finally {
+    // The callback trampoline gave the guest its own reference.
+    disposeHandle(deferred.handle);
   }
-  const error = createBridgeErrorHandle(context, message.error);
-  registerBridgeError(context, registerTrustedError, error, message.error);
-  deferred.reject(error);
-  error.dispose();
   context.executePendingJobs();
 }
 
