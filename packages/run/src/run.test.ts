@@ -5,12 +5,14 @@ import {
   createStoredContinuationCodec,
   getHostFunctionContext,
   run,
+  RunHostFunctionError,
   setMaxWorkers,
 } from './index.js';
 import type {
   ContinuationStorage,
   RunInterruptedResult,
   RunInterruption,
+  RunnerOptions,
   StoredContinuation,
 } from './index.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
@@ -693,6 +695,116 @@ describe('run', () => {
       status: 'completed',
       value: true,
     });
+  });
+
+  describe.each(['disabled', 'secret', 'codec'] as const)(
+    'async replay history with continuations %s',
+    configuration => {
+      it.each(['fulfilled', 'rejected'] as const)(
+        'only applies the continuation limit to %s outcomes when configured',
+        async status => {
+          const previous = process.env.RUN_CONTINUATION_SECRET;
+          delete process.env.RUN_CONTINUATION_SECRET;
+          try {
+            const options: RunnerOptions = {};
+            if (configuration === 'secret') {
+              options.continuationSecret = 's'.repeat(32);
+            } else if (configuration === 'codec') {
+              options.continuationCodec = createSignedContinuationCodec({
+                secret: 's'.repeat(32),
+              });
+            }
+            const runner = createRunner(options);
+            const read = vi.fn((value: string) => {
+              if (status === 'rejected') {
+                throw new RunHostFunctionError(value);
+              }
+              return value;
+            });
+            const result = runner.run({
+              hostFunctions: { files: { read } },
+              limits: { maxContinuationBytes: 4096 },
+              source: `
+                let total = 0;
+                let caught = 0;
+                for (let i = 0; i < 6; i++) {
+                  const payload = 'x'.repeat(1024);
+                  try {
+                    total += (await files.read(payload)).length;
+                  } catch (error) {
+                    if (error.message !== payload) throw error;
+                    total += error.message.length;
+                    caught += 1;
+                  }
+                }
+                return { total, caught };
+              `,
+            });
+
+            if (configuration === 'disabled') {
+              await expect(result).resolves.toEqual({
+                status: 'completed',
+                value: {
+                  caught: status === 'rejected' ? 6 : 0,
+                  total: 6144,
+                },
+              });
+              expect(read).toHaveBeenCalledTimes(6);
+            } else {
+              await expect(result).rejects.toMatchObject({
+                code: 'RUN_PROTOCOL_ERROR',
+                message: 'Continuation state exceeds the 4096 byte size limit.',
+              });
+            }
+          } finally {
+            if (previous === undefined) {
+              delete process.env.RUN_CONTINUATION_SECRET;
+            } else {
+              process.env.RUN_CONTINUATION_SECRET = previous;
+            }
+          }
+        },
+      );
+    },
+  );
+
+  it('preserves async settlement order without continuations', async () => {
+    const previous = process.env.RUN_CONTINUATION_SECRET;
+    delete process.env.RUN_CONTINUATION_SECRET;
+    const releaseSlow = createPromiseWithResolvers<string>();
+    try {
+      await expect(
+        run({
+          hostFunctions: {
+            tools: {
+              fail: () => {
+                throw new Error('expected failure');
+              },
+              release: () => releaseSlow.resolve('slow'),
+              slow: () => releaseSlow.promise,
+            },
+          },
+          limits: { maxContinuationBytes: 128 },
+          source: `
+            const slow = tools.slow();
+            const fast = tools.fail().catch(() => 'caught');
+            const winner = await Promise.race([slow, fast]);
+            await tools.release();
+            return { winner, all: await Promise.all([slow, fast]) };
+          `,
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        value: { all: ['slow', 'caught'], winner: 'caught' },
+      });
+    } finally {
+      releaseSlow.resolve('slow');
+      if (previous === undefined) {
+        delete process.env.RUN_CONTINUATION_SECRET;
+      } else {
+        process.env.RUN_CONTINUATION_SECRET = previous;
+      }
+    }
   });
 
   it('enforces aggregate continuation limits', async () => {

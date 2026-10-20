@@ -1088,23 +1088,19 @@ function startWorkerRun({
         return;
       }
       nextSettlementOrder += 1;
-      setLedgerEntry(entryIndex, {
-        bindingName: message.hostFunctionName,
-        dateNowMs: Date.now(),
-        inputJson: message.inputJson,
-        settledOrder: nextSettlementOrder,
-        status: 'fulfilled',
-        valueJson: outcome.valueJson,
-      });
-      const fulfilledEntry = ledger[entryIndex];
-      if (
-        fulfilledEntry?.status !== 'fulfilled' ||
-        'bridgeKind' in fulfilledEntry
-      ) {
-        throw new RunProtocolError('Fulfilled ledger entry was not recorded.');
+      const dateNowMs = Date.now();
+      if (continuationEnabled || continuationState !== undefined) {
+        setLedgerEntry(entryIndex, {
+          bindingName: message.hostFunctionName,
+          dateNowMs,
+          inputJson: message.inputJson,
+          settledOrder: nextSettlementOrder,
+          status: 'fulfilled',
+          valueJson: outcome.valueJson,
+        });
       }
-      queueBridgeResponse(fulfilledEntry.settledOrder, {
-        dateNowMs: fulfilledEntry.dateNowMs,
+      queueBridgeResponse(nextSettlementOrder, {
+        dateNowMs,
         invocationId,
         requestId: message.requestId,
         success: true,
@@ -1134,29 +1130,25 @@ function startWorkerRun({
       return;
     }
     const serialized = serializeBridgeErrorForGuest(error, 'hostFunction');
+    nextSettlementOrder += 1;
+    const dateNowMs = Date.now();
     try {
-      nextSettlementOrder += 1;
-      setLedgerEntry(entryIndex, {
-        bindingName: message.hostFunctionName,
-        dateNowMs: Date.now(),
-        error: serialized,
-        inputJson: message.inputJson,
-        settledOrder: nextSettlementOrder,
-        status: 'rejected',
-      });
+      if (continuationEnabled || continuationState !== undefined) {
+        setLedgerEntry(entryIndex, {
+          bindingName: message.hostFunctionName,
+          dateNowMs,
+          error: serialized,
+          inputJson: message.inputJson,
+          settledOrder: nextSettlementOrder,
+          status: 'rejected',
+        });
+      }
     } catch (recordError) {
       failTerminal(recordError);
       return;
     }
-    const rejectedEntry = ledger[entryIndex];
-    if (rejectedEntry?.status !== 'rejected' || 'bridgeKind' in rejectedEntry) {
-      failTerminal(
-        new RunProtocolError('Rejected ledger entry was not recorded.'),
-      );
-      return;
-    }
-    queueBridgeResponse(rejectedEntry.settledOrder, {
-      dateNowMs: rejectedEntry.dateNowMs,
+    queueBridgeResponse(nextSettlementOrder, {
+      dateNowMs,
       error: serialized,
       invocationId,
       requestId: message.requestId,
