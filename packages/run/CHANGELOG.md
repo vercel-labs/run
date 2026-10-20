@@ -1,5 +1,11 @@
 # run
 
+## 2.1.10
+
+### Patch Changes
+
+- dd5c03e: fix(run): recheck shared state to avoid race condition
+
 ## 2.1.9
 
 ### Patch Changes
