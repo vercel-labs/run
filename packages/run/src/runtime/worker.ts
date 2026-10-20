@@ -754,7 +754,11 @@ function createBridgeFunctions(
 
   const invokeSyncHostFunction = context.newFunction(
     '__runInvokeSyncHostFunction',
-    (hostFunctionNameHandle: JSValueHandle, inputJsonHandle: JSValueHandle) => {
+    (
+      hostFunctionNameHandle: JSValueHandle,
+      inputJsonHandle: JSValueHandle,
+      responseHandle: JSValueHandle,
+    ) => {
       admitBridgeRequestAttempt(message);
       const hostFunctionName = hostFunctionNameHandle.toString();
       const inputJson = inputJsonHandle.toString();
@@ -771,11 +775,20 @@ function createBridgeFunctions(
         hostFunctionName,
         inputJson,
       );
-      return context.newString(
+      const value = context.newString(
         response.success
           ? `\u0001${response.payload}`
           : `\u0000${JSON.stringify(response.error)}`,
       );
+      try {
+        // setProp gives the guest-owned response object its own reference.
+        // Returning value and disposing it here would precede the trampoline's
+        // duplication of the return handle.
+        context.setProp(responseHandle, 'value', value);
+      } finally {
+        disposeHandle(value);
+      }
+      return context.undefined;
     },
   );
 
@@ -1011,7 +1024,7 @@ function resolveBridgeResponse(
     }
   } finally {
     // The callback trampoline gave the guest its own reference.
-    deferred.handle.dispose();
+    disposeHandle(deferred.handle);
   }
   context.executePendingJobs();
 }

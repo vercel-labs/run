@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import {
   RunBridgeLimitError,
+  RunHostFunctionError,
   RunTimeoutError,
   createRunner,
   getHostFunctionContext,
@@ -22,6 +23,61 @@ const waitForAbort = (abortSignal: AbortSignal): Promise<null> => {
 };
 
 describe('synchronous host functions', () => {
+  it.each(['return', 'throw'] as const)(
+    'releases discarded response payloads after %s',
+    async outcome => {
+      // Error messages are capped at 16 KiB. Both cases process more data
+      // than the guest heap can retain, without keeping earlier responses.
+      const payload = 'x'.repeat(outcome === 'throw' ? 16 * 1024 : 256 * 1024);
+      const iterations = outcome === 'throw' ? 800 : 100;
+      let calls = 0;
+      const runner = createRunner({
+        limits: {
+          maxBridgeRequests: 1000,
+          maxContinuationBytes: 64 * 1024 * 1024,
+          memoryLimitBytes: 8 * 1024 * 1024,
+          timeoutMs: 30_000,
+        },
+        syncHostFunctions: {
+          files: {
+            read() {
+              calls += 1;
+              if (outcome === 'throw') {
+                throw new RunHostFunctionError(payload);
+              }
+              return payload;
+            },
+          },
+        },
+      });
+
+      await expect(
+        runner.run({
+          source: `
+            let total = 0;
+            let rejected = 0;
+            for (let i = 0; i < ${iterations}; i++) {
+              try {
+                total += files.read().length;
+              } catch (error) {
+                rejected++;
+                total += error.message.length;
+              }
+            }
+            return { total, rejected };
+          `,
+        }),
+      ).resolves.toEqual({
+        status: 'completed',
+        value: {
+          rejected: outcome === 'throw' ? iterations : 0,
+          total: iterations * payload.length,
+        },
+      });
+      expect(calls).toBe(iterations);
+    },
+  );
+
   it('returns serializable values synchronously and throws synchronously', async () => {
     const runner = createRunner({
       syncHostFunctions: {
