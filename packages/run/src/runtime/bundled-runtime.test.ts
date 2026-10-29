@@ -83,4 +83,34 @@ describe('bundled runtime', () => {
       ]),
     ).resolves.toBeDefined();
   });
+
+  it('runs with Node.js watch dependency reporting enabled', async () => {
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        `
+          import assert from 'node:assert/strict';
+          import { createRunner } from 'run';
+
+          const runner = createRunner();
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            const result = await runner.run({
+              source: 'return 1;',
+              sourceType: 'function-body',
+            });
+            assert.deepEqual(result, { status: 'completed', value: 1 });
+            assert.equal(process.env.WATCH_REPORT_DEPENDENCIES, '1');
+          }
+          process.stdout.write('ok');
+        `,
+      ],
+      {
+        env: { ...process.env, WATCH_REPORT_DEPENDENCIES: '1' },
+        timeout: 10_000,
+      },
+    );
+    expect(stdout).toBe('ok');
+  });
 });
