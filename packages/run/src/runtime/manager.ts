@@ -1799,7 +1799,10 @@ function createRuntimeWorker(): Worker {
   if (isBunRuntime) {
     return new Worker(INLINE_RUN_WORKER_SOURCE, { eval: true, execArgv: [] });
   }
-  return new Worker(getInlineWorkerUrl(), { execArgv: [] });
+  return new Worker(getInlineWorkerUrl(), {
+    env: { ...process.env, WATCH_REPORT_DEPENDENCIES: '' },
+    execArgv: [],
+  });
 }
 
 function getInlineWorkerUrl(): URL {

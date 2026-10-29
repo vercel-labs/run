@@ -19,7 +19,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20.19, 22]
+        node-version: [20.19, 22, 24]
 
     steps:
       - name: Checkout
