@@ -8,7 +8,8 @@
     "dev": "next dev",
     "postinstall": "fumadocs-mdx",
     "start": "next start",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc-ts --noEmit",
+    "type-check:tsc": "tsc --noEmit"
   },
   "dependencies": {
     "@codemirror/lang-javascript": "^6.2.5",
@@ -31,6 +32,7 @@
     "@types/react-dom": "^19.2.4",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
+    "tsc-ts": "0.1.0",
     "typescript": "^7.0.2"
   }
 }
