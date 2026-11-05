@@ -32,7 +32,7 @@
     "@types/react-dom": "^19.2.4",
     "postcss": "^8.5.26",
     "tailwindcss": "^4.3.3",
-    "tsc-ts": "0.1.0",
+    "tsc-ts": "0.1.2",
     "typescript": "^7.0.2"
   }
 }
