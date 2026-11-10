@@ -281,6 +281,8 @@ export type RunLedgerEntry =
   | {
       bridgeKind: 'sync-host' | 'module-normalize' | 'module-load';
       bindingName: string;
+      /** Host settlement timestamp; absent on legacy synchronous entries. */
+      dateNowMs?: number;
       inputJson: string;
       status: 'fulfilled';
       valueJson: string;
@@ -288,6 +290,8 @@ export type RunLedgerEntry =
   | {
       bridgeKind: 'sync-host' | 'module-normalize' | 'module-load';
       bindingName: string;
+      /** Host settlement timestamp; absent on legacy synchronous entries. */
+      dateNowMs?: number;
       inputJson: string;
       status: 'rejected';
       error: SerializableError;

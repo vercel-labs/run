@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
 import {
   RunBridgeLimitError,
@@ -6,9 +7,11 @@ import {
   RunTimeoutError,
   createRunner,
   getHostFunctionContext,
+  run,
 } from './index.js';
 import { createPromiseWithResolvers } from './utils/promise-with-resolvers.js';
 import { toJsonPayload } from './utils/serialization.js';
+import type { RunContinuationState } from './types.js';
 
 const waitForAbort = (abortSignal: AbortSignal): Promise<null> => {
   const aborted = createPromiseWithResolvers<null>();
@@ -23,6 +26,171 @@ const waitForAbort = (abortSignal: AbortSignal): Promise<null> => {
 };
 
 describe('synchronous host functions', () => {
+  it.each(['hostFunctions', 'syncHostFunctions'] as const)(
+    'advances guest Date.now() across delayed %s calls',
+    async transport => {
+      const source = `
+        const start = Date.now();
+        await tools.wait();
+        await tools.wait();
+        return Date.now() - start;
+      `;
+      const hostFunctions = {
+        tools: {
+          async wait() {
+            await sleep(100);
+            return 1;
+          },
+        },
+      };
+      const result =
+        transport === 'syncHostFunctions'
+          ? await createRunner({ syncHostFunctions: hostFunctions }).run({
+              source,
+            })
+          : await run({ hostFunctions, source });
+
+      expect(result.status).toBe('completed');
+      if (result.status === 'completed') {
+        // Allow timer imprecision while accounting for both 100ms host waits.
+        expect(result.value).toBeGreaterThanOrEqual(150);
+      }
+    },
+  );
+
+  it('advances guest Date.now() when a delayed synchronous host call throws', async () => {
+    const runner = createRunner({
+      syncHostFunctions: {
+        tools: {
+          async fail() {
+            await sleep(100);
+            throw new Error('failed');
+          },
+        },
+      },
+    });
+    const result = await runner.run({
+      source: `
+        const start = Date.now();
+        try { tools.fail(); } catch {}
+        return Date.now() - start;
+      `,
+    });
+    expect(result.status).toBe('completed');
+    if (result.status === 'completed') {
+      expect(result.value).toBeGreaterThanOrEqual(75);
+    }
+  });
+
+  it.each(['return', 'throw'] as const)(
+    'replays guest dates after synchronous host functions that %s',
+    async outcome => {
+      let calls = 0;
+      const runner = createRunner({
+        syncHostFunctions: {
+          syncTools: {
+            async wait() {
+              calls += 1;
+              await sleep(100);
+              if (outcome === 'throw') {
+                throw new Error('failed');
+              }
+              return 1;
+            },
+          },
+        },
+      });
+      const hostFunctions = {
+        tools: {
+          pause(dates: unknown) {
+            const context = getHostFunctionContext();
+            return context.resume?.resolution ?? context.interrupt(dates);
+          },
+        },
+      };
+      const source = `
+        const before = Date.now();
+        try { syncTools.wait(); } catch {}
+        const dates = { before, after: Date.now() };
+        await tools.pause(dates);
+        return dates;
+      `;
+      const interrupted = await runner.run({ hostFunctions, source });
+      if (interrupted.status !== 'interrupted') {
+        throw new Error('Expected interruption.');
+      }
+      const [interruption] = interrupted.interruptions;
+      if (interruption === undefined) {
+        throw new Error('Expected an interruption payload.');
+      }
+      // Replay must reuse the settlement date, even when resumed later.
+      await sleep(50);
+      await expect(
+        runner.run({
+          continuation: interrupted.continuation,
+          hostFunctions,
+          resolutions: [{ interruptionId: interruption.id, value: true }],
+          source,
+        }),
+      ).resolves.toEqual({ status: 'completed', value: interruption.payload });
+      expect(calls).toBe(1);
+    },
+  );
+
+  it('preserves guest dates when replaying legacy synchronous entries', async () => {
+    let calls = 0;
+    const runner = createRunner<RunContinuationState>({
+      continuationCodec: {
+        decode: state => state,
+        encode(state) {
+          const legacy = structuredClone(state);
+          for (const entry of legacy.ledger) {
+            if ('bridgeKind' in entry) {
+              delete entry.dateNowMs;
+            }
+          }
+          return legacy;
+        },
+      },
+      syncHostFunctions: { syncTools: { read: () => (calls += 1) } },
+    });
+    const hostFunctions = {
+      tools: {
+        pause() {
+          const context = getHostFunctionContext();
+          return context.resume?.resolution ?? context.interrupt('pause');
+        },
+      },
+    };
+    const source = `
+      syncTools.read();
+      const after = Date.now();
+      await tools.pause();
+      return after;
+    `;
+    const interrupted = await runner.run({ hostFunctions, source });
+    if (interrupted.status !== 'interrupted') {
+      throw new Error('Expected interruption.');
+    }
+    await expect(
+      runner.run({
+        continuation: interrupted.continuation,
+        hostFunctions,
+        resolutions: [
+          {
+            interruptionId: interrupted.interruptions[0]?.id ?? '',
+            value: true,
+          },
+        ],
+        source,
+      }),
+    ).resolves.toEqual({
+      status: 'completed',
+      value: interrupted.continuation.determinism.dateNowMs,
+    });
+    expect(calls).toBe(1);
+  });
+
   it.each(['return', 'throw'] as const)(
     'releases discarded response payloads after %s',
     async outcome => {

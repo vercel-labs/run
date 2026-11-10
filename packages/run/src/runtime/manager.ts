@@ -1294,9 +1294,23 @@ function startWorkerRun({
         { requestIndex: request.requestIndex },
       );
     }
+    const timing =
+      entry.dateNowMs === undefined
+        ? undefined
+        : { dateNowMs: entry.dateNowMs };
     return entry.status === 'fulfilled'
-      ? { payload: entry.valueJson, sequence: request.sequence, success: true }
-      : { error: entry.error, sequence: request.sequence, success: false };
+      ? {
+          ...timing,
+          payload: entry.valueJson,
+          sequence: request.sequence,
+          success: true,
+        }
+      : {
+          ...timing,
+          error: entry.error,
+          sequence: request.sequence,
+          success: false,
+        };
   }
 
   function recordSyncBridgeResponse(
@@ -1308,6 +1322,9 @@ function startWorkerRun({
       bindingName: getSyncBridgeHostFunctionName(request.kind, request.name),
       bridgeKind: getSyncBridgeLedgerKind(request.kind),
       inputJson: request.payload,
+      ...(response.dateNowMs === undefined
+        ? undefined
+        : { dateNowMs: response.dateNowMs }),
     } as const;
     setLedgerEntry(
       entryIndex,
@@ -1366,6 +1383,7 @@ function startWorkerRun({
           );
         }
         return {
+          dateNowMs: Date.now(),
           payload: outcome.valueJson,
           sequence,
           success: true as const,
@@ -1436,6 +1454,9 @@ function startWorkerRun({
         throw error;
       }
       return {
+        ...(kind === SyncBridgeRequestKind.HostFunction
+          ? { dateNowMs: Date.now() }
+          : undefined),
         error:
           kind === SyncBridgeRequestKind.HostFunction
             ? serializeBridgeErrorForGuest(error, 'hostFunction')

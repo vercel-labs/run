@@ -775,6 +775,9 @@ function createBridgeFunctions(
         hostFunctionName,
         inputJson,
       );
+      if (response.dateNowMs !== undefined) {
+        resetGuestDateNow(context, getResetDateNow(), response.dateNowMs);
+      }
       const value = context.newString(
         response.success
           ? `\u0001${response.payload}`

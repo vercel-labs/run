@@ -39,11 +39,12 @@ export interface SyncBridgeRequest {
 }
 
 export type SyncBridgeResponse =
-  | { sequence: number; success: true; payload: string }
+  | { sequence: number; success: true; payload: string; dateNowMs?: number }
   | {
       sequence: number;
       success: false;
       error: SerializableError;
+      dateNowMs?: number;
     };
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -65,6 +66,13 @@ export const createSyncBridgeBuffer = (
 
 export const getSyncBridgeViews = (buffer: SharedArrayBuffer) => ({
   bytes: new Uint8Array(buffer, SYNC_BRIDGE_HEADER_BYTES),
+  // Responses reuse the request index and reserved slots for a 64-bit date.
+  // The state transition publishes this value before the worker reads it.
+  dateNow: new DataView(
+    buffer,
+    SyncBridgeHeader.RequestIndex * Int32Array.BYTES_PER_ELEMENT,
+    Float64Array.BYTES_PER_ELEMENT,
+  ),
   header: new Int32Array(buffer, 0, SYNC_BRIDGE_HEADER_INTS),
 });
 
@@ -143,7 +151,7 @@ export const writeSyncBridgeResponse = (
   buffer: SharedArrayBuffer,
   response: SyncBridgeResponse,
 ): void => {
-  const { bytes, header } = getSyncBridgeViews(buffer);
+  const { bytes, header, dateNow } = getSyncBridgeViews(buffer);
   const encoded = encodeUtf8(
     response.success ? response.payload : JSON.stringify(response.error),
   );
@@ -154,18 +162,18 @@ export const writeSyncBridgeResponse = (
   Atomics.store(header, SyncBridgeHeader.NameBytes, 0);
   Atomics.store(header, SyncBridgeHeader.PayloadBytes, encoded.byteLength);
   Atomics.store(header, SyncBridgeHeader.Success, response.success ? 1 : 0);
-  Atomics.store(header, SyncBridgeHeader.RequestIndex, 0);
-  Atomics.store(header, SyncBridgeHeader.Reserved, 0);
+  dateNow.setFloat64(0, response.dateNowMs ?? -1);
 };
 
 export const readSyncBridgeResponse = (
   buffer: SharedArrayBuffer,
   expectedSequence: number,
 ): SyncBridgeResponse => {
-  const { bytes, header } = getSyncBridgeViews(buffer);
+  const { bytes, header, dateNow } = getSyncBridgeViews(buffer);
   const sequence = Atomics.load(header, SyncBridgeHeader.Sequence);
   const payloadBytes = Atomics.load(header, SyncBridgeHeader.PayloadBytes);
   const success = Atomics.load(header, SyncBridgeHeader.Success);
+  const dateNowMs = dateNow.getFloat64(0);
   if (
     sequence !== expectedSequence ||
     Atomics.load(header, SyncBridgeHeader.Kind) !== 0 ||
@@ -173,14 +181,14 @@ export const readSyncBridgeResponse = (
     payloadBytes <= 0 ||
     payloadBytes > bytes.length ||
     (success !== 0 && success !== 1) ||
-    Atomics.load(header, SyncBridgeHeader.RequestIndex) !== 0 ||
-    Atomics.load(header, SyncBridgeHeader.Reserved) !== 0
+    (dateNowMs !== -1 && (!Number.isSafeInteger(dateNowMs) || dateNowMs < 0))
   ) {
     throw new TypeError('Invalid synchronous bridge response header.');
   }
   const payload = decoder.decode(bytes.subarray(0, payloadBytes));
+  const timing = dateNowMs === -1 ? undefined : { dateNowMs };
   if (success === 1) {
-    return { payload, sequence, success: true };
+    return { ...timing, payload, sequence, success: true };
   }
   const error = JSON.parse(payload) as SerializableError;
   if (
@@ -191,7 +199,7 @@ export const readSyncBridgeResponse = (
   ) {
     throw new TypeError('Invalid synchronous bridge error response.');
   }
-  return { error, sequence, success: false };
+  return { ...timing, error, sequence, success: false };
 };
 
 export const waitAsyncForSyncBridgeChange = async (
