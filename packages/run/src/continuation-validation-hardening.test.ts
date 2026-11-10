@@ -63,6 +63,46 @@ const expectInvalid = (value: unknown): void => {
 };
 
 describe('continuation state validation hardening', () => {
+  it.each(['fulfilled', 'rejected'] as const)(
+    'validates optional timestamps on %s synchronous entries',
+    status => {
+      const state = validState();
+      state.ledger[0] = {
+        bindingName: 'tools.first',
+        bridgeKind: 'sync-host',
+        dateNowMs: 1_700_000_000_001,
+        inputJson: '[[]]',
+        ...(status === 'fulfilled'
+          ? { status, valueJson: '[true]' }
+          : { error: { message: 'failed', name: 'Error' }, status }),
+      };
+      const second = requireEntry(state.ledger, 1);
+      if ('settledOrder' in second) {
+        second.settledOrder = 1;
+      }
+      expect(() =>
+        assertContinuationState(state, source, scopeHash, normalizeOptions()),
+      ).not.toThrow();
+
+      for (const timestamp of [
+        undefined,
+        null,
+        '1700000000001',
+        -1,
+        1.5,
+        Number.NaN,
+        Infinity,
+        Number.MAX_SAFE_INTEGER + 1,
+      ]) {
+        const malformed = structuredClone(state) as unknown as {
+          ledger: Record<string, unknown>[];
+        };
+        requireEntry(malformed.ledger, 0).dateNowMs = timestamp;
+        expectInvalid(malformed);
+      }
+    },
+  );
+
   it('accepts matching optional bridge limits without changing the v2 state', () => {
     const options = normalizeOptions();
     expect(() =>

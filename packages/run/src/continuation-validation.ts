@@ -226,11 +226,34 @@ type AssertSynchronousEntry = (
   options: NormalizedRunOptions,
 ) => asserts value is SynchronousLedgerEntry;
 
+const getSynchronousTimingKeys = (
+  value: Record<string, unknown>,
+  index: number,
+): string[] => {
+  if (!Object.hasOwn(value, 'dateNowMs')) {
+    return [];
+  }
+  if (
+    value.bridgeKind !== 'sync-host' ||
+    !Number.isSafeInteger(value.dateNowMs) ||
+    (value.dateNowMs as number) < 0
+  ) {
+    throw new RunProtocolError(
+      'Synchronous continuation timestamp is malformed.',
+      {
+        index,
+      },
+    );
+  }
+  return ['dateNowMs'];
+};
+
 const assertSynchronousEntry: AssertSynchronousEntry = (
   value,
   index,
   options,
 ) => {
+  const timingKeys = getSynchronousTimingKeys(value, index);
   if (
     !['sync-host', 'module-normalize', 'module-load'].includes(
       String(value.bridgeKind),
@@ -240,6 +263,7 @@ const assertSynchronousEntry: AssertSynchronousEntry = (
       ? !hasExactKeys(value, [
           'bindingName',
           'bridgeKind',
+          ...timingKeys,
           'inputJson',
           'status',
           'valueJson',
@@ -247,6 +271,7 @@ const assertSynchronousEntry: AssertSynchronousEntry = (
       : !hasExactKeys(value, [
           'bindingName',
           'bridgeKind',
+          ...timingKeys,
           'error',
           'inputJson',
           'status',
