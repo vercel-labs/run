@@ -1,5 +1,11 @@
 # run
 
+## 2.1.12
+
+### Patch Changes
+
+- acdfaa0: Advance guest Date.now() to the host settlement time after synchronous host function calls, preserving recorded timestamps during continuation replay.
+
 ## 2.1.11
 
 ### Patch Changes
