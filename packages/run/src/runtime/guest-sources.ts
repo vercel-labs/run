@@ -9,7 +9,7 @@ import {
 // Keep object traversal and user-defined getters/toJSON inside the guest's
 // memory and CPU limits. Only a bounded JSON string is copied into V8.
 export const SERIALIZE_ERROR_SOURCE = `
-(value, isError, includeDiagnostics) => {
+(value, isError) => {
   function truncate(value, maxBytes) {
     if (typeof value !== 'string') return value;
     // Count UTF-8 bytes after JSON escaping, including quotes. Reserve the
@@ -45,18 +45,33 @@ export const SERIALIZE_ERROR_SOURCE = `
   if (value === null || typeof value !== 'object') {
     value = { message: truncate(String(value), ${MAX_ERROR_MESSAGE_BYTES}) };
   }
-  if (isError) {
-    const error = {
-      name: truncate(value.name, ${MAX_ERROR_NAME_BYTES}),
-      message: truncate(value.message, ${MAX_ERROR_MESSAGE_BYTES}),
-      stack: truncate(value.stack, ${MAX_ERROR_STACK_BYTES})
+  let core;
+  if (isError || Object.hasOwn(value, 'message')) {
+    function readString(key, maxBytes) {
+      try {
+        const item = isError || Object.hasOwn(value, key) ? value[key] : undefined;
+        return typeof item === 'string' ? truncate(item, maxBytes) : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    // Capture core fields once, before diagnostic getters/toJSON can mutate
+    // the original value. The fallback contains only bounded strings.
+    core = {
+      name: readString('name', ${MAX_ERROR_NAME_BYTES}),
+      message: readString('message', ${MAX_ERROR_MESSAGE_BYTES}),
+      stack: readString('stack', ${MAX_ERROR_STACK_BYTES})
     };
-    if (includeDiagnostics) {
-      for (const key of ['code', 'details']) {
+    const error = { ...core };
+    for (const key of ['code', 'details']) {
+      try {
         // @banned-pattern-ignore: key comes only from the fixed code/details list
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (descriptor && 'value' in descriptor) error[key] = descriptor.value;
-      }
+        if (descriptor) {
+          if ('value' in descriptor) error[key] = descriptor.value;
+          else if (!isError) error[key] = value[key];
+        }
+      } catch {}
     }
     value = error;
   }
@@ -76,17 +91,23 @@ export const SERIALIZE_ERROR_SOURCE = `
     }
     return item;
   }
-  try {
-    return JSON.stringify(value, replace);
-  } catch (error) {
-    if (!isError) throw error;
-    // Optional diagnostic data must not hide the original error message.
-    delete value.code;
-    delete value.details;
-    remaining = 1024;
-    ancestors.length = 0;
-    return JSON.stringify(value, replace);
+  function fits(json) {
+    if (typeof json !== 'string' || json.length > ${MAX_SERIALIZED_ERROR_BYTES}) return false;
+    let bytes = 0;
+    for (const character of json) {
+      const code = character.codePointAt(0);
+      bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+      if (bytes > ${MAX_SERIALIZED_ERROR_BYTES}) return false;
+    }
+    return true;
   }
+  try {
+    const json = JSON.stringify(value, replace);
+    if (fits(json)) return json;
+  } catch {}
+  // Optional diagnostics must not hide the captured message and stack, and
+  // retrying must not invoke guest accessors or host functions a second time.
+  return JSON.stringify(core);
 }
 `;
 

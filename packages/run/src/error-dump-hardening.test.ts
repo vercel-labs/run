@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import { Worker } from 'node:worker_threads';
 import { afterEach, describe, expect, it } from 'vitest';
-import { run } from './index.js';
+import { createRunner, run } from './index.js';
 import { setRuntimeWorkerFactoryForTest } from './runtime/manager.js';
 import { INLINE_RUN_WORKER_SOURCE } from './runtime/worker-source.js';
 
@@ -238,6 +238,113 @@ describe('guest error dump resource limits (VULN-17877)', () => {
       code: 'RUN_USER_SOURCE_ERROR',
       details: { first: { value: 1 }, second: { value: 1 } },
       message: 'guest failure',
+    });
+  });
+
+  it.each([
+    "{ message: 'original failure', details: 'x'.repeat(70_000) }",
+    "{ message: 'original failure', details: 'é'.repeat(40_000) }",
+    "{ message: 'original failure', count: 1n }",
+    "{ message: 'original failure', get extra() { throw 1; } }",
+    "{ message: 'original failure', details: { get extra() { throw 1; } } }",
+  ])(
+    'preserves the message of an error-like object with unusable diagnostics: %s',
+    async value => {
+      await expect(run({ source: `throw (${value});` })).rejects.toMatchObject({
+        code: 'RUN_USER_SOURCE_ERROR',
+        message: 'original failure',
+      });
+    },
+  );
+
+  it('truncates an oversized message on an error-like object', async () => {
+    const resultError = await run({
+      source: "throw { message: 'original failure: ' + 'x'.repeat(70_000) };",
+    }).catch((error: unknown) => error);
+
+    expect(resultError).toMatchObject({
+      code: 'RUN_USER_SOURCE_ERROR',
+      message: expect.stringMatching(/^original failure: .*…\[truncated\]$/u),
+    });
+    expect(
+      Buffer.byteLength((resultError as Error).message),
+    ).toBeLessThanOrEqual(16 * 1024);
+  });
+
+  it.each([
+    ['Error', 'new Error()', "'x'.repeat(70_000)"],
+    ['Error', 'new Error()', "'é'.repeat(40_000)"],
+    ['Error', 'new Error()', '1n'],
+    ['error-like object', '{}', "'x'.repeat(70_000)"],
+    ['error-like object', '{}', "'é'.repeat(40_000)"],
+    ['error-like object', '{}', '1n'],
+  ])(
+    'reads %s core accessors once when diagnostics cannot be serialized: %s %s',
+    async (_name, value, details) => {
+      const calls: string[] = [];
+      const runner = createRunner({
+        syncHostFunctions: {
+          tools: {
+            read(property: string) {
+              calls.push(property);
+              if (property === 'name') {
+                return 'ValidationError';
+              }
+              if (property === 'message') {
+                return 'original failure';
+              }
+              return '    at captured (other.js:1:1)';
+            },
+          },
+        },
+      });
+
+      await expect(
+        runner.run({
+          source: `
+          const error = ${value};
+          for (const property of ['name', 'message', 'stack']) {
+            Object.defineProperty(error, property, { get() { return tools.read(property); } });
+          }
+          error.details = ${details};
+          throw error;
+        `,
+        }),
+      ).rejects.toMatchObject({
+        code: 'RUN_USER_SOURCE_ERROR',
+        message: 'original failure',
+        name: 'ValidationError',
+        stack: expect.stringContaining('at captured (other.js:1:1)'),
+      });
+      expect(calls).toEqual(['name', 'message', 'stack']);
+    },
+  );
+
+  it('uses captured core fields if diagnostic serialization mutates the thrown error', async () => {
+    await expect(
+      run({
+        source: `
+          const error = new Error('original failure');
+          error.details = { toJSON() { error.message = 'changed'; return 'x'.repeat(70_000); } };
+          throw error;
+        `,
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_USER_SOURCE_ERROR',
+      message: 'original failure',
+    });
+  });
+
+  it('preserves a small diagnostic getter on an error-like object', async () => {
+    await expect(
+      run({
+        source:
+          "throw { message: 'original failure', get details() { return { count: 1 }; } };",
+      }),
+    ).rejects.toMatchObject({
+      code: 'RUN_USER_SOURCE_ERROR',
+      details: { count: 1 },
+      message: 'original failure',
     });
   });
 

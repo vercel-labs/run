@@ -1261,25 +1261,18 @@ function dumpQuickJSErrorHandle(
   let result: JSValueHandle | undefined;
   try {
     serialize = context.evalCode(SERIALIZE_ERROR_SOURCE, 'run-error.js');
-    const { isError } = handle;
-    // Oversized diagnostics must not hide an Error's message and stack.
-    for (const includeDiagnostics of isError ? [true, false] : [true]) {
-      result = context.callFunction(
-        serialize,
-        context.undefined,
-        handle,
-        isError ? context.true : context.false,
-        includeDiagnostics ? context.true : context.false,
-      );
-      // Check before toString(), which copies the guest string into host memory.
-      if (result.isString && result.length <= MAX_SERIALIZED_ERROR_BYTES) {
-        const json = result.toString();
-        if (Buffer.byteLength(json) <= MAX_SERIALIZED_ERROR_BYTES) {
-          return parseJson(json);
-        }
+    result = context.callFunction(
+      serialize,
+      context.undefined,
+      handle,
+      handle.isError ? context.true : context.false,
+    );
+    // Check before toString(), which copies the guest string into host memory.
+    if (result.isString && result.length <= MAX_SERIALIZED_ERROR_BYTES) {
+      const json = result.toString();
+      if (Buffer.byteLength(json) <= MAX_SERIALIZED_ERROR_BYTES) {
+        return parseJson(json);
       }
-      result.dispose();
-      result = undefined;
     }
   } catch (error) {
     if (error instanceof JSException) {
