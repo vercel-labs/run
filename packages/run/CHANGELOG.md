@@ -1,5 +1,11 @@
 # run
 
+## 2.1.13
+
+### Patch Changes
+
+- 877929b: Bound all guest error conversion before copying values to host memory to prevent excessive host allocation. Preserve error names, messages, and stacks when truncating oversized values or omitting diagnostic properties.
+
 ## 2.1.12
 
 ### Patch Changes
