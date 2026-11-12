@@ -1,4 +1,115 @@
 import { GUEST_SERDE_SOURCE } from './guest-serde-source.js';
+import {
+  MAX_ERROR_MESSAGE_BYTES,
+  MAX_ERROR_NAME_BYTES,
+  MAX_ERROR_STACK_BYTES,
+  MAX_SERIALIZED_ERROR_BYTES,
+} from '../errors.js';
+
+// Keep object traversal and user-defined getters/toJSON inside the guest's
+// memory and CPU limits. Only a bounded JSON string is copied into V8.
+export const SERIALIZE_ERROR_SOURCE = `
+(value, isError) => {
+  function truncate(value, maxBytes) {
+    if (typeof value !== 'string') return value;
+    // Count UTF-8 bytes after JSON escaping, including quotes. Reserve the
+    // 14-byte suffix and never split a surrogate pair when truncating.
+    let bytes = 2;
+    let length = 0;
+    let end = 0;
+    for (const character of value) {
+      const code = character.codePointAt(0);
+      if (code === 34 || code === 92) bytes += 2;
+      else if (code < 32) bytes += [8, 9, 10, 12, 13].includes(code) ? 2 : 6;
+      else if (code < 128) bytes += 1;
+      else if (code < 2048) bytes += 2;
+      else if (code >= 0xD800 && code <= 0xDFFF) bytes += 6;
+      else bytes += code < 65536 ? 3 : 4;
+      if (bytes > maxBytes) return value.slice(0, end) + '…[truncated]';
+      length += character.length;
+      if (bytes <= maxBytes - 14) end = length;
+    }
+    return value;
+  }
+  if (typeof value === 'function') value = undefined;
+  if (typeof value === 'symbol') {
+    const key = Symbol.keyFor(value);
+    value = key === undefined ? undefined : 'Symbol(' + truncate(key, ${MAX_ERROR_MESSAGE_BYTES} - 8) + ')';
+  }
+  if (typeof value === 'bigint') {
+    // Three bits per decimal digit is conservative. Compare before converting
+    // so an attacker-sized BigInt never expands into a huge decimal string.
+    const limit = 1n << ${MAX_ERROR_MESSAGE_BYTES * 3}n;
+    value = value >= limit || value <= -limit ? '[Truncated]' : String(value);
+  }
+  if (value === null || typeof value !== 'object') {
+    value = { message: truncate(String(value), ${MAX_ERROR_MESSAGE_BYTES}) };
+  }
+  let core;
+  if (isError || Object.hasOwn(value, 'message')) {
+    function readString(key, maxBytes) {
+      try {
+        const item = isError || Object.hasOwn(value, key) ? value[key] : undefined;
+        return typeof item === 'string' ? truncate(item, maxBytes) : undefined;
+      } catch {
+        return undefined;
+      }
+    }
+    // Capture core fields once, before diagnostic getters/toJSON can mutate
+    // the original value. The fallback contains only bounded strings.
+    core = {
+      name: readString('name', ${MAX_ERROR_NAME_BYTES}),
+      message: readString('message', ${MAX_ERROR_MESSAGE_BYTES}),
+      stack: readString('stack', ${MAX_ERROR_STACK_BYTES})
+    };
+    const error = { ...core };
+    for (const key of ['code', 'details']) {
+      try {
+        // @banned-pattern-ignore: key comes only from the fixed code/details list
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor) {
+          if ('value' in descriptor) error[key] = descriptor.value;
+          else if (!isError) error[key] = value[key];
+        }
+      } catch {}
+    }
+    value = error;
+  }
+  let remaining = 1024;
+  const ancestors = [];
+  function replace(key, item) {
+    if (--remaining < 0) throw new RangeError('Guest error exceeds serialization limits.');
+    if (typeof item === 'string' && item.length > ${MAX_SERIALIZED_ERROR_BYTES}) {
+      return item.slice(0, ${MAX_SERIALIZED_ERROR_BYTES});
+    }
+    if (item !== null && typeof item === 'object') {
+      while (ancestors.length && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+      if (ancestors.length >= 32 || ancestors.includes(item) || (Array.isArray(item) && item.length > remaining)) {
+        return '[Truncated]';
+      }
+      ancestors.push(item);
+    }
+    return item;
+  }
+  function fits(json) {
+    if (typeof json !== 'string' || json.length > ${MAX_SERIALIZED_ERROR_BYTES}) return false;
+    let bytes = 0;
+    for (const character of json) {
+      const code = character.codePointAt(0);
+      bytes += code < 128 ? 1 : code < 2048 ? 2 : code < 65536 ? 3 : 4;
+      if (bytes > ${MAX_SERIALIZED_ERROR_BYTES}) return false;
+    }
+    return true;
+  }
+  try {
+    const json = JSON.stringify(value, replace);
+    if (fits(json)) return json;
+  } catch {}
+  // Optional diagnostics must not hide the captured message and stack, and
+  // retrying must not invoke guest accessors or host functions a second time.
+  return JSON.stringify(core);
+}
+`;
 
 const BASE64_SOURCE = `
 const __runBase64Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
