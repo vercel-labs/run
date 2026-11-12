@@ -1,16 +1,62 @@
 import { GUEST_SERDE_SOURCE } from './guest-serde-source.js';
-import { MAX_SERIALIZED_ERROR_BYTES } from '../errors.js';
+import {
+  MAX_ERROR_MESSAGE_BYTES,
+  MAX_ERROR_NAME_BYTES,
+  MAX_ERROR_STACK_BYTES,
+  MAX_SERIALIZED_ERROR_BYTES,
+} from '../errors.js';
 
 // Keep object traversal and user-defined getters/toJSON inside the guest's
 // memory and CPU limits. Only a bounded JSON string is copied into V8.
 export const SERIALIZE_ERROR_SOURCE = `
-(value, isError) => {
+(value, isError, includeDiagnostics) => {
+  function truncate(value, maxBytes) {
+    if (typeof value !== 'string') return value;
+    // Count UTF-8 bytes after JSON escaping, including quotes. Reserve the
+    // 14-byte suffix and never split a surrogate pair when truncating.
+    let bytes = 2;
+    let length = 0;
+    let end = 0;
+    for (const character of value) {
+      const code = character.codePointAt(0);
+      if (code === 34 || code === 92) bytes += 2;
+      else if (code < 32) bytes += [8, 9, 10, 12, 13].includes(code) ? 2 : 6;
+      else if (code < 128) bytes += 1;
+      else if (code < 2048) bytes += 2;
+      else if (code >= 0xD800 && code <= 0xDFFF) bytes += 6;
+      else bytes += code < 65536 ? 3 : 4;
+      if (bytes > maxBytes) return value.slice(0, end) + '…[truncated]';
+      length += character.length;
+      if (bytes <= maxBytes - 14) end = length;
+    }
+    return value;
+  }
+  if (typeof value === 'function') value = undefined;
+  if (typeof value === 'symbol') {
+    const key = Symbol.keyFor(value);
+    value = key === undefined ? undefined : 'Symbol(' + truncate(key, ${MAX_ERROR_MESSAGE_BYTES} - 8) + ')';
+  }
+  if (typeof value === 'bigint') {
+    // Three bits per decimal digit is conservative. Compare before converting
+    // so an attacker-sized BigInt never expands into a huge decimal string.
+    const limit = 1n << ${MAX_ERROR_MESSAGE_BYTES * 3}n;
+    value = value >= limit || value <= -limit ? '[Truncated]' : String(value);
+  }
+  if (value === null || typeof value !== 'object') {
+    value = { message: truncate(String(value), ${MAX_ERROR_MESSAGE_BYTES}) };
+  }
   if (isError) {
-    const error = { name: value.name, message: value.message, stack: value.stack };
-    for (const key of ['code', 'details']) {
-      // @banned-pattern-ignore: key comes only from the fixed code/details list
-      const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      if (descriptor && 'value' in descriptor) error[key] = descriptor.value;
+    const error = {
+      name: truncate(value.name, ${MAX_ERROR_NAME_BYTES}),
+      message: truncate(value.message, ${MAX_ERROR_MESSAGE_BYTES}),
+      stack: truncate(value.stack, ${MAX_ERROR_STACK_BYTES})
+    };
+    if (includeDiagnostics) {
+      for (const key of ['code', 'details']) {
+        // @banned-pattern-ignore: key comes only from the fixed code/details list
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (descriptor && 'value' in descriptor) error[key] = descriptor.value;
+      }
     }
     value = error;
   }

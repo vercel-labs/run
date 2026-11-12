@@ -1257,30 +1257,29 @@ function dumpQuickJSErrorHandle(
   context: QuickJS,
   handle: JSValueHandle,
 ): unknown {
-  // Primitive conversion cannot walk an attacker-controlled object graph.
-  if (!handle.isObject || handle.isFunction) {
-    if (handle.isString && handle.length > MAX_SERIALIZED_ERROR_BYTES) {
-      return '[Truncated]';
-    }
-    return context.dump(handle);
-  }
-
   let serialize: JSValueHandle | undefined;
   let result: JSValueHandle | undefined;
   try {
     serialize = context.evalCode(SERIALIZE_ERROR_SOURCE, 'run-error.js');
-    result = context.callFunction(
-      serialize,
-      context.undefined,
-      handle,
-      handle.isError ? context.true : context.false,
-    );
-    // Check before toString(), which copies the guest string into host memory.
-    if (result.isString && result.length <= MAX_SERIALIZED_ERROR_BYTES) {
-      const json = result.toString();
-      if (Buffer.byteLength(json) <= MAX_SERIALIZED_ERROR_BYTES) {
-        return parseJson(json);
+    const { isError } = handle;
+    // Oversized diagnostics must not hide an Error's message and stack.
+    for (const includeDiagnostics of isError ? [true, false] : [true]) {
+      result = context.callFunction(
+        serialize,
+        context.undefined,
+        handle,
+        isError ? context.true : context.false,
+        includeDiagnostics ? context.true : context.false,
+      );
+      // Check before toString(), which copies the guest string into host memory.
+      if (result.isString && result.length <= MAX_SERIALIZED_ERROR_BYTES) {
+        const json = result.toString();
+        if (Buffer.byteLength(json) <= MAX_SERIALIZED_ERROR_BYTES) {
+          return parseJson(json);
+        }
       }
+      result.dispose();
+      result = undefined;
     }
   } catch (error) {
     if (error instanceof JSException) {

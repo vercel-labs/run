@@ -55,6 +55,18 @@ describe('guest error dump resource limits (VULN-17877)', () => {
     ['a sparse array nested in a thrown object', 'throw { payload: a };'],
     ['a sparse array nested in a thrown array', 'throw [a];'],
     [
+      'a callable with sparse diagnostic properties',
+      'throw Object.assign(() => {}, { details: a });',
+    ],
+    [
+      'a callable proxy exposing a sparse array',
+      'throw new Proxy(() => {}, { get() { return a; } });',
+    ],
+    [
+      'a callable with a sparse toJSON result',
+      'throw Object.assign(() => {}, { toJSON() { return a; } });',
+    ],
+    [
       'a sparse array returned by a getter',
       'throw { get payload() { return a; } };',
     ],
@@ -122,6 +134,96 @@ describe('guest error dump resource limits (VULN-17877)', () => {
     expect(watchdogTrips()).toBe(0);
   });
 
+  it.each([
+    ['undefined', 'undefined'],
+    ['null', 'null'],
+    ['true', 'true'],
+    ['42', '42'],
+    ['NaN', 'NaN'],
+    ['Infinity', 'Infinity'],
+    ["'guest failure'", 'guest failure'],
+    ['123n', '123'],
+    ['1n << 80n', '1208925819614629174706176'],
+    ["Symbol('local')", 'undefined'],
+    ["Symbol.for('global')", 'Symbol(global)'],
+    ['(() => {})', 'undefined'],
+  ])('preserves the bounded message for thrown %s', async (value, message) => {
+    await expect(run({ source: `throw (${value});` })).rejects.toMatchObject({
+      code: 'RUN_USER_SOURCE_ERROR',
+      message,
+    });
+  });
+
+  it.each(['1n << 1_000_000n', '-(1n << 1_000_000n)'])(
+    'bounds a large BigInt before decimal conversion: %s',
+    async value => {
+      // A small guest allocation exercises the same conversion path as the
+      // reported 200-million-bit value without stressing the test process.
+      await expect(
+        run({
+          limits: { memoryLimitBytes: 8 * 1024 * 1024, timeoutMs: 5000 },
+          source: `throw (${value});`,
+        }),
+      ).rejects.toMatchObject({
+        code: 'RUN_USER_SOURCE_ERROR',
+        message: '[Truncated]',
+      });
+    },
+  );
+
+  it.each([
+    "'x'.repeat(100_000)",
+    "'é'.repeat(50_000)",
+    "'🧪'.repeat(50_000)",
+    String.raw`'\u0000'.repeat(100_000)`,
+    'String.fromCharCode(34, 92).repeat(50_000)',
+    'String.fromCharCode(0xD800).repeat(100_000)',
+  ])(
+    'truncates oversized Error messages without losing their identity: %s',
+    async payload => {
+      const resultError = await run({
+        source: `
+        function fail() {
+          throw new TypeError('original failure: ' + ${payload});
+        }
+        fail();
+      `,
+      }).catch((error: unknown) => error);
+
+      expect(resultError).toMatchObject({
+        code: 'RUN_USER_SOURCE_ERROR',
+        message: expect.stringMatching(
+          /^original failure: .*…\[truncated\]$/su,
+        ),
+        name: 'TypeError',
+        stack: expect.stringContaining('at fail (run.js:'),
+      });
+      expect(
+        Buffer.byteLength((resultError as Error).message),
+      ).toBeLessThanOrEqual(16 * 1024);
+    },
+  );
+
+  it('truncates an oversized Error stack without losing its message or frames', async () => {
+    const resultError = await run({
+      source: `
+        const error = new TypeError('original failure');
+        error.stack = '    at repeated (other.js:1:1)\\n'.repeat(10_000);
+        throw error;
+      `,
+    }).catch((error: unknown) => error);
+
+    expect(resultError).toMatchObject({
+      code: 'RUN_USER_SOURCE_ERROR',
+      message: 'original failure',
+      name: 'TypeError',
+      stack: expect.stringContaining('at repeated (other.js:1:1)'),
+    });
+    expect(
+      Buffer.byteLength((resultError as Error).stack ?? ''),
+    ).toBeLessThanOrEqual(32 * 1024);
+  });
+
   it('preserves shared references in ordinary error details', async () => {
     await expect(
       run({
@@ -138,6 +240,37 @@ describe('guest error dump resource limits (VULN-17877)', () => {
       message: 'guest failure',
     });
   });
+
+  it.each([
+    ['details', "'x'.repeat(70_000)"],
+    ['details', "'é'.repeat(40_000)"],
+    ['details', String.raw`'\u0000'.repeat(20_000)`],
+    ['code', "'x'.repeat(70_000)"],
+    ['code', "'é'.repeat(40_000)"],
+    ['code', String.raw`'\u0000'.repeat(20_000)`],
+  ])(
+    'preserves the original error when %s exceeds the serialized-size limit: %s',
+    async (property, payload) => {
+      const resultError = await run({
+        source: `
+          function fail() {
+            const error = new TypeError('original failure');
+            error.${property} = ${payload};
+            throw error;
+          }
+          fail();
+        `,
+      }).catch((error: unknown) => error);
+
+      expect(resultError).toMatchObject({
+        code: 'RUN_USER_SOURCE_ERROR',
+        details: undefined,
+        message: 'original failure',
+        name: 'TypeError',
+        stack: expect.stringContaining('at fail (run.js:'),
+      });
+    },
+  );
 
   it.each(['1n', "{ toJSON() { throw new Error('bad details'); } }"])(
     'preserves the error message when details cannot be serialized: %s',
