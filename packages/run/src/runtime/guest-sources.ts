@@ -1,4 +1,48 @@
 import { GUEST_SERDE_SOURCE } from './guest-serde-source.js';
+import { MAX_SERIALIZED_ERROR_BYTES } from '../errors.js';
+
+// Keep object traversal and user-defined getters/toJSON inside the guest's
+// memory and CPU limits. Only a bounded JSON string is copied into V8.
+export const SERIALIZE_ERROR_SOURCE = `
+(value, isError) => {
+  if (isError) {
+    const error = { name: value.name, message: value.message, stack: value.stack };
+    for (const key of ['code', 'details']) {
+      // @banned-pattern-ignore: key comes only from the fixed code/details list
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (descriptor && 'value' in descriptor) error[key] = descriptor.value;
+    }
+    value = error;
+  }
+  let remaining = 1024;
+  const ancestors = [];
+  function replace(key, item) {
+    if (--remaining < 0) throw new RangeError('Guest error exceeds serialization limits.');
+    if (typeof item === 'string' && item.length > ${MAX_SERIALIZED_ERROR_BYTES}) {
+      return item.slice(0, ${MAX_SERIALIZED_ERROR_BYTES});
+    }
+    if (item !== null && typeof item === 'object') {
+      while (ancestors.length && ancestors[ancestors.length - 1] !== this) ancestors.pop();
+      if (ancestors.length >= 32 || ancestors.includes(item) || (Array.isArray(item) && item.length > remaining)) {
+        return '[Truncated]';
+      }
+      ancestors.push(item);
+    }
+    return item;
+  }
+  try {
+    return JSON.stringify(value, replace);
+  } catch (error) {
+    if (!isError) throw error;
+    // Optional diagnostic data must not hide the original error message.
+    delete value.code;
+    delete value.details;
+    remaining = 1024;
+    ancestors.length = 0;
+    return JSON.stringify(value, replace);
+  }
+}
+`;
 
 const BASE64_SOURCE = `
 const __runBase64Alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';

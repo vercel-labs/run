@@ -5,6 +5,7 @@ import { parentPort } from 'node:worker_threads';
 import { EvalFlags, JSException, QuickJS } from 'quickjs-wasi';
 import type { Deferred, JSValueHandle } from 'quickjs-wasi';
 import {
+  MAX_SERIALIZED_ERROR_BYTES,
   deserializeError,
   RunBridgeLimitError,
   RunCpuTimeoutError,
@@ -17,7 +18,11 @@ import { parseJson } from '../utils/parse-json.js';
 import { createPromiseWithResolvers } from '../utils/promise-with-resolvers.js';
 import { createGuestClock, getExceededLimit } from './guest-clock.js';
 import type { GuestClock } from './guest-clock.js';
-import { buildGuestRuntimeSetupSource, wrapUserCode } from './guest-sources.js';
+import {
+  SERIALIZE_ERROR_SOURCE,
+  buildGuestRuntimeSetupSource,
+  wrapUserCode,
+} from './guest-sources.js';
 import { normalizeUserSourceStack } from './source-stack.js';
 import type { WorkerBridgeResponse, WorkerRunMessage } from './protocol.js';
 import { assertMainToWorkerMessage } from './protocol-validation.js';
@@ -1252,28 +1257,38 @@ function dumpQuickJSErrorHandle(
   context: QuickJS,
   handle: JSValueHandle,
 ): unknown {
-  const dumped = context.dump(handle);
-  if (!(dumped instanceof Error)) {
-    return dumped;
+  // Primitive conversion cannot walk an attacker-controlled object graph.
+  if (!handle.isObject || handle.isFunction) {
+    if (handle.isString && handle.length > MAX_SERIALIZED_ERROR_BYTES) {
+      return '[Truncated]';
+    }
+    return context.dump(handle);
   }
 
-  for (const property of ['code', 'details'] as const) {
-    const descriptor = handle.getOwnPropertyDescriptor(property);
-    if (descriptor?.value === undefined) {
-      descriptor?.get?.dispose();
-      descriptor?.set?.dispose();
-      continue;
-    }
-    try {
-      const value = context.dump(descriptor.value);
-      if (property === 'code') {
-        Object.defineProperty(dumped, 'code', { enumerable: true, value });
-      } else {
-        Object.defineProperty(dumped, 'details', { enumerable: true, value });
+  let serialize: JSValueHandle | undefined;
+  let result: JSValueHandle | undefined;
+  try {
+    serialize = context.evalCode(SERIALIZE_ERROR_SOURCE, 'run-error.js');
+    result = context.callFunction(
+      serialize,
+      context.undefined,
+      handle,
+      handle.isError ? context.true : context.false,
+    );
+    // Check before toString(), which copies the guest string into host memory.
+    if (result.isString && result.length <= MAX_SERIALIZED_ERROR_BYTES) {
+      const json = result.toString();
+      if (Buffer.byteLength(json) <= MAX_SERIALIZED_ERROR_BYTES) {
+        return parseJson(json);
       }
-    } finally {
-      descriptor.value.dispose();
     }
+  } catch (error) {
+    if (error instanceof JSException) {
+      error.dispose();
+    }
+  } finally {
+    result?.dispose();
+    serialize?.dispose();
   }
-  return dumped;
+  return new Error('Guest error could not be serialized within limits.');
 }
