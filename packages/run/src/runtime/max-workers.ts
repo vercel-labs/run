@@ -71,14 +71,16 @@ export const getMaxWorkers = ({
  * Reserves the estimated memory for an invocation before it can allocate.
  *
  * Returns the reservation size, zero when an explicit count cap is configured,
- * or `undefined` when the dynamic memory budget is exhausted.
+ * `undefined` when the dynamic memory budget cannot cover this worker, or
+ * `'reserve'` when it cannot also cover `reserveWorkers` more of the same size.
  *
  * @internal
  */
 export const reserveWorkerMemory = (
   memoryLimitBytes: number,
   additionalMemoryBytes = 0,
-): number | undefined => {
+  reserveWorkers = 0,
+): number | 'reserve' | undefined => {
   if (configuredMaxWorkers !== undefined) {
     return 0;
   }
@@ -87,10 +89,18 @@ export const reserveWorkerMemory = (
     memoryLimitBytes,
     additionalMemoryBytes,
   );
-  memoryBudgetBytes ??= Math.max(reservationBytes, availableMemory());
-  if (reservedMemoryBytes + reservationBytes > memoryBudgetBytes) {
+  const budgetBytes =
+    memoryBudgetBytes ?? Math.max(reservationBytes, availableMemory());
+  if (reservedMemoryBytes + reservationBytes > budgetBytes) {
     return undefined;
   }
+  if (
+    reservedMemoryBytes + reservationBytes * (1 + reserveWorkers) >
+    budgetBytes
+  ) {
+    return 'reserve';
+  }
+  memoryBudgetBytes = budgetBytes;
   reservedMemoryBytes += reservationBytes;
   return reservationBytes;
 };

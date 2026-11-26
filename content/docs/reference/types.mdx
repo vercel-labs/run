@@ -126,6 +126,13 @@ import type {
                 description:
                   'Serializable context authenticated by a continuation and required unchanged when resumed.',
               },
+              reserveWorkers: {
+                type: 'number',
+                typeDescription: 'number',
+                required: false,
+                description:
+                  'Workers this invocation leaves free for others. Default: 0.',
+              },
             }}
           />
         </>

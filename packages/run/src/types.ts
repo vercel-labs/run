@@ -158,6 +158,16 @@ export interface RunInput<TOKEN = unknown> {
    * continuation and required unchanged when it is resumed.
    */
   continuationContext?: unknown;
+  /**
+   * Workers this invocation leaves free for others. Admission fails with
+   * `RUN_CONCURRENCY_LIMIT` when admitting it would leave fewer free workers
+   * under the worker cap or, without `setMaxWorkers`, the memory budget,
+   * estimated at this invocation's worker size. Each continuation resume is
+   * admitted afresh.
+   *
+   * @default `0`
+   */
+  reserveWorkers?: number;
 }
 
 /** Result of a completed sandbox invocation. */
@@ -314,6 +324,7 @@ export interface InternalRunInput extends RunInput<unknown> {
   continuationCodec: ContinuationCodec;
   continuationEnabled: boolean;
   continuationAudience: string;
+  reserveWorkers: number;
 }
 
 /** @internal */

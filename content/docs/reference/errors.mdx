@@ -200,15 +200,20 @@ import {
       required: true,
       description: (
         <>
-          <p>{'Raised when the process-global worker cap has been reached.'}</p>
+          <p>
+            {
+              'Raised when the process-global worker cap has been reached, or when admitting the invocation would leave fewer free workers than its reserveWorkers.'
+            }
+          </p>
           <p>
             <code>{'RunConcurrencyError'}</code>
           </p>
           <TypeTable
             type={{
               constructor: {
-                type: '(maxWorkers: number) => RunConcurrencyError',
-                typeDescription: '(maxWorkers: number) => RunConcurrencyError',
+                type: '(maxWorkers: number, reserveWorkers?: number) => RunConcurrencyError',
+                typeDescription:
+                  '(maxWorkers: number, reserveWorkers?: number) => RunConcurrencyError',
                 required: true,
                 description: 'Creates a RunConcurrencyError.',
               },
@@ -219,10 +224,12 @@ import {
                 description: 'The stable error code.',
               },
               details: {
-                type: '{ maxWorkers: number }',
-                typeDescription: '{ maxWorkers: number }',
+                type: '{ maxWorkers: number; reserveWorkers?: number }',
+                typeDescription:
+                  '{ maxWorkers: number; reserveWorkers?: number }',
                 required: true,
-                description: 'The configured worker cap.',
+                description:
+                  'The worker cap, or the active invocation count (at least 1) when the dynamic memory budget refused the invocation. reserveWorkers is present only when the invocation would have been admitted without its reserve.',
               },
             }}
           />

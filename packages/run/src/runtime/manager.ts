@@ -406,15 +406,31 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
     additionalMemoryBytes: syncBridgeBytes,
     memoryLimitBytes: normalizedOptions.memoryLimitBytes,
   });
-  if (activeInvocations >= maxWorkers) {
+  const { reserveWorkers } = input;
+  const freeWorkers = maxWorkers - activeInvocations;
+  if (freeWorkers < 1) {
     throw new RunConcurrencyError(maxWorkers);
   }
   const reservedMemoryBytes = reserveWorkerMemory(
     normalizedOptions.memoryLimitBytes,
     syncBridgeBytes,
+    reserveWorkers,
   );
   if (reservedMemoryBytes === undefined) {
     throw new RunConcurrencyError(Math.max(1, activeInvocations));
+  }
+  // Blame the reserve only once the invocation passes both checks without it.
+  if (reserveWorkers > freeWorkers - 1) {
+    if (reservedMemoryBytes !== 'reserve') {
+      releaseWorkerMemory(reservedMemoryBytes);
+    }
+    throw new RunConcurrencyError(maxWorkers, reserveWorkers);
+  }
+  if (reservedMemoryBytes === 'reserve') {
+    throw new RunConcurrencyError(
+      Math.max(1, activeInvocations),
+      reserveWorkers,
+    );
   }
   activeInvocations += 1;
   try {

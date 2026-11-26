@@ -64,8 +64,8 @@ describe('max workers', () => {
     const mib = 1024 * 1024;
     vi.spyOn(process, 'availableMemory').mockReturnValue(200 * mib);
     const largeReservation = reserveWorkerMemory(128 * mib);
-    if (largeReservation === undefined) {
-      throw new Error('Expected the first worker reservation to succeed.');
+    if (typeof largeReservation !== 'number') {
+      throw new TypeError('Expected the first worker reservation to succeed.');
     }
 
     try {
@@ -76,8 +76,8 @@ describe('max workers', () => {
     }
 
     const smallReservation = reserveWorkerMemory(16 * mib);
-    if (smallReservation === undefined) {
-      throw new Error('Expected released capacity to be reusable.');
+    if (typeof smallReservation !== 'number') {
+      throw new TypeError('Expected released capacity to be reusable.');
     }
     try {
       expect(smallReservation).toBe(64 * mib);
@@ -98,8 +98,46 @@ describe('max workers', () => {
     ).toBe(2);
     const reservation = reserveWorkerMemory(16 * mib, 16 * mib);
     expect(reservation).toBe(80 * mib);
-    if (reservation !== undefined) {
+    if (typeof reservation === 'number') {
       releaseWorkerMemory(reservation);
+    }
+  });
+
+  it('reserves headroom for reserved workers of the same size', () => {
+    const mib = 1024 * 1024;
+    vi.spyOn(process, 'availableMemory').mockReturnValue(192 * mib);
+    const reservations = [
+      reserveWorkerMemory(16 * mib, 0, 1),
+      reserveWorkerMemory(16 * mib, 0, 1),
+    ];
+
+    try {
+      expect(reservations).toEqual([64 * mib, 64 * mib]);
+      expect(reserveWorkerMemory(16 * mib, 0, 1)).toBe('reserve');
+      const plain = reserveWorkerMemory(16 * mib);
+      expect(plain).toBe(64 * mib);
+      reservations.push(plain);
+      expect(reserveWorkerMemory(16 * mib, 0, 1)).toBeUndefined();
+    } finally {
+      for (const reservation of reservations) {
+        releaseWorkerMemory(typeof reservation === 'number' ? reservation : 0);
+      }
+    }
+  });
+
+  it('does not keep the memory snapshot of a refused idle reservation', () => {
+    const mib = 1024 * 1024;
+    const availableMemory = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(100 * mib);
+
+    expect(reserveWorkerMemory(16 * mib, 0, 1)).toBe('reserve');
+    availableMemory.mockReturnValue(1000 * mib);
+    const reservation = reserveWorkerMemory(16 * mib, 0, 9);
+    try {
+      expect(reservation).toBe(64 * mib);
+    } finally {
+      releaseWorkerMemory(typeof reservation === 'number' ? reservation : 0);
     }
   });
 
