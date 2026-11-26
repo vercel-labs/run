@@ -358,7 +358,9 @@ can pass it to leave a worker for other invocations:
 await run({ source, hostFunctions, reserveWorkers: 1 });
 ```
 
-When the cap is 1, a run with `reserveWorkers: 1` is always refused.
+When the cap is 1, a run with `reserveWorkers: 1` is always refused. Without
+`setMaxWorkers()`, the reserve is held while the run is active: later runs with
+`reserveWorkers` must also leave it free.
 
 ## Continuations
 

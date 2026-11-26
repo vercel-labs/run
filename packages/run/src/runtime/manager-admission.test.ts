@@ -323,6 +323,164 @@ describe('run admission and source transformation', () => {
     }
   });
 
+  it('counts a reserving worker once against the memory budget', async () => {
+    const mib = 1024 * 1024;
+    const limits = { memoryLimitBytes: 256 * mib };
+    const availableMemorySpy = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(768 * mib);
+    const held = holdWorker({ limits, reserveWorkers: 1 });
+
+    try {
+      await held.started;
+      availableMemorySpy.mockReturnValue(384 * mib);
+
+      await expect(run({ limits, source: 'return 2;' })).resolves.toEqual({
+        status: 'completed',
+        value: 2,
+      });
+    } finally {
+      await held.release();
+      availableMemorySpy.mockRestore();
+    }
+    await expect(held.result).resolves.toEqual({
+      status: 'completed',
+      value: undefined,
+    });
+  });
+
+  it('refuses a plain invocation the memory left beside a reserving one cannot fit', async () => {
+    const mib = 1024 * 1024;
+    const limits = { memoryLimitBytes: 256 * mib };
+    // Async host functions need no synchronous bridge buffer.
+    const workerBytes = (256 + 48) * mib;
+    const availableMemorySpy = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(768 * mib);
+    const held = holdWorker({ limits, reserveWorkers: 1 });
+
+    try {
+      await held.started;
+      availableMemorySpy.mockReturnValue(workerBytes);
+      await expect(run({ limits, source: 'return 1;' })).resolves.toEqual({
+        status: 'completed',
+        value: 1,
+      });
+
+      availableMemorySpy.mockReturnValue(workerBytes - 1);
+
+      await expect(run({ limits, source: 'return 2;' })).rejects.toMatchObject({
+        code: 'RUN_CONCURRENCY_LIMIT',
+        details: { maxWorkers: 1 },
+        message: 'JavaScript runtime maxWorkers limit reached (1).',
+      });
+    } finally {
+      await held.release();
+      availableMemorySpy.mockRestore();
+    }
+  });
+
+  it('counts workers admitted beside a reserving one before they allocate', async () => {
+    const mib = 1024 * 1024;
+    const limits = { memoryLimitBytes: 16 * mib };
+    // Worker estimate: 64 MiB.
+    const availableMemorySpy = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(256 * mib);
+    const held = holdWorker({ limits, reserveWorkers: 1 });
+
+    try {
+      await held.started;
+      availableMemorySpy.mockReturnValue(64 * mib);
+
+      const [first, second] = await Promise.allSettled([
+        run({ limits, source: 'return 1;' }),
+        run({ limits, source: 'return 2;' }),
+      ]);
+      expect(first).toEqual({
+        status: 'fulfilled',
+        value: { status: 'completed', value: 1 },
+      });
+      expect(second).toMatchObject({
+        reason: {
+          code: 'RUN_CONCURRENCY_LIMIT',
+          message: 'JavaScript runtime maxWorkers limit reached (2).',
+        },
+        status: 'rejected',
+      });
+    } finally {
+      await held.release();
+      availableMemorySpy.mockRestore();
+    }
+  });
+
+  it('reports the held reserve that refuses a reserving invocation', async () => {
+    const mib = 1024 * 1024;
+    const limits = { memoryLimitBytes: 16 * mib };
+    // Worker estimate: 64 MiB. Beside the holder, 176 MiB fit a reserver that
+    // keeps one worker free, not the two the holder keeps free.
+    const availableMemorySpy = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(240 * mib);
+    const held = holdWorker({ limits, reserveWorkers: 2 });
+
+    try {
+      await held.started;
+
+      await expect(
+        run({ limits, reserveWorkers: 1, source: 'return 1;' }),
+      ).rejects.toMatchObject({
+        code: 'RUN_CONCURRENCY_LIMIT',
+        details: { maxWorkers: 3, reserveWorkers: 2 },
+        message:
+          'JavaScript runtime refused the invocation to keep 2 reserved workers free (maxWorkers 3).',
+      });
+    } finally {
+      await held.release();
+      availableMemorySpy.mockRestore();
+    }
+  });
+
+  it('holds the remaining reserve once the larger reserving invocation ends', async () => {
+    const mib = 1024 * 1024;
+    const small = { memoryLimitBytes: 16 * mib };
+    // Worker estimates: 64 MiB for 16 MiB, 112 MiB for 64 MiB.
+    const availableMemorySpy = vi
+      .spyOn(process, 'availableMemory')
+      .mockReturnValue(320 * mib);
+    const smallReserver = holdWorker({ limits: small, reserveWorkers: 1 });
+    const held = [smallReserver];
+
+    try {
+      await smallReserver.started;
+      const largeReserver = holdWorker({
+        limits: { memoryLimitBytes: 64 * mib },
+        reserveWorkers: 1,
+      });
+      held.push(largeReserver);
+      await largeReserver.started;
+      for (const _ of [1, 2]) {
+        const plain = holdWorker({ limits: small });
+        held.push(plain);
+        await plain.started;
+      }
+
+      await expect(
+        run({ limits: small, reserveWorkers: 1, source: 'return 1;' }),
+      ).rejects.toMatchObject({ code: 'RUN_CONCURRENCY_LIMIT' });
+
+      // 128 MiB remain: room for a small reserver keeping a small worker free,
+      // not one keeping the larger reserver's 112 MiB free.
+      await largeReserver.release();
+      await expect(
+        run({ limits: small, reserveWorkers: 1, source: 'return 2;' }),
+      ).resolves.toEqual({ status: 'completed', value: 2 });
+    } finally {
+      await Promise.all(held.map(worker => worker.release()));
+      availableMemorySpy.mockRestore();
+    }
+  });
+
   it('returns the memory reservation of an invocation refused for its reserve', async () => {
     const mib = 1024 * 1024;
     // Worker estimates: 64 MiB for the 16 MiB holder, 112 MiB for 64 MiB, so
@@ -344,6 +502,13 @@ describe('run admission and source transformation', () => {
         code: 'RUN_CONCURRENCY_LIMIT',
         details: { maxWorkers: 2, reserveWorkers: 1 },
       });
+      await expect(
+        run({
+          limits: { memoryLimitBytes: 16 * mib },
+          reserveWorkers: 1,
+          source: 'return 3;',
+        }),
+      ).resolves.toEqual({ status: 'completed', value: 3 });
       await held.release();
 
       availableMemorySpy.mockReturnValue(1000 * mib);

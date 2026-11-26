@@ -51,9 +51,11 @@ import type {
 } from '../types.js';
 import {
   getMaxWorkers,
+  getReserveHoldAdmission,
   releaseWorkerMemory,
   reserveWorkerMemory,
 } from './max-workers.js';
+import type { WorkerMemoryReservation } from './max-workers.js';
 import type {
   MainToWorkerMessage,
   WorkerBridgeResponse,
@@ -406,32 +408,12 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
     additionalMemoryBytes: syncBridgeBytes,
     memoryLimitBytes: normalizedOptions.memoryLimitBytes,
   });
-  const { reserveWorkers } = input;
-  const freeWorkers = maxWorkers - activeInvocations;
-  if (freeWorkers < 1) {
-    throw new RunConcurrencyError(maxWorkers);
-  }
-  const reservedMemoryBytes = reserveWorkerMemory(
-    normalizedOptions.memoryLimitBytes,
+  const reservation = admitInvocation({
+    maxWorkers,
+    memoryLimitBytes: normalizedOptions.memoryLimitBytes,
+    reserveWorkers: input.reserveWorkers,
     syncBridgeBytes,
-    reserveWorkers,
-  );
-  if (reservedMemoryBytes === undefined) {
-    throw new RunConcurrencyError(Math.max(1, activeInvocations));
-  }
-  // Blame the reserve only once the invocation passes both checks without it.
-  if (reserveWorkers > freeWorkers - 1) {
-    if (reservedMemoryBytes !== 'reserve') {
-      releaseWorkerMemory(reservedMemoryBytes);
-    }
-    throw new RunConcurrencyError(maxWorkers, reserveWorkers);
-  }
-  if (reservedMemoryBytes === 'reserve') {
-    throw new RunConcurrencyError(
-      Math.max(1, activeInvocations),
-      reserveWorkers,
-    );
-  }
+  });
   activeInvocations += 1;
   try {
     assertSourceSize(input.source, normalizedOptions.maxSourceBytes);
@@ -480,10 +462,7 @@ export async function runManaged(input: InternalRunInput): Promise<RunResult> {
     });
     return await run.result;
   } finally {
-    releaseInvocationSlot(
-      normalizedOptions.memoryLimitBytes,
-      reservedMemoryBytes,
-    );
+    releaseInvocationSlot(normalizedOptions.memoryLimitBytes, reservation);
   }
 }
 
@@ -1916,12 +1895,62 @@ function trimIdleWorkers(maxIdleWorkers: number): void {
   }
 }
 
+function admitInvocation({
+  maxWorkers,
+  memoryLimitBytes,
+  reserveWorkers,
+  syncBridgeBytes,
+}: {
+  maxWorkers: number;
+  memoryLimitBytes: number;
+  reserveWorkers: number;
+  syncBridgeBytes: number;
+}): WorkerMemoryReservation {
+  const hold = getReserveHoldAdmission({
+    activeInvocations,
+    additionalMemoryBytes: syncBridgeBytes,
+    memoryLimitBytes,
+  });
+  const admissionMaxWorkers = hold?.maxWorkers ?? maxWorkers;
+  const refusedReserveWorkers = Math.max(
+    hold?.reserveWorkers ?? 0,
+    reserveWorkers,
+  );
+  const freeWorkers = admissionMaxWorkers - activeInvocations;
+  if (freeWorkers < 1) {
+    throw new RunConcurrencyError(admissionMaxWorkers);
+  }
+  const reservation = reserveWorkerMemory(
+    memoryLimitBytes,
+    syncBridgeBytes,
+    reserveWorkers,
+    activeInvocations,
+  );
+  if (reservation === undefined) {
+    throw new RunConcurrencyError(Math.max(1, activeInvocations));
+  }
+  // Blame the reserve only once the invocation passes both checks without it.
+  if (reserveWorkers > freeWorkers - 1) {
+    if (reservation !== 'reserve') {
+      releaseWorkerMemory(reservation);
+    }
+    throw new RunConcurrencyError(admissionMaxWorkers, refusedReserveWorkers);
+  }
+  if (reservation === 'reserve') {
+    throw new RunConcurrencyError(
+      hold?.maxWorkers ?? Math.max(1, activeInvocations),
+      refusedReserveWorkers,
+    );
+  }
+  return reservation;
+}
+
 function releaseInvocationSlot(
   memoryLimitBytes: number,
-  reservedMemoryBytes: number,
+  reservation: WorkerMemoryReservation,
 ): void {
   activeInvocations = Math.max(0, activeInvocations - 1);
-  releaseWorkerMemory(reservedMemoryBytes);
+  releaseWorkerMemory(reservation);
   const maxWorkers = getMaxWorkers({
     memoryLimitBytes,
   });

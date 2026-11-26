@@ -162,8 +162,9 @@ export interface RunInput<TOKEN = unknown> {
    * Workers this invocation leaves free for others. Admission fails with
    * `RUN_CONCURRENCY_LIMIT` when admitting it would leave fewer free workers
    * under the worker cap or, without `setMaxWorkers`, the memory budget,
-   * estimated at this invocation's worker size. Each continuation resume is
-   * admitted afresh.
+   * estimated at this invocation's worker size. Without `setMaxWorkers`, later
+   * invocations with `reserveWorkers` must also leave this reserve free while
+   * it runs. Each continuation resume is admitted afresh.
    *
    * @default `0`
    */
