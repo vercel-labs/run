@@ -1,5 +1,11 @@
 # run
 
+## 2.1.14
+
+### Patch Changes
+
+- 3a86166: fix: tighten validation when deserializing run values
+
 ## 2.1.13
 
 ### Patch Changes
