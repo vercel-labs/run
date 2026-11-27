@@ -114,6 +114,30 @@ A background system can instead place work in its existing durable job queue
 before calling the runner. The queue should live in the host application;
 `run` intentionally does not retain pending invocations.
 
+Invocations that wait on slow host functions for a long time can occupy every
+worker. Pass `reserveWorkers` to admit such an invocation only while it leaves
+that many workers free for others:
+
+```ts
+const result = await runner.run({
+  source,
+  hostFunctions,
+  reserveWorkers: 1,
+});
+```
+
+The check runs at admission against the worker cap and, under the dynamic
+default, the memory budget. The memory headroom is estimated at the size of the
+invocation being admitted, including its synchronous bridge buffer. Under the
+dynamic default, the reserve is held while the invocation runs: a later
+reserving invocation must also leave the largest running reserve free, and an
+invocation without `reserveWorkers` is admitted while the memory budget fits one
+more worker. A later invocation can still be refused if it needs more memory or
+available memory drops. With `setMaxWorkers()`, only the worker count is checked. An invocation
+without `reserveWorkers` can take a reserved worker. When the cap is 1, an
+invocation with `reserveWorkers: 1` is always refused. Each continuation resume
+is admitted afresh.
+
 Avoid immediate retry loops around `RUN_CONCURRENCY_LIMIT`. They add load
 without creating capacity. Apply backoff, return backpressure, or enqueue the
 work through an application-controlled scheduler.

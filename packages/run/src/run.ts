@@ -177,6 +177,32 @@ const validateHostFunctions = (
   return hostFunctionManifest;
 };
 
+const normalizeReserveWorkers = (value = 0): number => {
+  if (!(Number.isSafeInteger(value) && value >= 0)) {
+    throw new TypeError('reserveWorkers must be a non-negative integer.');
+  }
+  return value;
+};
+
+// Object rest destructuring in V8 still invokes the excluded getter, so copy
+// the other own enumerable properties as a spread would, without reading
+// reserveWorkers again.
+const omitReserveWorkers = <INPUT extends RunInput<unknown>>(
+  input: INPUT,
+): Omit<INPUT, 'reserveWorkers'> => {
+  const source = input as Record<PropertyKey, unknown>;
+  const copy: Record<PropertyKey, unknown> = Object.create(null);
+  for (const key of Reflect.ownKeys(input)) {
+    if (
+      key !== 'reserveWorkers' &&
+      Object.prototype.propertyIsEnumerable.call(input, key)
+    ) {
+      copy[key] = source[key];
+    }
+  }
+  return copy as Omit<INPUT, 'reserveWorkers'>;
+};
+
 /** Creates a runner with shared defaults. */
 export const createRunner = <TOKEN = string>(
   options: RunnerOptions<TOKEN> = {},
@@ -229,6 +255,7 @@ export const createRunner = <TOKEN = string>(
       ) {
         throw new TypeError('Invalid sourceType configuration.');
       }
+      const reserveWorkers = normalizeReserveWorkers(input.reserveWorkers);
       if (
         input.moduleLoader !== undefined &&
         (typeof input.moduleLoader !== 'object' ||
@@ -253,7 +280,7 @@ export const createRunner = <TOKEN = string>(
         );
       }
       const value = await runManaged({
-        ...input,
+        ...omitReserveWorkers(input),
         continuationAudience,
         continuationCodec,
         continuationEnabled:
@@ -265,6 +292,7 @@ export const createRunner = <TOKEN = string>(
           ...options.limits,
           ...input.limits,
         },
+        reserveWorkers,
         syncHostFunctionManifest,
         syncHostFunctions,
       });

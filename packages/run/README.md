@@ -348,6 +348,20 @@ invocations with `RunConcurrencyError`; `run` does not retain an unbounded
 queue. The cap and worker pool are shared by every runner and by packages such
 as `@ai-sdk/code-mode` in the same process.
 
+Pass `reserveWorkers` to keep workers free for other invocations. A run with
+`reserveWorkers: 1` is refused with `RunConcurrencyError` when admitting it
+would leave no free worker under the cap or, under the dynamic default, the
+memory budget estimated at its own worker size. Long-running low-priority work
+can pass it to leave a worker for other invocations:
+
+```ts
+await run({ source, hostFunctions, reserveWorkers: 1 });
+```
+
+When the cap is 1, a run with `reserveWorkers: 1` is always refused. Without
+`setMaxWorkers()`, the reserve is held while the run is active: later runs with
+`reserveWorkers` must also leave it free.
+
 ## Continuations
 
 ### Multi-process signing
