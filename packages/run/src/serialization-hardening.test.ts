@@ -8,7 +8,7 @@ import {
 import type { HostFunctionContext, RunContinuationState } from './index.js';
 import { invokeHostFunction } from './host-function-invocation.js';
 import { serializeError } from './errors.js';
-import { serializeRunValue } from './utils/serde.js';
+import { deserializeRunValue, serializeRunValue } from './utils/serde.js';
 
 function hostFunctionContext(): HostFunctionContext {
   return {
@@ -254,5 +254,36 @@ describe('serialization boundaries', () => {
     );
     expect(serialized.stack).not.toContain('data:text/javascript;base64');
     expect(serialized.details).toBeUndefined();
+  });
+
+  it('rejects forged error frames that amplify host work', async () => {
+    // A spoofed RegExp lets the guest splice raw frames into the wire string.
+    // The forged AggregateError payload is a sparse array costing a few bytes.
+    await expect(
+      run({
+        source: `
+          const forged = 'g"],["RunErrorValue",3],'
+            + '{"name":4,"message":4,"hasCause":5,"cause":-1,"errors":6},'
+            + '"e",false,[-7,50000],["x';
+          return [
+            { [Symbol.toStringTag]: 'RegExp', source: 'x', flags: forged },
+            0,
+          ];
+        `,
+      }),
+    ).rejects.toMatchObject({ code: 'RUN_SERIALIZATION_ERROR' });
+
+    // Two error frames must not each copy the same errors array.
+    const record = '{"name":4,"message":4,"hasCause":5,"cause":-1,"errors":6}';
+    expect(() =>
+      deserializeRunValue(
+        `[[1,2],["RunErrorValue",3],["RunErrorValue",3],${record},"e",false,[4]]`,
+      ),
+    ).toThrow('Serialized value payload is malformed.');
+
+    const aggregate = deserializeRunValue(
+      serializeRunValue(new AggregateError([undefined, 'b'], 'ok')),
+    ) as AggregateError;
+    expect(aggregate.errors).toEqual([undefined, 'b']);
   });
 });
