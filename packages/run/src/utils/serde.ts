@@ -47,6 +47,24 @@ const errorConstructors = Object.assign(
   },
 );
 
+// The wire string is untrusted: a guest can forge frames that our reducers
+// never emit. Reducers give every revived value a fresh, dense payload array,
+// so a sparse array or one shared by several reviver frames is always forged.
+// Rejecting both keeps reviving linear in the payload size; otherwise a few
+// bytes can declare a 2^32-1 length array for AggregateError to iterate, or
+// make N frames each copy the same M elements.
+const claimedPayloadArrays = new WeakSet<object>();
+
+const claimPayloadArray = (array: unknown[]): void => {
+  if (
+    claimedPayloadArrays.has(array) ||
+    Object.keys(array).length !== array.length
+  ) {
+    throw new TypeError('Serialized value payload is malformed.');
+  }
+  claimedPayloadArrays.add(array);
+};
+
 const reviveOwnProtoObject = (value: unknown): object => {
   if (
     !Array.isArray(value) ||
@@ -56,6 +74,7 @@ const reviveOwnProtoObject = (value: unknown): object => {
   ) {
     throw new TypeError('Serialized object value is malformed.');
   }
+  claimPayloadArray(value[1]);
   const result = Object.create(value[0] ? null : Object.prototype) as Record<
     string,
     unknown
@@ -117,6 +136,7 @@ const reviveError = (value: unknown): Error => {
         : Error;
     error = new Constructor(record.message, options);
   } else {
+    claimPayloadArray(record.errors);
     error = new AggregateError(record.errors, record.message, options);
   }
   if (!(error instanceof Error)) {
